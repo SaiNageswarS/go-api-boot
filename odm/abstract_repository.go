@@ -6,12 +6,10 @@ import (
 
 	"github.com/jinzhu/copier"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type AbstractRepository struct {
-	Db             *mongo.Database
 	CollectionName string
 	Model          reflect.Type
 }
@@ -40,7 +38,7 @@ func (r *AbstractRepository) Save(model DbModel) chan error {
 
 	go func() {
 		id := model.Id()
-		collection := r.Db.Collection(r.CollectionName)
+		collection := GetDatabase().Collection(r.CollectionName)
 		document, err := convertToBson(model)
 		if err != nil {
 			ch <- err
@@ -82,7 +80,7 @@ func (r *AbstractRepository) FindOne(filters bson.M) chan Result {
 	ch := make(chan Result)
 
 	go func() {
-		collection := r.Db.Collection(r.CollectionName)
+		collection := GetDatabase().Collection(r.CollectionName)
 		document := collection.FindOne(context.Background(), filters)
 
 		if document.Err() != nil {

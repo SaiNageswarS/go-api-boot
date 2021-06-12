@@ -58,3 +58,47 @@ func (u *LoginService) AuthFuncOverride(ctx context.Context, fullMethodName stri
 	return ctx, nil
 }
 ```
+
+## ODM
+Using database requires creating a model and repository as below:
+
+Model:
+```
+type ProfileModel struct {
+	LoginId           string                 `bson:"_id" json:"loginId"`
+	Name              string                 `bson:"name" json:"name"`
+	PhotoUrl          string                 `bson:"photoUrl" json:"photoUrl"`
+	Gender            string                 `bson:"gender" json:"gender"`
+	IsVerified        bool                   `bson:"isVerified" json:"isVerified"`
+	PreferredLanguage string                 `bson:"preferredLanguage" json:"preferredLanguage"`
+	MetadataMap       map[string]interface{} `bson:"metadata"`
+	CreatedOn         int64                  `bson:"createdOn" json:"createdOn"`
+}
+
+func (m *ProfileModel) Id() string {
+	return m.LoginId
+}
+```
+
+Repository:
+```
+type ProfileRepository struct {
+	odm.AbstractRepository
+}
+
+func NewProfileRepo() *ProfileRepository {
+	repo := odm.AbstractRepository{
+		CollectionName: "profiles",
+		Model:          reflect.TypeOf(models.ProfileModel{}),
+	}
+	return &ProfileRepository{repo}
+}
+```
+
+Usage:
+```
+// async - Returns channel
+// Can make multiple concurrent db calls.
+profileRes := <-profileRepo.FindOneById(userId)
+profile := profileRes.Value.(*ProfileModel)
+```

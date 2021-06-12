@@ -5,4 +5,6 @@ go-api-boot is a complete framework with batteries included to build API applica
 - Gives first hand support for grpc.
 - Supports grpc-web out of box. No need of proxy etc.
 - Supports odm for mongo.
+- Adds JWT, logging middleware by default.
 
+Check https://github.com/Kotlang/authGo for example.

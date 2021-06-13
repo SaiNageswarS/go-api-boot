@@ -6,10 +6,12 @@ import (
 
 	"github.com/jinzhu/copier"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type AbstractRepository struct {
+	Database       string
 	CollectionName string
 	Model          reflect.Type
 }
@@ -17,6 +19,10 @@ type AbstractRepository struct {
 type Result struct {
 	Value interface{}
 	Err   error
+}
+
+func (r *AbstractRepository) db() *mongo.Database {
+	return GetClient().Database(r.Database)
 }
 
 func convertToBson(model DbModel) (bson.M, error) {
@@ -38,7 +44,7 @@ func (r *AbstractRepository) Save(model DbModel) chan error {
 
 	go func() {
 		id := model.Id()
-		collection := GetDatabase().Collection(r.CollectionName)
+		collection := r.db().Collection(r.CollectionName)
 		document, err := convertToBson(model)
 		if err != nil {
 			ch <- err
@@ -80,7 +86,7 @@ func (r *AbstractRepository) FindOne(filters bson.M) chan Result {
 	ch := make(chan Result)
 
 	go func() {
-		collection := GetDatabase().Collection(r.CollectionName)
+		collection := r.db().Collection(r.CollectionName)
 		document := collection.FindOne(context.Background(), filters)
 
 		if document.Err() != nil {
@@ -98,7 +104,7 @@ func (r *AbstractRepository) Find(filters bson.M, sort bson.D, limit, skip int64
 	ch := make(chan Result)
 
 	go func() {
-		collection := GetDatabase().Collection(r.CollectionName)
+		collection := r.db().Collection(r.CollectionName)
 
 		findOptions := options.Find()
 		if sort != nil {

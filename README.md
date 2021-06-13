@@ -17,7 +17,6 @@ Following environment variables are required for Go-API-Boot to start up.
 
 ```sh
 MONGO_URI=mongodb://localhost:27017
-DATABASE=auth
 ACCESS_SECRET=60ut694f-0a61-46f1-2175-8987b-24b56bd
 ```
 
@@ -88,6 +87,7 @@ type ProfileRepository struct {
 
 func NewProfileRepo() *ProfileRepository {
 	repo := odm.AbstractRepository{
+		Database:       "auth",
 		CollectionName: "profiles",
 		Model:          reflect.TypeOf(models.ProfileModel{}),
 	}

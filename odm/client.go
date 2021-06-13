@@ -12,11 +12,10 @@ import (
 	"go.uber.org/zap"
 )
 
-var database *mongo.Database = nil
+var connection *mongo.Client = nil
 
-func newMongoDb() *mongo.Database {
+func newMongoConn() *mongo.Client {
 	mongoUri := os.Getenv("MONGO_URI")
-	databaseName := os.Getenv("DATABASE")
 
 	mongoOpts := options.Client().ApplyURI(mongoUri)
 	mongoOpts.TLSConfig.MinVersion = tls.VersionTLS12
@@ -38,15 +37,14 @@ func newMongoDb() *mongo.Database {
 		logger.Fatal("Failed to connect to mongo", zap.Error(err))
 	}
 
-	db := client.Database(databaseName)
-	return db
+	return client
 }
 
-func GetDatabase() *mongo.Database {
-	if database != nil {
-		return database
+func GetClient() *mongo.Client {
+	if connection != nil {
+		return connection
 	}
 
-	database = newMongoDb()
-	return database
+	connection = newMongoConn()
+	return connection
 }

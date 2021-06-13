@@ -114,7 +114,7 @@ func (r *AbstractRepository) Find(filters bson.M, sort bson.D, limit, skip int64
 		}
 
 		models := reflect.MakeSlice(reflect.SliceOf(r.Model), int(limit), int(limit)).Interface()
-		if err = cursor.All(context.Background(), models); err != nil {
+		if err = cursor.All(context.Background(), &models); err != nil {
 			ch <- Result{Err: err}
 			return
 		}

@@ -94,6 +94,35 @@ func (r *AbstractRepository) FindOne(filters bson.M) chan Result {
 	return ch
 }
 
+func (r *AbstractRepository) Find(filters bson.M, sort bson.D, limit, skip int64) chan Result {
+	ch := make(chan Result)
+
+	go func() {
+		collection := GetDatabase().Collection(r.CollectionName)
+
+		findOptions := options.Find()
+		if sort != nil {
+			findOptions.SetSort(sort)
+		}
+		findOptions.SetLimit(limit)
+		findOptions.SetSkip(skip)
+
+		cursor, err := collection.Find(context.Background(), filters, findOptions)
+		if err != nil {
+			ch <- Result{Err: err}
+			return
+		}
+
+		models := reflect.MakeSlice(reflect.SliceOf(r.Model), int(limit), int(limit)).Interface()
+		if err = cursor.All(context.Background(), models); err != nil {
+			ch <- Result{Err: err}
+			return
+		}
+		ch <- Result{Value: models}
+	}()
+	return ch
+}
+
 // Gets an instance of model from proto or othe object.
 func (r *AbstractRepository) GetModel(proto interface{}) interface{} {
 	model := reflect.New(r.Model).Interface()

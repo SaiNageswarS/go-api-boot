@@ -3,11 +3,14 @@ package odm
 import (
 	"context"
 	"reflect"
+	"time"
 
+	"github.com/SaiNageswarS/go-api-boot/logger"
 	"github.com/jinzhu/copier"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.uber.org/zap"
 )
 
 type AbstractRepository struct {
@@ -52,6 +55,11 @@ func (r *AbstractRepository) Save(model DbModel) chan error {
 		}
 
 		document["_id"] = id
+		if r.IsExistsById(id) {
+			document["updatedOn"] = time.Now().Unix()
+		} else {
+			document["createdOn"] = time.Now().Unix()
+		}
 
 		_, err = collection.UpdateOne(
 			context.Background(),
@@ -79,6 +87,19 @@ func (r *AbstractRepository) FindOneById(id string) chan Result {
 		ch <- res
 	}()
 	return ch
+}
+
+// checks if a record exists by id.
+// Synchronous becuase it is expected to be very light-weighted without deserialization etc.
+func (r *AbstractRepository) IsExistsById(id string) bool {
+	collection := r.db().Collection(r.CollectionName)
+	count, err := collection.CountDocuments(context.Background(), bson.M{"_id": id})
+	if err != nil {
+		logger.Error("Failed getting count of object", zap.Error(err))
+		return false
+	}
+
+	return count > 0
 }
 
 // Finds one object based on filters.

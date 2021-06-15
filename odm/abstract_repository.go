@@ -150,6 +150,30 @@ func (r *AbstractRepository) Find(filters bson.M, sort bson.D, limit, skip int64
 	return ch
 }
 
+func (r *AbstractRepository) DeleteById(id string) chan error {
+	ch := make(chan error)
+
+	go func() {
+		collection := r.db().Collection(r.CollectionName)
+		_, err := collection.DeleteOne(context.Background(), bson.M{"_id": id})
+		ch <- err
+	}()
+
+	return ch
+}
+
+func (r *AbstractRepository) DeleteOne(filters bson.M) chan error {
+	ch := make(chan error)
+
+	go func() {
+		collection := r.db().Collection(r.CollectionName)
+		_, err := collection.DeleteOne(context.Background(), filters)
+		ch <- err
+	}()
+
+	return ch
+}
+
 // Gets an instance of model from proto or othe object.
 func (r *AbstractRepository) GetModel(proto interface{}) interface{} {
 	model := reflect.New(r.Model).Interface()

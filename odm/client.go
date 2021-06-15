@@ -19,7 +19,8 @@ func newMongoConn() *mongo.Client {
 
 	mongoOpts := options.Client().ApplyURI(mongoUri)
 	mongoOpts.TLSConfig.MinVersion = tls.VersionTLS12
-	mongoOpts.TLSConfig.InsecureSkipVerify = true
+	// make sure to install ca-certs in docker image.
+	// mongoOpts.TLSConfig.InsecureSkipVerify = true
 
 	client, err := mongo.NewClient(mongoOpts)
 	if err != nil {

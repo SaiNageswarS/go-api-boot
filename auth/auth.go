@@ -23,7 +23,8 @@ func VerifyToken() grpc_auth.AuthFunc {
 	return func(ctx context.Context) (context.Context, error) {
 		token, err := grpc_auth.AuthFromMD(ctx, "bearer")
 		if err != nil {
-			return nil, err
+			logger.Error("Error getting token", zap.Error(err))
+			return nil, status.Errorf(codes.Unauthenticated, err.Error())
 		}
 
 		parsedToken, err := jwt.ParseWithClaims(
@@ -32,6 +33,11 @@ func VerifyToken() grpc_auth.AuthFunc {
 			func(token *jwt.Token) (interface{}, error) {
 				return []byte(ACCESS_SECRET), nil
 			})
+
+		if err != nil {
+			logger.Error("Error getting token", zap.Error(err))
+			return nil, status.Errorf(codes.Unauthenticated, err.Error())
+		}
 
 		claims, ok := parsedToken.Claims.(*jwt.StandardClaims)
 

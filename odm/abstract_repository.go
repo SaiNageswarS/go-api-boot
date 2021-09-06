@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/SaiNageswarS/go-api-boot/logger"
+	"github.com/SaiNageswarS/go-api-boot/util"
 	"github.com/jinzhu/copier"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -17,11 +18,6 @@ type AbstractRepository struct {
 	Database       string
 	CollectionName string
 	Model          reflect.Type
-}
-
-type Result struct {
-	Value interface{}
-	Err   error
 }
 
 func (r *AbstractRepository) db() *mongo.Database {
@@ -79,8 +75,8 @@ func (r *AbstractRepository) Save(model DbModel) chan error {
 }
 
 // Finds one object based on Id.
-func (r *AbstractRepository) FindOneById(id string) chan Result {
-	ch := make(chan Result)
+func (r *AbstractRepository) FindOneById(id string) chan util.AsyncResult {
+	ch := make(chan util.AsyncResult)
 
 	go func() {
 		res := <-r.FindOne(bson.M{"_id": id})
@@ -103,26 +99,26 @@ func (r *AbstractRepository) IsExistsById(id string) bool {
 }
 
 // Finds one object based on filters.
-func (r *AbstractRepository) FindOne(filters bson.M) chan Result {
-	ch := make(chan Result)
+func (r *AbstractRepository) FindOne(filters bson.M) chan util.AsyncResult {
+	ch := make(chan util.AsyncResult)
 
 	go func() {
 		collection := r.db().Collection(r.CollectionName)
 		document := collection.FindOne(context.Background(), filters)
 
 		if document.Err() != nil {
-			ch <- Result{Err: document.Err()}
+			ch <- util.AsyncResult{Err: document.Err()}
 			return
 		}
 		model := reflect.New(r.Model).Interface()
 		document.Decode(model)
-		ch <- Result{Value: model}
+		ch <- util.AsyncResult{Value: model}
 	}()
 	return ch
 }
 
-func (r *AbstractRepository) Find(filters bson.M, sort bson.D, limit, skip int64) chan Result {
-	ch := make(chan Result)
+func (r *AbstractRepository) Find(filters bson.M, sort bson.D, limit, skip int64) chan util.AsyncResult {
+	ch := make(chan util.AsyncResult)
 
 	go func() {
 		collection := r.db().Collection(r.CollectionName)
@@ -136,16 +132,16 @@ func (r *AbstractRepository) Find(filters bson.M, sort bson.D, limit, skip int64
 
 		cursor, err := collection.Find(context.Background(), filters, findOptions)
 		if err != nil {
-			ch <- Result{Err: err}
+			ch <- util.AsyncResult{Err: err}
 			return
 		}
 
 		models := reflect.MakeSlice(reflect.SliceOf(r.Model), int(limit), int(limit)).Interface()
 		if err = cursor.All(context.Background(), &models); err != nil {
-			ch <- Result{Err: err}
+			ch <- util.AsyncResult{Err: err}
 			return
 		}
-		ch <- Result{Value: models}
+		ch <- util.AsyncResult{Value: models}
 	}()
 	return ch
 }

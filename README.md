@@ -109,3 +109,16 @@ Usage:
 profileRes := <-profileRepo.FindOneById(userId)
 profile := profileRes.Value.(*ProfileModel)
 ```
+
+## Cloud
+
+1. The framework provides support for both AWS and Azure.
+2. Using cloud functions require setting required environment variables.
+   For ex: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in AWS
+   AZURE_STORAGE_ACCOUNT and AZURE_STORAGE_ACCESS_KEY in Azure.
+
+Usage:
+```
+preSignedUrl, downloadUrl := aws.S3.GetPresignedUrl(s3Bucket, key)
+<-azure.Storage.UploadStream(containerName, path, imageData)
+```

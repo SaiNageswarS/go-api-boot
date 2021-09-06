@@ -8,6 +8,7 @@ go-api-boot is a complete framework with batteries included to build API applica
 - Supports grpc-web out of box. No need of proxy etc.
 - Supports odm for mongo.
 - Adds JWT, logging middleware by default.
+- Provides support for cloud (aws/azure) resources.
 
 Check https://github.com/Kotlang/authGo for example.
 
@@ -21,6 +22,7 @@ ACCESS_SECRET=60ut694f-0a61-46f1-2175-8987b-24b56bd
 ```
 
 ## Starting grpc and web-proxy server.
+
 ```go
 package main
 
@@ -44,6 +46,7 @@ func main() {
 ```
 
 ## JWT
+
 By default authentication interceptor is added to all grpc calls. To skip jwt verification
 add following method to service.
 
@@ -59,9 +62,11 @@ func (u *LoginService) AuthFuncOverride(ctx context.Context, fullMethodName stri
 ```
 
 ## ODM
+
 Using database requires creating a model and repository as below:
 
 Model:
+
 ```
 type ProfileModel struct {
 	LoginId           string                 `bson:"_id" json:"loginId"`
@@ -80,6 +85,7 @@ func (m *ProfileModel) Id() string {
 ```
 
 Repository:
+
 ```
 type ProfileRepository struct {
 	odm.AbstractRepository
@@ -96,6 +102,7 @@ func NewProfileRepo() *ProfileRepository {
 ```
 
 Usage:
+
 ```
 // async - Returns channel
 // Can make multiple concurrent db calls.

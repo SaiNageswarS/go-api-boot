@@ -50,6 +50,12 @@ func (g *GoApiBoot) Start(grpcPort, webPort string) {
 
 func buildGrpcServer() *grpc.Server {
 	s := grpc.NewServer(
+		grpc.StreamInterceptor(grpc_middleware.ChainStreamServer(
+			grpc_ctxtags.StreamServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
+			grpc_zap.StreamServerInterceptor(logger.Get()),
+			grpc_auth.StreamServerInterceptor(auth.VerifyToken()),
+		)),
+
 		grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(
 			grpc_ctxtags.UnaryServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
 			grpc_zap.UnaryServerInterceptor(logger.Get()),

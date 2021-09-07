@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/SaiNageswarS/go-api-boot/bootUtils"
 	"github.com/SaiNageswarS/go-api-boot/logger"
-	"github.com/SaiNageswarS/go-api-boot/util"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -19,7 +19,7 @@ type s3Wrapper struct {
 
 // Returns pre-signed upload Url and download URL.
 func (s s3Wrapper) GetPresignedUrl(bucket, key string) (string, string) {
-	awsRegion := util.GetEnv("AWS_REGION", "ap-south-1")
+	awsRegion := bootUtils.GetEnv("AWS_REGION", "ap-south-1")
 
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String(awsRegion)},

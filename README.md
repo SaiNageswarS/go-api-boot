@@ -112,13 +112,35 @@ profile := profileRes.Value.(*ProfileModel)
 
 ## Cloud
 
-1. The framework provides support for both AWS and Azure.
-2. Using cloud functions require setting required environment variables.
-   For ex: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in AWS
-   AZURE_STORAGE_ACCOUNT and AZURE_STORAGE_ACCESS_KEY in Azure.
+* The framework provides support for both AWS and Azure.
+* Using cloud functions require setting required environment variables.
+	* AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in AWS.
+	* AZURE_STORAGE_ACCOUNT and AZURE_STORAGE_ACCESS_KEY in Azure.
 
 Usage:
 ```
 preSignedUrl, downloadUrl := aws.S3.GetPresignedUrl(s3Bucket, key)
 <-azure.Storage.UploadStream(containerName, path, imageData)
+```
+
+## Boot Utils
+Boot utils provide other grpc common utils used in API development.
+
+### Streaming Util
+For uploading images using client-side streaming, below API can be used to receive entire image data bytes.
+```
+Proto:
+rpc UploadProfileImage(stream UploadImageRequest) returns (UploadImageResponse) {}
+message UploadImageRequest {
+    bytes chunkData = 1;
+}
+
+Go:
+imageData, err := bootUtils.BufferGrpcServerStream(stream, func() ([]byte, error) {
+		req, err := stream.Recv()
+		if err != nil {
+			return nil, err
+		}
+		return req.ChunkData, nil
+	})
 ```

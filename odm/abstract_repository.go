@@ -2,10 +2,8 @@ package odm
 
 import (
 	"context"
-	"reflect"
 	"time"
 
-	"github.com/SaiNageswarS/go-api-boot/bootUtils"
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	"github.com/jinzhu/copier"
 	"go.mongodb.org/mongo-driver/bson"
@@ -14,13 +12,12 @@ import (
 	"go.uber.org/zap"
 )
 
-type AbstractRepository struct {
+type AbstractRepository[T any] struct {
 	Database       string
 	CollectionName string
-	Model          reflect.Type
 }
 
-func (r *AbstractRepository) db() *mongo.Database {
+func (r *AbstractRepository[T]) db() *mongo.Database {
 	return GetClient().Database(r.Database)
 }
 
@@ -38,7 +35,7 @@ func convertToBson(model DbModel) (bson.M, error) {
 	return update, nil
 }
 
-func (r *AbstractRepository) Save(model DbModel) chan error {
+func (r *AbstractRepository[T]) Save(model DbModel) chan error {
 	ch := make(chan error)
 
 	go func() {
@@ -75,19 +72,13 @@ func (r *AbstractRepository) Save(model DbModel) chan error {
 }
 
 // Finds one object based on Id.
-func (r *AbstractRepository) FindOneById(id string) chan bootUtils.AsyncResult {
-	ch := make(chan bootUtils.AsyncResult)
-
-	go func() {
-		res := <-r.FindOne(bson.M{"_id": id})
-		ch <- res
-	}()
-	return ch
+func (r *AbstractRepository[T]) FindOneById(id string) (chan *T, chan error) {
+	return r.FindOne(bson.M{"_id": id})
 }
 
 // checks if a record exists by id.
 // Synchronous becuase it is expected to be very light-weighted without deserialization etc.
-func (r *AbstractRepository) IsExistsById(id string) bool {
+func (r *AbstractRepository[T]) IsExistsById(id string) bool {
 	collection := r.db().Collection(r.CollectionName)
 	count, err := collection.CountDocuments(context.Background(), bson.M{"_id": id})
 	if err != nil {
@@ -99,26 +90,29 @@ func (r *AbstractRepository) IsExistsById(id string) bool {
 }
 
 // Finds one object based on filters.
-func (r *AbstractRepository) FindOne(filters bson.M) chan bootUtils.AsyncResult {
-	ch := make(chan bootUtils.AsyncResult)
+func (r *AbstractRepository[T]) FindOne(filters bson.M) (chan *T, chan error) {
+	resultChan := make(chan *T)
+	errorChan := make(chan error)
 
 	go func() {
 		collection := r.db().Collection(r.CollectionName)
 		document := collection.FindOne(context.Background(), filters)
 
 		if document.Err() != nil {
-			ch <- bootUtils.AsyncResult{Err: document.Err()}
-			return
+			errorChan <- document.Err()
+		} else {
+			model := new(T)
+			document.Decode(model)
+			resultChan <- model
 		}
-		model := reflect.New(r.Model).Interface()
-		document.Decode(model)
-		ch <- bootUtils.AsyncResult{Value: model}
 	}()
-	return ch
+
+	return resultChan, errorChan
 }
 
-func (r *AbstractRepository) Find(filters bson.M, sort bson.D, limit, skip int64) chan bootUtils.AsyncResult {
-	ch := make(chan bootUtils.AsyncResult)
+func (r *AbstractRepository[T]) Find(filters bson.M, sort bson.D, limit, skip int64) (chan []*T, chan error) {
+	resultChan := make(chan []*T)
+	errorChan := make(chan error)
 
 	go func() {
 		collection := r.db().Collection(r.CollectionName)
@@ -132,21 +126,23 @@ func (r *AbstractRepository) Find(filters bson.M, sort bson.D, limit, skip int64
 
 		cursor, err := collection.Find(context.Background(), filters, findOptions)
 		if err != nil {
-			ch <- bootUtils.AsyncResult{Err: err}
+			errorChan <- err
 			return
 		}
 
-		models := reflect.MakeSlice(reflect.SliceOf(r.Model), int(limit), int(limit)).Interface()
+		models := make([]*T, 0)
 		if err = cursor.All(context.Background(), &models); err != nil {
-			ch <- bootUtils.AsyncResult{Err: err}
+			errorChan <- err
 			return
 		}
-		ch <- bootUtils.AsyncResult{Value: models}
+
+		resultChan <- models
 	}()
-	return ch
+
+	return resultChan, errorChan
 }
 
-func (r *AbstractRepository) DeleteById(id string) chan error {
+func (r *AbstractRepository[T]) DeleteById(id string) chan error {
 	ch := make(chan error)
 
 	go func() {
@@ -158,7 +154,7 @@ func (r *AbstractRepository) DeleteById(id string) chan error {
 	return ch
 }
 
-func (r *AbstractRepository) DeleteOne(filters bson.M) chan error {
+func (r *AbstractRepository[T]) DeleteOne(filters bson.M) chan error {
 	ch := make(chan error)
 
 	go func() {
@@ -171,8 +167,8 @@ func (r *AbstractRepository) DeleteOne(filters bson.M) chan error {
 }
 
 // Gets an instance of model from proto or othe object.
-func (r *AbstractRepository) GetModel(proto interface{}) interface{} {
-	model := reflect.New(r.Model).Interface()
+func (r *AbstractRepository[T]) GetModel(proto interface{}) *T {
+	model := new(T)
 	copier.Copy(model, proto)
 	return model
 }

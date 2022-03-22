@@ -9,7 +9,6 @@ import (
 	"os"
 
 	"github.com/Azure/azure-storage-blob-go/azblob"
-	"github.com/SaiNageswarS/go-api-boot/bootUtils"
 	"github.com/SaiNageswarS/go-api-boot/logger"
 )
 
@@ -20,15 +19,16 @@ type storageWrapper struct{}
 // Uploads a stream to Azure storage.
 // containerName - Azure Container Name.
 // path - Azure path for the object like profile-photos/photo.jpg
-func (s storageWrapper) UploadStream(containerName, path string, imageData bytes.Buffer) chan bootUtils.AsyncResult {
-	res := make(chan bootUtils.AsyncResult)
+func (s storageWrapper) UploadStream(containerName, path string, imageData bytes.Buffer) (chan string, chan error) {
+	resultChan := make(chan string)
+	errorChan := make(chan error)
 
 	go func() {
 		accountName, accountKey := os.Getenv("AZURE_STORAGE_ACCOUNT"), os.Getenv("AZURE_STORAGE_ACCESS_KEY")
 		if len(accountName) == 0 || len(accountKey) == 0 {
 			logger.Error("Either the AZURE_STORAGE_ACCOUNT or AZURE_STORAGE_ACCESS_KEY environment variable is not set")
 			err := errors.New("missing azure account or access key")
-			res <- bootUtils.AsyncResult{Value: nil, Err: err}
+			errorChan <- err
 			return
 		}
 
@@ -36,7 +36,7 @@ func (s storageWrapper) UploadStream(containerName, path string, imageData bytes
 		credential, err := azblob.NewSharedKeyCredential(accountName, accountKey)
 		if err != nil {
 			logger.Error("Invalid credentials with error: " + err.Error())
-			res <- bootUtils.AsyncResult{Value: nil, Err: err}
+			errorChan <- err
 			return
 		}
 		p := azblob.NewPipeline(credential, azblob.PipelineOptions{})
@@ -52,13 +52,13 @@ func (s storageWrapper) UploadStream(containerName, path string, imageData bytes
 
 		if err != nil {
 			logger.Error("Failed uploading image.")
-			res <- bootUtils.AsyncResult{Value: nil, Err: err}
+			errorChan <- err
 			return
 		}
 
 		uploadPath := fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s", accountName, containerName, path)
-		res <- bootUtils.AsyncResult{Value: uploadPath, Err: nil}
+		resultChan <- uploadPath
 	}()
 
-	return res
+	return resultChan, errorChan
 }

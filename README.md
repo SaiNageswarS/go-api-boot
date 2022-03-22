@@ -1,6 +1,6 @@
 # go-api-boot
 
-go-api-boot is a complete framework with batteries included to build API applications in Golang with database included.
+go-api-boot is a complete framework with batteries included to build API applications in Golang with database included. Upgraded to go 1.18 with support for generics making APIs more intuitive and easy to use.
 
 # How is it Different
 
@@ -9,6 +9,7 @@ go-api-boot is a complete framework with batteries included to build API applica
 - Supports odm for mongo.
 - Adds JWT, logging middleware by default.
 - Provides support for cloud (aws/azure) resources.
+- APIs use generics of Go 1.18
 
 Check https://github.com/Kotlang/authGo for example.
 
@@ -88,14 +89,13 @@ Repository:
 
 ```
 type ProfileRepository struct {
-	odm.AbstractRepository
+	odm.AbstractRepository[models.ProfileModel]
 }
 
 func NewProfileRepo() *ProfileRepository {
-	repo := odm.AbstractRepository{
+	repo := odm.AbstractRepository[models.ProfileModel]{
 		Database:       "auth",
 		CollectionName: "profiles",
-		Model:          reflect.TypeOf(models.ProfileModel{}),
 	}
 	return &ProfileRepository{repo}
 }
@@ -104,10 +104,15 @@ func NewProfileRepo() *ProfileRepository {
 Usage:
 
 ```
-// async - Returns channel
+// async - Returns channel of model and error.
 // Can make multiple concurrent db calls.
-profileRes := <-profileRepo.FindOneById(userId)
-profile := profileRes.Value.(*ProfileModel)
+profileRes, errorChan := profileRepo.FindOneById(userId)
+select {
+case profile := <- profileRes:
+	logger.Info("Got profile of type profile model", zap.Info(profile))
+case err := <- errorChan:
+	logger.Error("Error fetching data", zap.Error(err))
+}
 ```
 
 ## Cloud

@@ -130,7 +130,7 @@ func (r *AbstractRepository[T]) Find(filters bson.M, sort bson.D, limit, skip in
 			return
 		}
 
-		models := make([]*T, 0)
+		models := make([]*T, limit)
 		if err = cursor.All(context.Background(), &models); err != nil {
 			errorChan <- err
 			return

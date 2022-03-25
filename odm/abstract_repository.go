@@ -110,8 +110,8 @@ func (r *AbstractRepository[T]) FindOne(filters bson.M) (chan *T, chan error) {
 	return resultChan, errorChan
 }
 
-func (r *AbstractRepository[T]) Find(filters bson.M, sort bson.D, limit, skip int64) (chan []*T, chan error) {
-	resultChan := make(chan []*T)
+func (r *AbstractRepository[T]) Find(filters bson.M, sort bson.D, limit, skip int64) (chan []T, chan error) {
+	resultChan := make(chan []T)
 	errorChan := make(chan error)
 
 	go func() {
@@ -130,13 +130,14 @@ func (r *AbstractRepository[T]) Find(filters bson.M, sort bson.D, limit, skip in
 			return
 		}
 
-		models := make([]*T, limit)
-		if err = cursor.All(context.Background(), &models); err != nil {
+		var result []T
+		if err = cursor.All(context.Background(), &result); err != nil {
 			errorChan <- err
 			return
 		}
 
-		resultChan <- models
+		logger.Info("Found records.", zap.Int("count", len(result)))
+		resultChan <- result
 	}()
 
 	return resultChan, errorChan

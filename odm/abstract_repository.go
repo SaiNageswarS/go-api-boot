@@ -136,7 +136,6 @@ func (r *AbstractRepository[T]) Find(filters bson.M, sort bson.D, limit, skip in
 			return
 		}
 
-		logger.Info("Found records.", zap.Int("count", len(result)))
 		resultChan <- result
 	}()
 

@@ -18,7 +18,7 @@ var USER_ID_CLAIM = Claims("userId")
 var TENANT_CLAIM = Claims("tenantId")
 
 func VerifyToken() grpc_auth.AuthFunc {
-	var ACCESS_SECRET = os.Getenv("ACCESS_SECRET")
+	var ACCESS_SECRET = os.Getenv("ACCESS-SECRET")
 
 	return func(ctx context.Context) (context.Context, error) {
 		token, err := grpc_auth.AuthFromMD(ctx, "bearer")
@@ -58,7 +58,7 @@ func GetToken(tenant, userId, userType string) string {
 	atClaims.Audience = tenant
 	atClaims.Subject = userType
 
-	var ACCESS_SECRET = os.Getenv("ACCESS_SECRET")
+	var ACCESS_SECRET = os.Getenv("ACCESS-SECRET")
 	at := jwt.NewWithClaims(jwt.SigningMethodHS256, atClaims)
 	token, _ := at.SignedString([]byte(ACCESS_SECRET))
 	return token

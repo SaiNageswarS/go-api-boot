@@ -24,7 +24,7 @@ func (s storageWrapper) UploadStream(containerName, path string, imageData bytes
 	errorChan := make(chan error)
 
 	go func() {
-		accountName, accountKey := os.Getenv("AZURE_STORAGE_ACCOUNT"), os.Getenv("AZURE_STORAGE_ACCESS_KEY")
+		accountName, accountKey := os.Getenv("AZURE-STORAGE-ACCOUNT"), os.Getenv("AZURE-STORAGE-ACCESS-KEY")
 		if len(accountName) == 0 || len(accountKey) == 0 {
 			logger.Error("Either the AZURE_STORAGE_ACCOUNT or AZURE_STORAGE_ACCESS_KEY environment variable is not set")
 			err := errors.New("missing azure account or access key")

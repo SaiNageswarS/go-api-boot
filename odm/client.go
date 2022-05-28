@@ -15,7 +15,7 @@ import (
 var connection *mongo.Client = nil
 
 func newMongoConn() *mongo.Client {
-	mongoUri := os.Getenv("MONGO_URI")
+	mongoUri := os.Getenv("MONGO-URI")
 
 	mongoOpts := options.Client().ApplyURI(mongoUri)
 	mongoOpts.TLSConfig.MinVersion = tls.VersionTLS12

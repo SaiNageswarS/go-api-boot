@@ -10,6 +10,7 @@ go-api-boot is a complete framework with batteries included to build API applica
 - Adds JWT, logging middleware by default.
 - Provides support for cloud (aws/azure) resources.
 - APIs use generics of Go 1.18
+- Provides handling secrets and config with Azure Keyvault integration and godotenv.
 
 Check https://github.com/Kotlang/authGo for example.
 
@@ -36,6 +37,8 @@ var grpcPort = ":50051"
 var webPort = ":8081"
 
 func main() {
+	// Load secrets from Keyvault and config through godotenv.
+	server.LoadSecretsIntoEnv(true)
 	inject := NewInject()
 
 	bootServer := server.NewGoApiBoot()

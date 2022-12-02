@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/tls"
 	"net"
 	"net/http"
 	"time"
@@ -66,8 +67,14 @@ func buildGrpcServer() *grpc.Server {
 	return s
 }
 
-func buildWebServer(wrappedGrpc *grpcweb.WrappedGrpcServer) *http.Server {
+func buildWebServer(wrappedGrpc *grpcweb.WrappedGrpcServer, certificates []tls.Certificate) *http.Server {
 	http.Handle("/metrics", promhttp.Handler())
+	var tlsConfig *tls.Config
+	if certificates != nil {
+		tlsConfig = &tls.Config{
+			Certificates: certificates,
+		}
+	}
 
 	return &http.Server{
 		WriteTimeout: 10 * time.Second,
@@ -75,10 +82,11 @@ func buildWebServer(wrappedGrpc *grpcweb.WrappedGrpcServer) *http.Server {
 		Handler: http.HandlerFunc(func(resp http.ResponseWriter, req *http.Request) {
 			wrappedGrpc.ServeHTTP(resp, req)
 		}),
+		TLSConfig: tlsConfig,
 	}
 }
 
-func NewGoApiBoot() *GoApiBoot {
+func NewGoApiBoot(certificates []tls.Certificate) *GoApiBoot {
 	boot := &GoApiBoot{}
 
 	// get grpc server
@@ -92,6 +100,6 @@ func NewGoApiBoot() *GoApiBoot {
 			return true
 		}))
 
-	boot.WebServer = buildWebServer(wrappedGrpc)
+	boot.WebServer = buildWebServer(wrappedGrpc, certificates)
 	return boot
 }

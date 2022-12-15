@@ -1,7 +1,6 @@
 package server
 
 import (
-	"crypto/tls"
 	"net"
 	"net/http"
 	"time"
@@ -25,12 +24,22 @@ type GoApiBoot struct {
 	WebServer  *http.Server
 }
 
-func getListener(port string) net.Listener {
-	lis, err := net.Listen("tcp", port)
-	if err != nil {
-		logger.Fatal("Failed to listen", zap.Error(err))
-	}
-	return lis
+func NewGoApiBoot() *GoApiBoot {
+	boot := &GoApiBoot{}
+
+	// get grpc server
+	boot.GrpcServer = buildGrpcServer()
+
+	// get web server
+	wrappedGrpc := grpcweb.WrapServer(
+		boot.GrpcServer,
+		grpcweb.WithCorsForRegisteredEndpointsOnly(false),
+		grpcweb.WithOriginFunc(func(origin string) bool {
+			return true
+		}))
+
+	boot.WebServer = buildWebServer(wrappedGrpc)
+	return boot
 }
 
 func (g *GoApiBoot) Start(grpcPort, webPort string) {
@@ -67,39 +76,26 @@ func buildGrpcServer() *grpc.Server {
 	return s
 }
 
-func buildWebServer(wrappedGrpc *grpcweb.WrappedGrpcServer, certificates []tls.Certificate) *http.Server {
-	http.Handle("/metrics", promhttp.Handler())
-	var tlsConfig *tls.Config
-	if certificates != nil {
-		tlsConfig = &tls.Config{
-			Certificates: certificates,
-		}
-	}
+func buildWebServer(wrappedGrpc *grpcweb.WrappedGrpcServer) *http.Server {
+	serveMux := http.NewServeMux()
+	serveMux.Handle("/", wrappedGrpc)
+	serveMux.Handle("/metrics", promhttp.Handler())
+	serveMux.HandleFunc("/health", func(resp http.ResponseWriter, req *http.Request) {
+		resp.WriteHeader(http.StatusOK)
+	})
 
 	return &http.Server{
 		WriteTimeout: 10 * time.Second,
 		ReadTimeout:  10 * time.Second,
-		Handler: http.HandlerFunc(func(resp http.ResponseWriter, req *http.Request) {
-			wrappedGrpc.ServeHTTP(resp, req)
-		}),
-		TLSConfig: tlsConfig,
+		Handler:      serveMux,
 	}
 }
 
-func NewGoApiBoot(certificates []tls.Certificate) *GoApiBoot {
-	boot := &GoApiBoot{}
+func getListener(port string) net.Listener {
+	lis, err := net.Listen("tcp", port)
+	if err != nil {
+		logger.Fatal("Failed to listen", zap.Error(err))
+	}
 
-	// get grpc server
-	boot.GrpcServer = buildGrpcServer()
-
-	// get web server
-	wrappedGrpc := grpcweb.WrapServer(
-		boot.GrpcServer,
-		grpcweb.WithCorsForRegisteredEndpointsOnly(false),
-		grpcweb.WithOriginFunc(func(origin string) bool {
-			return true
-		}))
-
-	boot.WebServer = buildWebServer(wrappedGrpc, certificates)
-	return boot
+	return lis
 }

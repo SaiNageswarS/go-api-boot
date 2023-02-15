@@ -89,6 +89,25 @@ func (r *AbstractRepository[T]) IsExistsById(id string) bool {
 	return count > 0
 }
 
+// Finds documents count on filters.
+func (r *AbstractRepository[T]) CountDocuments(filters bson.M) (chan int64, chan error) {
+	resultChan := make(chan int64)
+	errorChan := make(chan error)
+
+	go func() {
+		collection := r.db().Collection(r.CollectionName)
+		count, err := collection.CountDocuments(context.Background(), filters)
+
+		if err != nil {
+			errorChan <- err
+		} else {
+			resultChan <- count
+		}
+	}()
+
+	return resultChan, errorChan
+}
+
 // Finds one object based on filters.
 func (r *AbstractRepository[T]) FindOne(filters bson.M) (chan *T, chan error) {
 	resultChan := make(chan *T)

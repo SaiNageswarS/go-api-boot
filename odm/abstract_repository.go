@@ -108,6 +108,27 @@ func (r *AbstractRepository[T]) CountDocuments(filters bson.M) (chan int64, chan
 	return resultChan, errorChan
 }
 
+// Finds all unique values for a field
+func (r *AbstractRepository[T]) Distinct(fieldName string, filters bson.D, serverMaxTime time.Duration) (chan []interface{}, chan error) {
+	resultChan := make(chan []interface{})
+	errorChan := make(chan error)
+
+	go func() {
+		collection := r.db().Collection(r.CollectionName)
+		opts := &options.DistinctOptions{}
+		opts.SetMaxTime(serverMaxTime)
+		distinctValues, err := collection.Distinct(context.Background(), fieldName, filters, opts)
+
+		if err != nil {
+			errorChan <- err
+		} else {
+			resultChan <- distinctValues
+		}
+	}()
+
+	return resultChan, errorChan
+}
+
 // Finds one object based on filters.
 func (r *AbstractRepository[T]) FindOne(filters bson.M) (chan *T, chan error) {
 	resultChan := make(chan *T)

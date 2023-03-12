@@ -150,7 +150,7 @@ message UploadImageRequest {
 
 Go:
 imageData, mimeType, err := bootUtils.BufferGrpcServerStream([]string{"application/octet-stream"}, 2*1024*1024, func() ([]byte, error) {
-		err := contextError(stream.Context())
+		err := StreamContextError(stream.Context())
 		if err != nil {
 			return nil, err
 		}

@@ -135,7 +135,8 @@ preSignedUrl, downloadUrl := aws.S3.GetPresignedUrl(s3Bucket, key)
 Boot utils provide other grpc common utils used in API development.
 
 ### Streaming Util
-For uploading images using client-side streaming, below API can be used to receive entire image data bytes.
+For uploading images using client-side streaming, below API can be used to receive entire image data bytes. The API saves stream of bytes to in-memory buffer and returns type of the stream as well for further server-side validations.
+
 ```
 Proto:
 rpc UploadProfileImage(stream UploadImageRequest) returns (UploadImageResponse) {}
@@ -144,7 +145,7 @@ message UploadImageRequest {
 }
 
 Go:
-imageData, err := bootUtils.BufferGrpcServerStream(stream, func() ([]byte, error) {
+imageData, mimeType, err := bootUtils.BufferGrpcServerStream(stream, func() ([]byte, error) {
 		req, err := stream.Recv()
 		if err != nil {
 			return nil, err

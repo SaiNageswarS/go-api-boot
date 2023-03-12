@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"net/http"
 
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	"go.uber.org/zap"
@@ -23,14 +24,15 @@ func contextError(ctx context.Context) error {
 	}
 }
 
-func BufferGrpcServerStream(stream grpc.ServerStream, readBytes func() ([]byte, error)) (bytes.Buffer, error) {
+// Returns byte buffer of stream and mime-type of the stream.
+func BufferGrpcServerStream(stream grpc.ServerStream, readBytes func() ([]byte, error)) (bytes.Buffer, string, error) {
 	imageData := bytes.Buffer{}
 
 	for {
 		err := contextError(stream.Context())
 		if err != nil {
 			logger.Error("Failed receiving profile image", zap.Error(err))
-			return imageData, err
+			return imageData, "", err
 		}
 
 		chunkData, err := readBytes()
@@ -42,9 +44,10 @@ func BufferGrpcServerStream(stream grpc.ServerStream, readBytes func() ([]byte, 
 
 		if err != nil {
 			logger.Error("Failed receiving profile image", zap.Error(err))
-			return imageData, status.Errorf(codes.Internal, "Cannot save image to the store: %v", err)
+			return imageData, "", status.Errorf(codes.Internal, "Cannot save image to the store: %v", err)
 		}
 	}
 
-	return imageData, nil
+	contentType := http.DetectContentType(imageData.Bytes())
+	return imageData, contentType, nil
 }

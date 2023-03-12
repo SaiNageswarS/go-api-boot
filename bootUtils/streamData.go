@@ -9,7 +9,6 @@ import (
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	"go.uber.org/zap"
 	"golang.org/x/exp/slices"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -26,19 +25,14 @@ func contextError(ctx context.Context) error {
 }
 
 // Output: Returns byte buffer of stream and mime-type of the stream.
-// Input: grpcServerStream, acceptableMimeTypes, fileSizeLimit and readByte function. To accept any kind of stream pass "application/octet-stream".
-func BufferGrpcServerStream(stream grpc.ServerStream, acceptableMimeTypes []string, maxFileSize int, readBytes func() ([]byte, error)) (bytes.Buffer, string, error) {
+// Input: acceptableMimeTypes, fileSizeLimit and a stream readByte function.
+// To accept any kind of stream pass "application/octet-stream" in acceptableStreams.
+func BufferGrpcServerStream(acceptableMimeTypes []string, maxFileSize int, readBytes func() ([]byte, error)) (bytes.Buffer, string, error) {
 	imageData := bytes.Buffer{}
 	contentType := "application/octet-stream"
 	headerChecked := false
 
 	for {
-		err := contextError(stream.Context())
-		if err != nil {
-			logger.Error("Failed receiving profile image", zap.Error(err))
-			return imageData, contentType, err
-		}
-
 		chunkData, err := readBytes()
 		if err == io.EOF {
 			break

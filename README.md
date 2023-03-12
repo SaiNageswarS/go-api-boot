@@ -149,11 +149,17 @@ message UploadImageRequest {
 }
 
 Go:
-imageData, mimeType, err := bootUtils.BufferGrpcServerStream(stream, []string{"application/octet-stream"}, 2*1024*1024, func() ([]byte, error) {
+imageData, mimeType, err := bootUtils.BufferGrpcServerStream([]string{"application/octet-stream"}, 2*1024*1024, func() ([]byte, error) {
+		err := contextError(stream.Context())
+		if err != nil {
+			return nil, err
+		}
+
 		req, err := stream.Recv()
 		if err != nil {
 			return nil, err
 		}
+
 		return req.ChunkData, nil
 	})
 ```

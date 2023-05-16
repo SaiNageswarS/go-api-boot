@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -24,6 +23,9 @@ func LoadSecretsIntoEnv(useAzureKeyvault bool) {
 func loadAzureKeyvaultSecretsIntoEnv() {
 	logger.Info("Loading Azure Keyvault secrets into environment variables.")
 	client := getKeyvaultClient()
+	if client == nil {
+		logger.Error("Failed to load Azure Keyvault secrets into environment variables.")
+		
 
 	//List secrets
 	var secretList []string
@@ -56,13 +58,15 @@ func getKeyvaultClient() *azsecrets.Client {
 	//Create a credential using the NewDefaultAzureCredential type.
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
-		log.Fatalf("failed to obtain a credential: %v", err)
+		logger.Error("failed to obtain a credential: %v", zap.Error(err))
+		return nil
 	}
 
 	//Establish a connection to the Key Vault client
 	client, err := azsecrets.NewClient(keyVaultUrl, cred, nil)
 	if err != nil {
-		log.Fatalf("failed to connect to client: %v", err)
+		logger.Error("failed to connect to client: %v", zap.Error(err))
+		return nil
 	}
 
 	return client

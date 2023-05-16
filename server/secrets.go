@@ -25,26 +25,29 @@ func loadAzureKeyvaultSecretsIntoEnv() {
 	client := getKeyvaultClient()
 	if client == nil {
 		logger.Error("Failed to load Azure Keyvault secrets into environment variables.")
-		
+		return
+	}
 
 	//List secrets
 	var secretList []string
-	pager := client.ListPropertiesOfSecrets(nil)
+	pager := client.NewListSecretsPager(nil)
 
 	for pager.More() {
 		page, err := pager.NextPage(context.TODO())
 		if err != nil {
-			panic(err)
+			logger.Error("failed to get next page: %v", zap.Error(err))
+			return
 		}
 
-		for _, v := range page.Secrets {
-			resp, err := client.GetSecret(context.TODO(), *v.Name, nil)
+		for _, secret := range page.Value {
+			resp, err := client.GetSecret(context.TODO(), secret.ID.Name(), secret.ID.Version(), nil)
 			if err != nil {
-				panic(err)
+				logger.Error("failed to get secret: %v", zap.Error(err))
+				continue
 			}
 
-			os.Setenv(*v.Name, *resp.Value)
-			secretList = append(secretList, *v.Name)
+			os.Setenv(secret.ID.Name(), *resp.Value)
+			secretList = append(secretList, secret.ID.Name())
 		}
 	}
 

@@ -10,12 +10,14 @@ import (
 	"github.com/thoas/go-funk"
 )
 
-// Job Run Log
-type jobRunLog struct {
+// Job Detail
+type jobDetail struct {
 	// Job name
 	Name string
-	// last execution duration
+
+	// job repeat/schedule duration
 	Duration time.Duration
+
 	// Job
 	Job Job
 }
@@ -25,8 +27,8 @@ type JobManager struct {
 	// Job db
 	JobDb JobDb
 
-	// Job Run Logs
-	JobRunLogs []jobRunLog
+	// Job Details
+	JobDetails []jobDetail
 
 	// Stop chan
 	stopChan chan struct{}
@@ -42,7 +44,7 @@ type JobManager struct {
 func NewJobManager(database string) *JobManager {
 	return &JobManager{
 		JobDb:      JobDb{Database: database},
-		JobRunLogs: make([]jobRunLog, 0),
+		JobDetails: make([]jobDetail, 0),
 		stopChan:   make(chan struct{}),
 		wg:         &sync.WaitGroup{},
 		mutex:      &sync.Mutex{},
@@ -55,11 +57,11 @@ func (j *JobManager) RegisterJob(name string, duration time.Duration, job Job) {
 	defer j.mutex.Unlock()
 
 	// check if job already exists
-	jobInterface := funk.Find(j.JobRunLogs, func(j *JobRunLogModel) bool {
+	jd := funk.Find(j.JobDetails, func(j jobDetail) bool {
 		return j.Name == name
 	})
 	// if job already exists, return
-	if jobInterface != nil {
+	if jd != nil {
 		return
 	}
 
@@ -73,9 +75,9 @@ func (j *JobManager) RegisterJob(name string, duration time.Duration, job Job) {
 	}
 	j.JobDb.GetJobRunLogRepository().Save(jobRunLogModel)
 
-	j.JobRunLogs = append(
-		j.JobRunLogs,
-		jobRunLog{
+	j.JobDetails = append(
+		j.JobDetails,
+		jobDetail{
 			Name:     name,
 			Duration: duration,
 			Job:      job,
@@ -83,27 +85,27 @@ func (j *JobManager) RegisterJob(name string, duration time.Duration, job Job) {
 }
 
 // Start job
-func (j *JobManager) runJob(jobRunLog jobRunLog) {
+func (j *JobManager) runJob(jd jobDetail) {
 	defer j.wg.Done()
 
-	id := jobRunLog.Name
-	duration := jobRunLog.Duration
-	job := jobRunLog.Job
+	id := jd.Name
+	duration := jd.Duration
+	job := jd.Job
 
 	for {
 		select {
 		case <-j.stopChan:
 			// Stop the goroutine gracefully
-			<-j.JobDb.GetJobRunLogRepository().MarkJobAsStopped(id)
+			<-j.JobDb.GetJobRunLogRepository().MarkJob(id, "Job stopped", JobStatusStopped)
 			return
 		case <-time.After(duration):
 			if isRunning := <-j.JobDb.GetJobRunLogRepository().IsRunning(id); !isRunning {
-				<-j.JobDb.GetJobRunLogRepository().MarkJobAsRunning(id)
+				<-j.JobDb.GetJobRunLogRepository().MarkJob(id, "Job running", JobStatusRunning)
 				err := job.Run()
 				if err != nil {
-					<-j.JobDb.GetJobRunLogRepository().MarkJobAsFailed(id, err.Error())
+					<-j.JobDb.GetJobRunLogRepository().MarkJob(id, "Job failed: "+err.Error(), JobStatusFailed)
 				} else {
-					<-j.JobDb.GetJobRunLogRepository().MarkJobAsScheduled(id)
+					<-j.JobDb.GetJobRunLogRepository().MarkJob(id, "Job scheduled", JobStatusScheduled)
 				}
 			}
 		}
@@ -139,7 +141,7 @@ func (j *JobManager) Start() {
 	j.mutex.Lock()
 	defer j.mutex.Unlock()
 
-	for _, jobRunLog := range j.JobRunLogs {
-		go j.runJob(jobRunLog)
+	for _, jd := range j.JobDetails {
+		go j.runJob(jd)
 	}
 }

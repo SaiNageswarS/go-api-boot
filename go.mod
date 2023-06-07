@@ -12,6 +12,7 @@ require (
 	github.com/improbable-eng/grpc-web v0.14.0
 	github.com/jinzhu/copier v0.3.2
 	github.com/prometheus/client_golang v1.11.0
+	github.com/thoas/go-funk v0.9.3
 	go.mongodb.org/mongo-driver v1.11.3
 	go.uber.org/zap v1.17.0
 	google.golang.org/grpc v1.29.1

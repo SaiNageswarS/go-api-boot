@@ -86,6 +86,7 @@ func (j *JobManager) RegisterJob(name string, duration time.Duration, job Job) {
 
 // Start job
 func (j *JobManager) runJob(jd jobDetail) {
+	j.wg.Add(1)
 	defer j.wg.Done()
 
 	id := jd.Name

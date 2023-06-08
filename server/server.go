@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"time"
@@ -56,6 +57,11 @@ func (g *GoApiBoot) Start(grpcPort, webPort string) {
 	if err := g.WebServer.Serve(getListener(webPort)); err != nil {
 		logger.Fatal("Failed to serve", zap.Error(err))
 	}
+}
+
+func (g *GoApiBoot) Stop() {
+	g.WebServer.Shutdown(context.Background())
+	g.GrpcServer.GracefulStop()
 }
 
 func buildGrpcServer() *grpc.Server {

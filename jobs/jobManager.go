@@ -1,10 +1,7 @@
 package jobs
 
 import (
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/thoas/go-funk"
@@ -129,16 +126,6 @@ func (j *JobManager) Stop() {
 
 // Start method to start the registered jobs
 func (j *JobManager) Start() {
-	// Register signal handler for interrupt signal (Ctrl+C)
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-
-	// Start a goroutine to handle the cleanup function when the interrupt signal is received
-	go func() {
-		<-c
-		j.Stop()
-	}()
-
 	j.mutex.Lock()
 	defer j.mutex.Unlock()
 

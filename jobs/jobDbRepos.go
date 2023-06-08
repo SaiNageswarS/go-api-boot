@@ -1,31 +1,66 @@
 package jobs
 
-import "github.com/SaiNageswarS/go-api-boot/odm"
+import (
+	"time"
 
-type JobDetailRepository struct {
-	odm.AbstractRepository[JobDetailModel]
-}
+	"github.com/SaiNageswarS/go-api-boot/odm"
+)
 
 type JobRunLogRepository struct {
-	odm.AbstractRepository[JonRunLogModel]
+	odm.AbstractRepository[JobRunLogModel]
 }
 
 type JobDb struct {
 	Database string
 }
 
-func (j *JobDb) GetJobDetailRepository() *JobDetailRepository {
-	return &JobDetailRepository{
-		AbstractRepository: odm.AbstractRepository[JobDetailModel]{
-			Database:       j.Database,
-			CollectionName: "JobDetails",
-		},
-	}
+func (j *JobRunLogRepository) IsRunning(id string) chan bool {
+	ch := make(chan bool)
+
+	go func() {
+		resultChan, errorChan := j.FindOneById(id)
+
+		select {
+		case res := <-resultChan:
+			ch <- res.LastExecutionStatus == JobStatusRunning
+		case _ = <-errorChan:
+			ch <- false
+		}
+	}()
+
+	return ch
+}
+
+func (j *JobRunLogRepository) MarkJob(id, message string, status JobStatus) chan error {
+	ch := make(chan error)
+
+	go func() {
+		jobChan, errorChan := j.FindOneById(id)
+
+		select {
+		case job := <-jobChan:
+			if job.LastExecutionStatus == status {
+				ch <- nil
+			} else {
+				job.LastExecutionStatus = status
+				job.LastExecutionDateTime = time.Now().Format("dd-MMM-yyyy HH:mm:ss")
+				job.LastExecutionMessage = message
+				errorChan := <-j.Save(job)
+				ch <- errorChan
+			}
+		case err := <-errorChan:
+			ch <- err
+			return
+		}
+
+	}()
+
+	return ch
 }
 
 func (j *JobDb) GetJobRunLogRepository() *JobRunLogRepository {
 	return &JobRunLogRepository{
-		AbstractRepository: odm.AbstractRepository[JonRunLogModel]{
+		AbstractRepository: odm.AbstractRepository[JobRunLogModel]{
 			Database:       j.Database,
 			CollectionName: "JobRunLogs",
 		},

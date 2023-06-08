@@ -1,6 +1,6 @@
 package jobs
 
-import "github.com/google/uuid"
+import "time"
 
 // Job status is used for both synchronization and monitoring.
 // Before a job executes, it must check for status. If job is already
@@ -10,37 +10,25 @@ type JobStatus string
 const (
 	JobStatusScheduled JobStatus = "Scheduled"
 	JobStatusRunning   JobStatus = "Running"
+	JobStatusFailed    JobStatus = "Failed"
+	JobStatusStopped   JobStatus = "Stopped"
 )
 
-type JobDetailModel struct {
-	// Job name
-	Name string `bson:"name"`
-	// cron expression for schedule
-	Cron string `bson:"cron"`
-
-	Status JobStatus `bson:"status"`
-}
-
-func (j *JobDetailModel) Id() string {
-	return j.Name
-}
-
-type JonRunLogModel struct {
+type JobRunLogModel struct {
 	// Job name
 	Name string `bson:"name"`
 	// Last execution date time in format dd-MMM-yyyy HH:mm:ss
 	LastExecutionDateTime string `bson:"lastExecutionDateTime"`
 
 	// Last execution status
-	LastExecutionStatus string `bson:"lastExecutionStatus"`
+	LastExecutionStatus JobStatus `bson:"lastExecutionStatus"`
 	// Last execution message
 	LastExecutionMessage string `bson:"lastExecutionMessage"`
 
-	// Last execution duration in seconds
-	LastExecutionDuration int64 `bson:"lastExecutionDuration"`
+	// Last execution duration
+	LastExecutionDuration time.Duration `bson:"lastExecutionDuration"`
 }
 
-func (j *JonRunLogModel) Id() string {
-	// return unique UUID.
-	return uuid.New().String()
+func (j *JobRunLogModel) Id() string {
+	return j.Name
 }

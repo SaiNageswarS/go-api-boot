@@ -34,10 +34,7 @@ func NewGoApiBoot() *GoApiBoot {
 	// get web server
 	wrappedGrpc := grpcweb.WrapServer(
 		boot.GrpcServer,
-		grpcweb.WithCorsForRegisteredEndpointsOnly(false),
-		grpcweb.WithOriginFunc(func(origin string) bool {
-			return true
-		}))
+		grpcweb.WithCorsForRegisteredEndpointsOnly(false))
 
 	boot.WebServer = buildWebServer(wrappedGrpc)
 	return boot

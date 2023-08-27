@@ -11,6 +11,7 @@ go-api-boot is a complete framework with batteries included to build API applica
 - Provides support for cloud (aws/azure) resources.
 - APIs use generics of Go 1.18
 - Provides handling secrets and config with Azure Keyvault integration and godotenv.
+- Supports scheduled workers with monitoring and DB logging of running status of the workers.
 
 Check https://github.com/Kotlang/authGo for example.
 

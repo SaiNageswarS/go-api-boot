@@ -41,7 +41,11 @@ func main() {
 	server.LoadSecretsIntoEnv(true)
 	inject := NewInject()
 
-	bootServer := server.NewGoApiBoot()
+	corsConfig := cors.New(
+		cors.Options{
+			AllowedHeaders: []string{"*"},
+		})
+	bootServer := server.NewGoApiBoot(corsConfig)
 	pb.RegisterLoginServer(bootServer.GrpcServer, inject.LoginService)
 	pb.RegisterProfileServer(bootServer.GrpcServer, inject.ProfileService)
 

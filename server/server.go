@@ -11,10 +11,10 @@ import (
 	grpc_zap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rs/cors"
 
 	"github.com/SaiNageswarS/go-api-boot/auth"
 	"github.com/SaiNageswarS/go-api-boot/logger"
-	"github.com/improbable-eng/grpc-web/go/grpcweb"
 
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -25,19 +25,15 @@ type GoApiBoot struct {
 	WebServer  *http.Server
 }
 
-func NewGoApiBoot() *GoApiBoot {
+func NewGoApiBoot(corsConfig *cors.Cors) *GoApiBoot {
 	boot := &GoApiBoot{}
 
 	// get grpc server
 	boot.GrpcServer = buildGrpcServer()
 
 	// get web server
-	wrappedGrpc := grpcweb.WrapServer(
-		boot.GrpcServer,
-		grpcweb.WithCorsForRegisteredEndpointsOnly(false),
-		grpcweb.WithAllowedRequestHeaders([]string{"Authorization", "x-user-agent"}))
-
-	boot.WebServer = buildWebServer(wrappedGrpc)
+	wrappedGrpc := GetWebProxy(boot.GrpcServer)
+	boot.WebServer = buildWebServer(wrappedGrpc, corsConfig)
 	return boot
 }
 
@@ -80,9 +76,9 @@ func buildGrpcServer() *grpc.Server {
 	return s
 }
 
-func buildWebServer(wrappedGrpc *grpcweb.WrappedGrpcServer) *http.Server {
+func buildWebServer(wrappedGrpc http.Handler, corsConfig *cors.Cors) *http.Server {
 	serveMux := http.NewServeMux()
-	serveMux.Handle("/", wrappedGrpc)
+	serveMux.Handle("/", corsConfig.Handler(wrappedGrpc))
 	serveMux.Handle("/metrics", promhttp.Handler())
 	serveMux.HandleFunc("/health", func(resp http.ResponseWriter, req *http.Request) {
 		resp.WriteHeader(http.StatusOK)

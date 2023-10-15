@@ -12,6 +12,19 @@ import (
 	"go.uber.org/zap"
 )
 
+type AbstractRepositoryInterface[T any] interface {
+	Save(model DbModel) chan error
+	FindOneById(id string) (chan *T, chan error)
+	IsExistsById(id string) bool
+	CountDocuments(filters bson.M) (chan int64, chan error)
+	Distinct(fieldName string, filters bson.D, serverMaxTime time.Duration) (chan []interface{}, chan error)
+	FindOne(filters bson.M) (chan *T, chan error)
+	Find(filters bson.M, sort bson.D, limit, skip int64) (chan []T, chan error)
+	DeleteById(id string) chan error
+	DeleteOne(filters bson.M) chan error
+	GetModel(proto interface{}) *T
+}
+
 type AbstractRepository[T any] struct {
 	Database       string
 	CollectionName string

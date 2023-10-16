@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
-type AbstractRepositoryInterface[T any] interface {
+type BootRepository[T any] interface {
 	Save(model DbModel) chan error
 	FindOneById(id string) (chan *T, chan error)
 	IsExistsById(id string) bool
@@ -25,12 +25,12 @@ type AbstractRepositoryInterface[T any] interface {
 	GetModel(proto interface{}) *T
 }
 
-type AbstractRepository[T any] struct {
+type UnimplementedBootRepository[T any] struct {
 	Database       string
 	CollectionName string
 }
 
-func (r *AbstractRepository[T]) db() *mongo.Database {
+func (r *UnimplementedBootRepository[T]) db() *mongo.Database {
 	return GetClient().Database(r.Database)
 }
 
@@ -48,7 +48,7 @@ func convertToBson(model DbModel) (bson.M, error) {
 	return update, nil
 }
 
-func (r *AbstractRepository[T]) Save(model DbModel) chan error {
+func (r *UnimplementedBootRepository[T]) Save(model DbModel) chan error {
 	ch := make(chan error)
 
 	go func() {
@@ -85,13 +85,13 @@ func (r *AbstractRepository[T]) Save(model DbModel) chan error {
 }
 
 // Finds one object based on Id.
-func (r *AbstractRepository[T]) FindOneById(id string) (chan *T, chan error) {
+func (r *UnimplementedBootRepository[T]) FindOneById(id string) (chan *T, chan error) {
 	return r.FindOne(bson.M{"_id": id})
 }
 
 // checks if a record exists by id.
 // Synchronous becuase it is expected to be very light-weighted without deserialization etc.
-func (r *AbstractRepository[T]) IsExistsById(id string) bool {
+func (r *UnimplementedBootRepository[T]) IsExistsById(id string) bool {
 	collection := r.db().Collection(r.CollectionName)
 	count, err := collection.CountDocuments(context.Background(), bson.M{"_id": id})
 	if err != nil {
@@ -103,7 +103,7 @@ func (r *AbstractRepository[T]) IsExistsById(id string) bool {
 }
 
 // Finds documents count on filters.
-func (r *AbstractRepository[T]) CountDocuments(filters bson.M) (chan int64, chan error) {
+func (r *UnimplementedBootRepository[T]) CountDocuments(filters bson.M) (chan int64, chan error) {
 	resultChan := make(chan int64)
 	errorChan := make(chan error)
 
@@ -122,7 +122,7 @@ func (r *AbstractRepository[T]) CountDocuments(filters bson.M) (chan int64, chan
 }
 
 // Finds all unique values for a field
-func (r *AbstractRepository[T]) Distinct(fieldName string, filters bson.D, serverMaxTime time.Duration) (chan []interface{}, chan error) {
+func (r *UnimplementedBootRepository[T]) Distinct(fieldName string, filters bson.D, serverMaxTime time.Duration) (chan []interface{}, chan error) {
 	resultChan := make(chan []interface{})
 	errorChan := make(chan error)
 
@@ -143,7 +143,7 @@ func (r *AbstractRepository[T]) Distinct(fieldName string, filters bson.D, serve
 }
 
 // Finds one object based on filters.
-func (r *AbstractRepository[T]) FindOne(filters bson.M) (chan *T, chan error) {
+func (r *UnimplementedBootRepository[T]) FindOne(filters bson.M) (chan *T, chan error) {
 	resultChan := make(chan *T)
 	errorChan := make(chan error)
 
@@ -163,7 +163,7 @@ func (r *AbstractRepository[T]) FindOne(filters bson.M) (chan *T, chan error) {
 	return resultChan, errorChan
 }
 
-func (r *AbstractRepository[T]) Find(filters bson.M, sort bson.D, limit, skip int64) (chan []T, chan error) {
+func (r *UnimplementedBootRepository[T]) Find(filters bson.M, sort bson.D, limit, skip int64) (chan []T, chan error) {
 	resultChan := make(chan []T)
 	errorChan := make(chan error)
 
@@ -195,7 +195,7 @@ func (r *AbstractRepository[T]) Find(filters bson.M, sort bson.D, limit, skip in
 	return resultChan, errorChan
 }
 
-func (r *AbstractRepository[T]) DeleteById(id string) chan error {
+func (r *UnimplementedBootRepository[T]) DeleteById(id string) chan error {
 	ch := make(chan error)
 
 	go func() {
@@ -207,7 +207,7 @@ func (r *AbstractRepository[T]) DeleteById(id string) chan error {
 	return ch
 }
 
-func (r *AbstractRepository[T]) DeleteOne(filters bson.M) chan error {
+func (r *UnimplementedBootRepository[T]) DeleteOne(filters bson.M) chan error {
 	ch := make(chan error)
 
 	go func() {
@@ -220,7 +220,7 @@ func (r *AbstractRepository[T]) DeleteOne(filters bson.M) chan error {
 }
 
 // Gets an instance of model from proto or othe object.
-func (r *AbstractRepository[T]) GetModel(proto interface{}) *T {
+func (r *UnimplementedBootRepository[T]) GetModel(proto interface{}) *T {
 	model := new(T)
 	copier.Copy(model, proto)
 	return model

@@ -7,7 +7,7 @@ import (
 )
 
 type JobRunLogRepository struct {
-	odm.AbstractRepository[JobRunLogModel]
+	odm.UnimplementedBootRepository[JobRunLogModel]
 }
 
 type JobDb struct {
@@ -60,7 +60,7 @@ func (j *JobRunLogRepository) MarkJob(id, message string, status JobStatus) chan
 
 func (j *JobDb) GetJobRunLogRepository() *JobRunLogRepository {
 	return &JobRunLogRepository{
-		AbstractRepository: odm.AbstractRepository[JobRunLogModel]{
+		UnimplementedBootRepository: odm.UnimplementedBootRepository[JobRunLogModel]{
 			Database:       j.Database,
 			CollectionName: "JobRunLogs",
 		},

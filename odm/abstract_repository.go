@@ -23,6 +23,7 @@ type BootRepository[T any] interface {
 	DeleteById(id string) chan error
 	DeleteOne(filters bson.M) chan error
 	GetModel(proto interface{}) *T
+	Aggregate(pipeline bson.A) (chan []T, chan error)
 }
 
 type UnimplementedBootRepository[T any] struct {
@@ -224,4 +225,27 @@ func (r *UnimplementedBootRepository[T]) GetModel(proto interface{}) *T {
 	model := new(T)
 	copier.Copy(model, proto)
 	return model
+}
+
+func (r *UnimplementedBootRepository[T]) Aggregate(pipeline bson.A) (chan []T, chan error) {
+	resultChan := make(chan []T)
+	errorChan := make(chan error)
+
+	go func() {
+		collection := r.db().Collection(r.CollectionName)
+		cursor, err := collection.Aggregate(context.Background(), pipeline)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		defer cursor.Close(context.Background())
+		var result []T
+		if err = cursor.All(context.Background(), &result); err != nil {
+			errorChan <- err
+			return
+		}
+		resultChan <- result
+	}()
+
+	return resultChan, errorChan
 }

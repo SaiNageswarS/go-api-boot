@@ -32,7 +32,7 @@ type UnimplementedBootRepository[T any] struct {
 }
 
 func (r *UnimplementedBootRepository[T]) db() *mongo.Database {
-	return GetClient().Database(r.Database)
+	return GetMongoClient().Database(r.Database)
 }
 
 func convertToBson(model DbModel) (bson.M, error) {

@@ -3,9 +3,11 @@ package odm
 import (
 	"context"
 	"crypto/tls"
+	"log"
 	"os"
 	"time"
 
+	"cloud.google.com/go/firestore"
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -41,11 +43,21 @@ func newMongoConn() *mongo.Client {
 	return client
 }
 
-func GetClient() *mongo.Client {
+func GetMongoClient() *mongo.Client {
 	if connection != nil {
 		return connection
 	}
 
 	connection = newMongoConn()
 	return connection
+}
+
+func GetFireStoreClient(databaseID string) *firestore.Client {
+	projectID := os.Getenv("PROJECT_ID")
+	ctx := context.Background()
+	client, err := firestore.NewClientWithDatabase(ctx, projectID, databaseID)
+	if err != nil {
+		log.Fatalf("Failed to create client: %v", err)
+	}
+	return client
 }

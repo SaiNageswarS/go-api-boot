@@ -55,8 +55,9 @@ func LoadGCPSecretsIntoEnv(projectID string) error {
 		secretName := secret.Name[strings.LastIndex(secret.Name, "/")+1:]
 
 		os.Setenv(secretName, secretValue)
+		fmt.Println("secretName", secretName, secretValue)
 		secretList = append(secretList, secretName)
 	}
-	logger.Info("Successfully loaded Azure Keyvault secrets into environment variables.", zap.Any("secrets", secretList))
+	logger.Info("Successfully loaded GCP Keyvault secrets into environment variables.", zap.Any("secrets", secretList))
 	return nil
 }

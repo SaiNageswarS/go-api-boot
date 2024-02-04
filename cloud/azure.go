@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/keyvault/azsecrets"
@@ -98,7 +99,7 @@ func (c *Azure) UploadStream(containerName, path string, imageData bytes.Buffer)
 	return resultChan, errorChan
 }
 
-func (c *Azure) GetPresignedUrl(bucket, key string) (string, string) {
+func (c *Azure) GetPresignedUrl(bucketName, path string, expiry time.Duration) (string, string) {
 	//TODO: Get presigned upload url and download url
 	return "", ""
 }

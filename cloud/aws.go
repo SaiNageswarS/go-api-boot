@@ -25,7 +25,7 @@ func (c *AWS) UploadStream(bucketName, path string, imageData bytes.Buffer) (cha
 }
 
 // Returns pre-signed upload Url and download URL.
-func (c *AWS) GetPresignedUrl(bucket, key string) (string, string) {
+func (c *AWS) GetPresignedUrl(bucketName, path string, expiry time.Duration) (string, string) {
 	awsRegion := bootUtils.GetEnv("AWS_REGION", "ap-south-1")
 
 	sess, err := session.NewSession(&aws.Config{
@@ -39,16 +39,16 @@ func (c *AWS) GetPresignedUrl(bucket, key string) (string, string) {
 	// Create S3 service client
 	svc := s3.New(sess)
 	req, _ := svc.GetObjectRequest(&s3.GetObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(path),
 	})
 
-	urlStr, err := req.Presign(15 * time.Minute)
+	urlStr, err := req.Presign(expiry)
 	if err != nil {
 		logger.Error("Error signing s3 url", zap.Error(err))
 		return "", ""
 	}
 
-	downloadUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", bucket, awsRegion, key)
+	downloadUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", bucketName, awsRegion, path)
 	return urlStr, downloadUrl
 }

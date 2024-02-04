@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
@@ -106,4 +107,38 @@ func (c *GCP) UploadStream(bucketName, path string, imageData bytes.Buffer) (cha
 
 	// The function returns immediately, and the actual upload happens in the goroutine.
 	return resultChan, errChan
+}
+
+func (c *GCP) GetPresignedUrl(bucketName, path string, expiry time.Duration) (string, string) {
+	// bucketName := "bucket-name"
+	// path := "object-name"
+
+	ctx := context.Background()
+	client, err := storage.NewClient(ctx)
+	if err != nil {
+		return "", ""
+	}
+	defer client.Close()
+
+	// Signing a URL requires credentials authorized to sign a URL. You can pass
+	// these in through SignedURLOptions with one of the following options:
+	//    a. a Google service account private key, obtainable from the Google Developers Console
+	//    b. a Google Access ID with iam.serviceAccounts.signBlob permissions
+	//    c. a SignBytes function implementing custom signing.
+	// As nothing is passed default option is used which is same as the method used to initialise the client.
+	opts := &storage.SignedURLOptions{
+		Scheme: storage.SigningSchemeV4,
+		Method: "PUT",
+		Headers: []string{
+			"Content-Type:application/octet-stream",
+		},
+		Expires: time.Now().Add(expiry),
+	}
+
+	uploadUrl, err := client.Bucket(bucketName).SignedURL(path, opts)
+	if err != nil {
+		return "", ""
+	}
+	downloadUrl := fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucketName, path)
+	return uploadUrl, downloadUrl
 }

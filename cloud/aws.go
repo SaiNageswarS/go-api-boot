@@ -1,6 +1,7 @@
-package aws
+package cloud
 
 import (
+	"bytes"
 	"fmt"
 	"time"
 
@@ -12,13 +13,19 @@ import (
 	"go.uber.org/zap"
 )
 
-var S3 s3Wrapper = s3Wrapper{}
+type AWS struct{}
 
-type s3Wrapper struct {
+func (c *AWS) LoadSecretsIntoEnv() {
+	//TODO: Load secrets into env
+}
+
+func (c *AWS) UploadStream(bucketName, path string, imageData bytes.Buffer) (chan string, chan error) {
+	//TODO: Upload stream to aws bucket
+	return nil, nil
 }
 
 // Returns pre-signed upload Url and download URL.
-func (s s3Wrapper) GetPresignedUrl(bucket, key string) (string, string) {
+func (c *AWS) GetPresignedUrl(bucket, key string) (string, string) {
 	awsRegion := bootUtils.GetEnv("AWS_REGION", "ap-south-1")
 
 	sess, err := session.NewSession(&aws.Config{

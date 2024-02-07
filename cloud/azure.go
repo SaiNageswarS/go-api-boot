@@ -13,12 +13,18 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/keyvault/azsecrets"
 	"github.com/Azure/azure-storage-blob-go/azblob"
 	"github.com/SaiNageswarS/go-api-boot/logger"
+	"github.com/joho/godotenv"
 	"go.uber.org/zap"
 )
 
 type Azure struct{}
 
 func (c *Azure) LoadSecretsIntoEnv() {
+	err := godotenv.Load()
+	if err != nil {
+		logger.Error("Error loading .env file", zap.Error(err))
+	}
+
 	logger.Info("Loading Azure Keyvault secrets into environment variables.")
 	client := getKeyvaultClient()
 	if client == nil {

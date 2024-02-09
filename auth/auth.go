@@ -45,7 +45,6 @@ func VerifyToken() grpc_auth.AuthFunc {
 			logger.Error("Failed validating token", zap.Error(err))
 			return nil, status.Errorf(codes.Unauthenticated, "Bad authorization string")
 		}
-
 		newCtx := context.WithValue(ctx, USER_ID_CLAIM, claims.Id)
 		newCtx = context.WithValue(newCtx, TENANT_CLAIM, claims.Audience)
 		return newCtx, nil
@@ -65,7 +64,18 @@ func GetToken(tenant, userId, userType string) string {
 }
 
 func GetUserIdAndTenant(ctx context.Context) (string, string) {
-	userId := ctx.Value(USER_ID_CLAIM).(string)
-	tenant := ctx.Value(TENANT_CLAIM).(string)
+	userIdClaim := ctx.Value(USER_ID_CLAIM)
+	tenantClaim := ctx.Value(TENANT_CLAIM)
+
+	var userId, tenant string
+
+	if userIdClaimStr, ok := userIdClaim.(string); ok {
+		userId = userIdClaimStr
+	}
+
+	if tenantClaimStr, ok := tenantClaim.(string); ok {
+		tenant = tenantClaimStr
+	}
+
 	return userId, tenant
 }

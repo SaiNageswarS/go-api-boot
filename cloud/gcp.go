@@ -13,6 +13,7 @@ import (
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"cloud.google.com/go/storage"
 	"github.com/SaiNageswarS/go-api-boot/logger"
+	"github.com/joho/godotenv"
 	"go.uber.org/zap"
 	"google.golang.org/api/iterator"
 )
@@ -21,6 +22,10 @@ type GCP struct{}
 
 // listSecrets lists all secrets in the given project.
 func (c *GCP) LoadSecretsIntoEnv() {
+	err := godotenv.Load()
+	if err != nil {
+		logger.Error("Error loading .env file", zap.Error(err))
+	}
 
 	// Create the client.
 	ctx := context.Background()
@@ -31,7 +36,7 @@ func (c *GCP) LoadSecretsIntoEnv() {
 	defer client.Close()
 
 	// Build the request.
-	projectID := os.Getenv("GCP-PROJECT-ID")
+	projectID := os.Getenv("GCP_PROJECT_ID")
 	req := &secretmanagerpb.ListSecretsRequest{
 		Parent: fmt.Sprintf("projects/%s", projectID),
 	}
@@ -62,7 +67,6 @@ func (c *GCP) LoadSecretsIntoEnv() {
 		secretName := secret.Name[strings.LastIndex(secret.Name, "/")+1:]
 
 		os.Setenv(secretName, secretValue)
-		fmt.Println("secretName", secretName, secretValue)
 		secretList = append(secretList, secretName)
 	}
 	logger.Info("Successfully loaded GCP Keyvault secrets into environment variables.", zap.Any("secrets", secretList))

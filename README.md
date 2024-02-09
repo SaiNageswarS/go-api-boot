@@ -125,15 +125,15 @@ case err := <- errorChan:
 
 ## Cloud
 
-* The framework provides support for both AWS and Azure.
+* The framework provides support for both AWS, Azure and GCP out of box.
 * Using cloud functions require setting required environment variables.
 	* AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in AWS.
 	* AZURE_STORAGE_ACCOUNT and AZURE_STORAGE_ACCESS_KEY in Azure.
 
 Usage:
 ```
-preSignedUrl, downloadUrl := aws.S3.GetPresignedUrl(s3Bucket, key)
-<-azure.Storage.UploadStream(containerName, path, imageData)
+var cloudFns cloud.Cloud = aws{}  // can be azure{} or gcp{} as well.
+preSignedUrl, downloadUrl := cloudFns.GetPresignedUrl(s3Bucket, key, expiry)
 ```
 
 ## Boot Utils

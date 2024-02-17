@@ -120,7 +120,7 @@ func (c *GCP) UploadStream(bucketName, path string, imageData bytes.Buffer) (cha
 	return resultChan, errChan
 }
 
-func (c *GCP) GetPresignedUrl(bucketName, path string, expiry time.Duration) (string, string) {
+func (c *GCP) GetPresignedUrl(bucketName, path, contentType string, expiry time.Duration) (string, string) {
 	// bucketName := "bucket-name"
 	// path := "object-name"
 
@@ -142,7 +142,7 @@ func (c *GCP) GetPresignedUrl(bucketName, path string, expiry time.Duration) (st
 		Scheme: storage.SigningSchemeV4,
 		Method: "PUT",
 		Headers: []string{
-			"Content-Type:application/octet-stream",
+			fmt.Sprintf("Content-Type:%s", contentType),
 		},
 		Expires: time.Now().Add(expiry),
 	}

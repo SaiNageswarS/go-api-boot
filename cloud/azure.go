@@ -105,7 +105,7 @@ func (c *Azure) UploadStream(containerName, path string, imageData bytes.Buffer)
 	return resultChan, errorChan
 }
 
-func (c *Azure) GetPresignedUrl(bucketName, path string, expiry time.Duration) (string, string) {
+func (c *Azure) GetPresignedUrl(bucketName, path, contentType string, expiry time.Duration) (string, string) {
 	//TODO: Get presigned upload url and download url
 	return "", ""
 }

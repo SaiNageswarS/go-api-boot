@@ -127,6 +127,7 @@ func (c *GCP) GetPresignedUrl(bucketName, path string, expiry time.Duration) (st
 	ctx := context.Background()
 	client, err := storage.NewClient(ctx)
 	if err != nil {
+		logger.Error("Failed to create client: ", zap.Error(err))
 		return "", ""
 	}
 	defer client.Close()
@@ -148,6 +149,7 @@ func (c *GCP) GetPresignedUrl(bucketName, path string, expiry time.Duration) (st
 
 	uploadUrl, err := client.Bucket(bucketName).SignedURL(path, opts)
 	if err != nil {
+		logger.Error("Failed to generate signed URL: ", zap.Error(err))
 		return "", ""
 	}
 	downloadUrl := fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucketName, path)

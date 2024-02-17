@@ -31,7 +31,7 @@ func (c *AWS) UploadStream(bucketName, path string, imageData bytes.Buffer) (cha
 }
 
 // Returns pre-signed upload Url and download URL.
-func (c *AWS) GetPresignedUrl(bucketName, path string, expiry time.Duration) (string, string) {
+func (c *AWS) GetPresignedUrl(bucketName, path, contentType string, expiry time.Duration) (string, string) {
 	awsRegion := bootUtils.GetEnv("AWS_REGION", "ap-south-1")
 
 	sess, err := session.NewSession(&aws.Config{

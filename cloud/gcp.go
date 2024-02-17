@@ -32,11 +32,16 @@ func (c *GCP) LoadSecretsIntoEnv() {
 	client, err := secretmanager.NewClient(ctx)
 	if err != nil {
 		logger.Error("Failed to create client: ", zap.Error(err))
+		return
 	}
 	defer client.Close()
 
 	// Build the request.
 	projectID := os.Getenv("GCP_PROJECT_ID")
+	if projectID == "" {
+		logger.Error("GCP_PROJECT_ID environment variable is not set.")
+		return
+	}
 	req := &secretmanagerpb.ListSecretsRequest{
 		Parent: fmt.Sprintf("projects/%s", projectID),
 	}
@@ -52,6 +57,7 @@ func (c *GCP) LoadSecretsIntoEnv() {
 
 		if err != nil {
 			logger.Error("failed to list secrets: ", zap.Error(err))
+			return
 		}
 
 		req := &secretmanagerpb.AccessSecretVersionRequest{
@@ -60,6 +66,7 @@ func (c *GCP) LoadSecretsIntoEnv() {
 		result, err := client.AccessSecretVersion(ctx, req)
 		if err != nil {
 			logger.Error("Failed to access secret version for:", zap.Any("secret version", secret.Name), zap.Error(err))
+			continue
 		}
 
 		// Extract the secret name and value.

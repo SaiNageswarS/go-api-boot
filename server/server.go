@@ -25,11 +25,11 @@ type GoApiBoot struct {
 	WebServer  *http.Server
 }
 
-func NewGoApiBoot(corsConfig *cors.Cors) *GoApiBoot {
+func NewGoApiBoot(corsConfig *cors.Cors, unaryInterceptor []grpc.UnaryServerInterceptor, streamInterceptor []grpc.StreamServerInterceptor) *GoApiBoot {
 	boot := &GoApiBoot{}
 
 	// get grpc server
-	boot.GrpcServer = buildGrpcServer()
+	boot.GrpcServer = buildGrpcServer(unaryInterceptor, streamInterceptor)
 
 	// get web server
 	wrappedGrpc := GetWebProxy(boot.GrpcServer)
@@ -58,19 +58,22 @@ func (g *GoApiBoot) Stop() {
 	g.GrpcServer.GracefulStop()
 }
 
-func buildGrpcServer() *grpc.Server {
-	s := grpc.NewServer(
-		grpc.StreamInterceptor(grpc_middleware.ChainStreamServer(
-			grpc_ctxtags.StreamServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
-			grpc_zap.StreamServerInterceptor(logger.Get()),
-			grpc_auth.StreamServerInterceptor(auth.VerifyToken()),
-		)),
+func buildGrpcServer(unaryInterceptor []grpc.UnaryServerInterceptor, streamInterceptor []grpc.StreamServerInterceptor) *grpc.Server {
+	streamServerInterceptors := append([]grpc.StreamServerInterceptor{
+		grpc_ctxtags.StreamServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
+		grpc_zap.StreamServerInterceptor(logger.Get()),
+		grpc_auth.StreamServerInterceptor(auth.VerifyToken()),
+	}, streamInterceptor...)
 
-		grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(
-			grpc_ctxtags.UnaryServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
-			grpc_zap.UnaryServerInterceptor(logger.Get()),
-			grpc_auth.UnaryServerInterceptor(auth.VerifyToken()),
-		)),
+	unaryServerInterceptors := append([]grpc.UnaryServerInterceptor{
+		grpc_ctxtags.UnaryServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
+		grpc_zap.UnaryServerInterceptor(logger.Get()),
+		grpc_auth.UnaryServerInterceptor(auth.VerifyToken()),
+	}, unaryInterceptor...)
+
+	s := grpc.NewServer(
+		grpc.StreamInterceptor(grpc_middleware.ChainStreamServer(streamServerInterceptors...)),
+		grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(unaryServerInterceptors...)),
 	)
 
 	return s

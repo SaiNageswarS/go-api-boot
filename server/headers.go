@@ -42,7 +42,7 @@ func replaceInVals(key, old, new string) copyOption {
 		opts.replacers = append(
 			opts.replacers,
 			func(k string, vv []string) (string, []string, bool) {
-				if strings.ToLower(key) == strings.ToLower(k) {
+				if strings.EqualFold(k, key) {
 					vv2 := make([]string, 0, len(vv))
 					for _, v := range vv {
 						vv2 = append(

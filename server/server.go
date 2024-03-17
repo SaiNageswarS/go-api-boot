@@ -25,7 +25,10 @@ type GoApiBoot struct {
 	WebServer  *http.Server
 }
 
-func NewGoApiBoot(corsConfig *cors.Cors, unaryInterceptor []grpc.UnaryServerInterceptor, streamInterceptor []grpc.StreamServerInterceptor) *GoApiBoot {
+func NewGoApiBoot(corsConfig *cors.Cors,
+	unaryInterceptor []grpc.UnaryServerInterceptor,
+	streamInterceptor []grpc.StreamServerInterceptor,
+	handlers map[string]func(http.ResponseWriter, *http.Request)) *GoApiBoot {
 	boot := &GoApiBoot{}
 
 	// get grpc server
@@ -33,7 +36,7 @@ func NewGoApiBoot(corsConfig *cors.Cors, unaryInterceptor []grpc.UnaryServerInte
 
 	// get web server
 	wrappedGrpc := GetWebProxy(boot.GrpcServer)
-	boot.WebServer = buildWebServer(wrappedGrpc, corsConfig)
+	boot.WebServer = buildWebServer(wrappedGrpc, corsConfig, handlers)
 	return boot
 }
 
@@ -79,13 +82,15 @@ func buildGrpcServer(unaryInterceptor []grpc.UnaryServerInterceptor, streamInter
 	return s
 }
 
-func buildWebServer(wrappedGrpc http.Handler, corsConfig *cors.Cors) *http.Server {
+func buildWebServer(wrappedGrpc http.Handler, corsConfig *cors.Cors, handlers map[string]func(http.ResponseWriter, *http.Request)) *http.Server {
 	serveMux := http.NewServeMux()
 	serveMux.Handle("/", corsConfig.Handler(wrappedGrpc))
 	serveMux.Handle("/metrics", promhttp.Handler())
 	serveMux.HandleFunc("/health", func(resp http.ResponseWriter, req *http.Request) {
 		resp.WriteHeader(http.StatusOK)
 	})
+
+	addHandlersToServeMux(serveMux, handlers)
 
 	return &http.Server{
 		WriteTimeout: 10 * time.Second,
@@ -101,4 +106,10 @@ func getListener(port string) net.Listener {
 	}
 
 	return lis
+}
+
+func addHandlersToServeMux(serveMux *http.ServeMux, handlers map[string]func(http.ResponseWriter, *http.Request)) {
+	for pattern, handler := range handlers {
+		serveMux.HandleFunc(pattern, handler)
+	}
 }

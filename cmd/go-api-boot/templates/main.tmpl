@@ -1,0 +1,24 @@
+package main
+
+import (
+	pb "{{.ProjectPath}}/generated/proto"
+	"github.com/SaiNageswarS/go-api-boot/server"
+	"github.com/rs/cors"
+)
+
+var grpcPort = ":50051"
+var webPort = ":8081"
+
+func main() {
+
+	app := InitializeApp()
+	app.CloudFns.LoadSecretsIntoEnv()
+
+	corsConfig := cors.New(
+		cors.Options{
+			AllowedHeaders: []string{"*"},
+		})
+	bootServer := server.NewGoApiBoot(corsConfig, []grpc.UnaryServerInterceptor{}, []grpc.StreamServerInterceptor{})
+
+	bootServer.Start(grpcPort, webPort)
+}

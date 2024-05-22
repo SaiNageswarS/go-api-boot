@@ -1,0 +1,10 @@
+rm -Rf generated
+
+mkdir -p generated
+cd ../{{.ProtoPath}}
+protoc --go_out=../{{.FolderName}}/generated --go_opt=paths=source_relative \
+    --go-grpc_out=../{{.FolderName}}/generated --go-grpc_opt=paths=source_relative \
+    *.proto
+cd ../{{.FolderName}}
+
+go build -mod=mod -o build/ .

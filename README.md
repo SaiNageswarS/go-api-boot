@@ -24,34 +24,19 @@ MONGO_URI=mongodb://localhost:27017
 ACCESS_SECRET=60ut694f-0a61-46f1-2175-8987b-24b56bd
 ```
 
-## Starting grpc and web-proxy server.
+## Bootstrapping Project
+Below commands will create a new go-api-boot project with Dependency Injection using wire, grpc server code and database repositories.
 
-```go
-package main
+```sh
+go install github.com/SaiNageswarS/go-api-boot/cmd/go-api-boot
+go-api-boot bootstrap github.com/SaiNageswarS/quizGo/quizService proto
+```
 
-import (
-	pb "github.com/Kotlang/authGo/generated"
-	"github.com/SaiNageswarS/go-api-boot/server"
-)
+## Adding Database Repositories
+Below command creates DB Model, Repository and adds the same to dependency injection.
 
-var grpcPort = ":50051"
-var webPort = ":8081"
-
-func main() {
-	// Load secrets from Keyvault and config through godotenv.
-	server.LoadSecretsIntoEnv(true)
-	inject := NewInject()
-
-	corsConfig := cors.New(
-		cors.Options{
-			AllowedHeaders: []string{"*"},
-		})
-	bootServer := server.NewGoApiBoot(corsConfig)
-	pb.RegisterLoginServer(bootServer.GrpcServer, inject.LoginService)
-	pb.RegisterProfileServer(bootServer.GrpcServer, inject.ProfileService)
-
-	bootServer.Start(grpcPort, webPort)
-}
+```sh
+go-api-boot repository Login
 ```
 
 ## JWT

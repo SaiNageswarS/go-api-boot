@@ -37,19 +37,24 @@ func GenerateDockerFile(folderName string) error {
 }
 
 func CopyGitIgnore(folderName string) error {
-	return generateCode(folderName, "templates/.gitignore", ".gitignore", map[string]string{})
+	return generateCode(folderName, "templates/.gitignore.tmpl", ".gitignore", map[string]string{})
 }
 
 func GenerateDbApi(folderName string, models []map[string]string) error {
 	return generateCode(folderName+"/db", "templates/dbApi.go.tmpl", "dbApi.go", models)
 }
 
-func GenerateWire(folderName string, models []map[string]string) error {
-	return generateCode(folderName, "templates/wire.go.tmpl", "wire.go", models)
+func GenerateWire(projectName, folderName string, models []map[string]string) error {
+	data := map[string]interface{}{
+		"Models":      models,
+		"ProjectPath": projectName,
+	}
+
+	return generateCode(folderName, "templates/wire.go.tmpl", "wire.go", data)
 }
 
-func GenerateAppState(folderName string) error {
-	return generateCode(folderName, "templates/appState.json", "appState.json", map[string]string{})
+func GenerateAppState(projectName, folderName string) error {
+	return generateCode(folderName, "templates/appState.json.tmpl", "appState.json", map[string]string{"ProjectName": projectName})
 }
 
 func GenerateRepo(modelName string, data map[string]string) error {

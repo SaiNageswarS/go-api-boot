@@ -9,8 +9,9 @@ import (
 )
 
 type AppState struct {
-	DbModels []map[string]string `json:"dbModels"`
-	Services []map[string]string `json:"services"`
+	ProjectName string              `json:"projectName"`
+	DbModels    []map[string]string `json:"dbModels"`
+	Services    []map[string]string `json:"services"`
 }
 
 func AddRepository(modelName string) {
@@ -36,7 +37,7 @@ func AddRepository(modelName string) {
 	err = GenerateDbApi(".", appState.DbModels)
 	CheckErr(err)
 
-	err = GenerateWire(".", appState.DbModels)
+	err = GenerateWire(appState.ProjectName, ".", appState.DbModels)
 	CheckErr(err)
 }
 

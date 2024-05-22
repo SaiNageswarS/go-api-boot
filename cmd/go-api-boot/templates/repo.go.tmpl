@@ -5,6 +5,7 @@ import (
 )
 
 type {{.ModelName}}Model struct {
+    return ""
 }
 
 func (m *{{.ModelName}}Model) Id() string {
@@ -19,5 +20,10 @@ type {{.ModelName}}Repository struct {
 }
 
 func Provide{{.ModelName}}Repository() {{.ModelName}}RepositoryInterface {
-    return {{.ModelName}}Repository{}
+    baseRepo := odm.UnimplementedBootRepository[{{.ModelName}}]{
+		Database:       "",
+		CollectionName: "",
+	}
+
+    return &{{.ModelName}}Repository{}
 }

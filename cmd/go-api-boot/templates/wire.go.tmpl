@@ -5,15 +5,18 @@ package main
 
 import (
     "github.com/google/wire"
-    "github.com/SaiNageswarS/go-api-boot/cloud"
+    "{{.ProjectPath}}/db"
 )
 
 type App struct {
-    Db      DbApi
-    Cloud   cloud.Cloud
+    Db      db.DbApi
+}
+
+func ProvideApp(dbApi db.DbApi) App {
+    return App { Db: dbApi }
 }
 
 func InitializeApp() App {
-    wire.Build(ProvideDbApi, wire.Value(cloud.Azure{}), {{- range . }} Provide{{.ModelName}}Repository, {{ end -}})
+    wire.Build(db.ProvideDbApi, ProvideApp, {{- range .Models }} db.Provide{{.ModelName}}Repository, {{ end -}})
     return App{}
 }

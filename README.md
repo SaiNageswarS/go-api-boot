@@ -1,4 +1,5 @@
 # go-api-boot
+[![Go Report Card](https://goreportcard.com/badge/github.com/SaiNageswarS/go-api-boot)](https://goreportcard.com/report/github.com/SaiNageswarS/go-api-boot) [![Go Reference](https://pkg.go.dev/badge/github.com/SaiNageswarS/go-api-boot.svg)](https://pkg.go.dev/github.com/SaiNageswarS/go-api-boot)
 
 go-api-boot is a complete framework with batteries included to build API applications in Golang with database included. Upgraded to go 1.18 with support for generics making APIs more intuitive and easy to use.
 

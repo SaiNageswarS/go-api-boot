@@ -12,6 +12,7 @@ go-api-boot is a complete framework with batteries included to build API applica
 - APIs use generics of Go 1.18
 - Provides handling secrets and config with Azure Keyvault integration and godotenv.
 - Supports scheduled workers with monitoring and DB logging of running status of the workers.
+- Generates dependency injection wiring using github.com/google/wire. wire.go is generated as go-api-boot cli is used to create repositories/services. No need to hand code wire.go.
 
 Check https://github.com/Kotlang/authGo for example.
 

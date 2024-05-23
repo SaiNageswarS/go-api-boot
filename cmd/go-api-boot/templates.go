@@ -15,7 +15,7 @@ func GenerateMain(projectPath, folderName string) error {
 		"ProjectPath": projectPath,
 	}
 
-	return generateCode(folderName, "templates/main.tmpl", "main.go", data)
+	return generateCode(folderName, "templates/main.go.tmpl", "main.go", data)
 }
 
 func GenerateBuildScripts(protoPath, folderName string) error {

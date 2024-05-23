@@ -1,0 +1,29 @@
+package main
+
+import (
+	"github.com/SaiNageswarS/go-api-boot/server"
+	"github.com/rs/cors"
+)
+
+var grpcPort = ":50051"
+var webPort = ":8081"
+
+func main() {
+
+	InitializeApp()
+
+	corsConfig := cors.New(
+		cors.Options{
+			AllowedHeaders: []string{"*"},
+		})
+
+	customMiddleware := []grpc.UnaryServerInterceptor {}
+	customRestEndpoints := map[string]func(http.ResponseWriter, *http.Request){}
+
+	bootServer := server.NewGoApiBoot(
+		server.WithCorsConfig(corsConfig), 
+		server.AppendUnaryInterceptors(customMiddleware),
+		server.AppendHttpHandlers(customRestEndpoints))
+
+	bootServer.Start(grpcPort, webPort)
+}

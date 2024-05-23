@@ -7,13 +7,9 @@ import (
 	"time"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
-	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
-	grpc_zap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
-	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 
-	"github.com/SaiNageswarS/go-api-boot/auth"
 	"github.com/SaiNageswarS/go-api-boot/logger"
 
 	"go.uber.org/zap"
@@ -25,18 +21,16 @@ type GoApiBoot struct {
 	WebServer  *http.Server
 }
 
-func NewGoApiBoot(corsConfig *cors.Cors,
-	unaryInterceptor []grpc.UnaryServerInterceptor,
-	streamInterceptor []grpc.StreamServerInterceptor,
-	handlers map[string]func(http.ResponseWriter, *http.Request)) *GoApiBoot {
+func NewGoApiBoot(options ...Option) *GoApiBoot {
+	config := NewConfig(options...)
 	boot := &GoApiBoot{}
 
 	// get grpc server
-	boot.GrpcServer = buildGrpcServer(unaryInterceptor, streamInterceptor)
+	boot.GrpcServer = buildGrpcServer(config.UnaryInterceptors, config.StreamInterceptors)
 
 	// get web server
 	wrappedGrpc := GetWebProxy(boot.GrpcServer)
-	boot.WebServer = buildWebServer(wrappedGrpc, corsConfig, handlers)
+	boot.WebServer = buildWebServer(wrappedGrpc, config.CorsConfig, config.ExtraHttpHandlers)
 	return boot
 }
 
@@ -62,21 +56,9 @@ func (g *GoApiBoot) Stop() {
 }
 
 func buildGrpcServer(unaryInterceptor []grpc.UnaryServerInterceptor, streamInterceptor []grpc.StreamServerInterceptor) *grpc.Server {
-	streamServerInterceptors := append([]grpc.StreamServerInterceptor{
-		grpc_ctxtags.StreamServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
-		grpc_zap.StreamServerInterceptor(logger.Get()),
-		grpc_auth.StreamServerInterceptor(auth.VerifyToken()),
-	}, streamInterceptor...)
-
-	unaryServerInterceptors := append([]grpc.UnaryServerInterceptor{
-		grpc_ctxtags.UnaryServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
-		grpc_zap.UnaryServerInterceptor(logger.Get()),
-		grpc_auth.UnaryServerInterceptor(auth.VerifyToken()),
-	}, unaryInterceptor...)
-
 	s := grpc.NewServer(
-		grpc.StreamInterceptor(grpc_middleware.ChainStreamServer(streamServerInterceptors...)),
-		grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(unaryServerInterceptors...)),
+		grpc.StreamInterceptor(grpc_middleware.ChainStreamServer(streamInterceptor...)),
+		grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(unaryInterceptor...)),
 	)
 
 	return s

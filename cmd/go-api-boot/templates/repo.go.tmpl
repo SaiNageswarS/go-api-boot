@@ -5,10 +5,10 @@ import (
 )
 
 type {{.ModelName}}Model struct {
-    return ""
 }
 
 func (m *{{.ModelName}}Model) Id() string {
+    return ""
 }
 
 type {{.ModelName}}RepositoryInterface interface {
@@ -25,5 +25,5 @@ func Provide{{.ModelName}}Repository() {{.ModelName}}RepositoryInterface {
 		CollectionName: "",
 	}
 
-    return &{{.ModelName}}Repository{}
+    return &{{.ModelName}}Repository{baseRepo}
 }

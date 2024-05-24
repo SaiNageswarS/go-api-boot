@@ -40,7 +40,7 @@ func Bootstrap(projectName, protoPath string) {
 	err = GenerateDbApi(folderName, []map[string]string{})
 	CheckErr(err)
 
-	err = GenerateWire(projectName, folderName, []map[string]string{})
+	err = GenerateWire(projectName, folderName, []map[string]string{}, []map[string]string{})
 	CheckErr(err)
 }
 

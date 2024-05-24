@@ -44,10 +44,11 @@ func GenerateDbApi(folderName string, models []map[string]string) error {
 	return generateCode(folderName+"/db", "templates/dbApi.go.tmpl", "dbApi.go", models)
 }
 
-func GenerateWire(projectName, folderName string, models []map[string]string) error {
+func GenerateWire(projectName, folderName string, models []map[string]string, services []map[string]string) error {
 	data := map[string]interface{}{
 		"Models":      models,
 		"ProjectPath": projectName,
+		"Services":    services,
 	}
 
 	return generateCode(folderName, "templates/wire.go.tmpl", "wire.go", data)
@@ -57,8 +58,21 @@ func GenerateAppState(projectName, folderName string) error {
 	return generateCode(folderName, "templates/appState.json.tmpl", "appState.json", map[string]string{"ProjectName": projectName})
 }
 
-func GenerateRepo(modelName string, data map[string]string) error {
+func GenerateRepo(modelName string) error {
+	data := map[string]string{
+		"ModelName": modelName,
+	}
+
 	return generateCode("db", "templates/repo.go.tmpl", modelName+"Repository.go", data)
+}
+
+func GenerateService(serviceName string, projectPath string) error {
+	data := map[string]string{
+		"ServiceName": serviceName,
+		"ProjectPath": projectPath,
+	}
+
+	return generateCode("services", "templates/services.go.tmpl", serviceName+"Service.go", data)
 }
 
 func generateCode(folderName, templatePath, fileName string, templateData interface{}) error {

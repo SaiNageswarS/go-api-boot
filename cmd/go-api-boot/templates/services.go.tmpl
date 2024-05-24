@@ -1,0 +1,16 @@
+package services
+
+import (
+    "{{.ProjectPath}}/db"
+)
+
+type {{.ServiceName}}Service struct {
+    db  *db.DbApi
+}
+
+func Provide{{.ServiceName}}Service(db *db.DbApi) *{{.ServiceName}}Service {
+    return &{{.ServiceName}}Service {
+        db: db,
+    }
+}
+

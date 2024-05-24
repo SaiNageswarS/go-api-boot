@@ -7,8 +7,8 @@ type DbApi struct {
     {{ end -}}
 }
 
-func ProvideDbApi({{- range . }} {{ .ModelName }}Repo {{.ModelName}}RepositoryInterface, {{ end -}}) DbApi {
-    return DbApi {
+func ProvideDbApi({{- range . }} {{ .ModelName }}Repo {{.ModelName}}RepositoryInterface, {{ end -}}) *DbApi {
+    return &DbApi {
         {{- range . }}
         {{ .ModelName }}Repo: {{ .ModelName }}Repo,
         {{ end -}}

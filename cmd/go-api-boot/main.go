@@ -33,8 +33,19 @@ func main() {
 		},
 	}
 
+	var addServiceCmd = &cobra.Command{
+		Use:   "service [serviceName]",
+		Short: "Add service API",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			AddService(args[0])
+		},
+	}
+
 	rootCmd.AddCommand(bootstrapCmd)
 	rootCmd.AddCommand(addRepositoryCmd)
+	rootCmd.AddCommand(addServiceCmd)
+
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)

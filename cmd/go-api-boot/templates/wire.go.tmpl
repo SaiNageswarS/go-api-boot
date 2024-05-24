@@ -6,17 +6,39 @@ package main
 import (
     "github.com/google/wire"
     "{{.ProjectPath}}/db"
+    "{{.ProjectPath}}/services"
 )
 
 type App struct {
-    Db      db.DbApi
+    Db      *db.DbApi
+
+    // services
+    {{- range .Services }}
+    {{.ServiceName}}Service  *services.{{.ServiceName}}Service
+    {{ end -}}
 }
 
-func ProvideApp(dbApi db.DbApi) App {
-    return App { Db: dbApi }
+func ProvideApp(dbApi *db.DbApi, {{- range .Services }} {{.ServiceName}}Service  *services.{{.ServiceName}}Service, {{ end -}}) App {
+    return App { 
+        Db: dbApi,
+        {{- range .Services }}
+        {{.ServiceName}}Service: {{.ServiceName}}Service,
+        {{ end -}}
+    }
 }
 
 func InitializeApp() App {
-    wire.Build(db.ProvideDbApi, ProvideApp, {{- range .Models }} db.Provide{{.ModelName}}Repository, {{ end -}})
+    wire.Build(
+        db.ProvideDbApi, 
+        ProvideApp, 
+        
+        {{- range .Models }} 
+        db.Provide{{.ModelName}}Repository, 
+        {{ end -}}
+        
+        {{- range .Services }}
+        services.Provide{{.ServiceName}}Service,
+        {{ end -}}
+        )
     return App{}
 }

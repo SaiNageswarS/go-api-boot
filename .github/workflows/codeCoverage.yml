@@ -27,28 +27,36 @@ jobs:
     - name: Install dependencies
       run: go mod download
 
-    - name: Test
+    - name: Run tests
+      run: go test ./... -v -coverprofile=coverage.out
+
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v2
+      with:
+        name: coverage-report
+        path: coverage.out
+
+    - name: Generate coverage badge
       run: |
-        go test -v -cover ./... -coverprofile coverage.out -coverpkg ./...
-        go tool cover -func coverage.out -o coverage.out  # Replaces coverage.out with the analysis of coverage.out
+        go install github.com/jpoles1/gopherbadger@latest
+        gopherbadger -png=false -md="README.md" -coverfile="coverage.out"
 
-    - name: Go Coverage Badge
-      uses: tj-actions/coverage-badge-go@v1
-      with:
-        green: 80
-        filename: coverage.out
+    - name: Commit coverage badge changes
+      run: |
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+        git checkout -b update-coverage-badge
+        git add README.md
+        git commit -m 'Update coverage badge'
+        git push -u origin update-coverage-badge
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - uses: stefanzweifel/git-auto-commit-action@v4
-      id: auto-commit-action
+    - name: Create Pull Request
+      uses: peter-evans/create-pull-request@v4
       with:
-        commit_message: Apply Code Coverage Badge
-        skip_fetch: true
-        skip_checkout: true
-        file_pattern: ./README.md
-
-    - name: Push Changes
-      if: steps.auto-commit-action.outputs.changes_detected == 'true'
-      uses: ad-m/github-push-action@master
-      with:
-        github_token: ${{ github.token }}
-        branch: ${{ github.ref }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        branch: update-coverage-badge
+        title: 'Update coverage badge'
+        body: 'This PR updates the coverage badge in the README.md'
+        labels: ['coverage', 'automated PR']

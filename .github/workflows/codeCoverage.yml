@@ -17,7 +17,7 @@ jobs:
         go: [1.19]
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
 
     - name: Set up Go
       uses: actions/setup-go@v3
@@ -53,10 +53,9 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Create Pull Request
-      uses: peter-evans/create-pull-request@v4
+      uses: peter-evans/create-pull-request@v6
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         branch: update-coverage-badge
         title: 'Update coverage badge'
         body: 'This PR updates the coverage badge in the README.md'
-        labels: ['coverage', 'automated PR']

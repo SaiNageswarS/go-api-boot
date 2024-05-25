@@ -10,18 +10,12 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/joho/godotenv"
 	"go.uber.org/zap"
 )
 
 type AWS struct{}
 
 func (c *AWS) LoadSecretsIntoEnv() {
-	err := godotenv.Load()
-	if err != nil {
-		logger.Error("Error loading .env file", zap.Error(err))
-	}
-
 	//TODO: Load secrets from aws secrets manager
 }
 

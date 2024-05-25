@@ -13,17 +13,13 @@ type App struct {
     Db      *db.DbApi
 
     // services
-    {{- range .Services }}
-    {{.ServiceName}}Service  *services.{{.ServiceName}}Service
-    {{ end -}}
+    {{- range .Services }}{{.ServiceName}}Service  *services.{{.ServiceName}}Service{{ end -}}
 }
 
 func ProvideApp(dbApi *db.DbApi, {{- range .Services }} {{.ServiceName}}Service  *services.{{.ServiceName}}Service, {{ end -}}) App {
     return App { 
         Db: dbApi,
-        {{- range .Services }}
-        {{.ServiceName}}Service: {{.ServiceName}}Service,
-        {{ end -}}
+        {{- range .Services }}{{.ServiceName}}Service: {{.ServiceName}}Service,{{ end -}}
     }
 }
 
@@ -32,13 +28,9 @@ func InitializeApp() App {
         db.ProvideDbApi, 
         ProvideApp, 
         
-        {{- range .Models }} 
-        db.Provide{{.ModelName}}Repository, 
-        {{ end -}}
+        {{- range .Models }}db.Provide{{.ModelName}}Repository,{{ end -}}
         
-        {{- range .Services }}
-        services.Provide{{.ServiceName}}Service,
-        {{ end -}}
-        )
+        {{- range .Services }}services.Provide{{.ServiceName}}Service,{{ end -}}
+    )
     return App{}
 }

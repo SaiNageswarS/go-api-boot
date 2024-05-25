@@ -1,0 +1,2 @@
+# skip comment
+MONGO-URI = mongodb://username@password=dummy/test   

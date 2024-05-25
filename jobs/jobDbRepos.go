@@ -60,9 +60,9 @@ func (j *JobRunLogRepository) MarkJob(id, message string, status JobStatus) chan
 
 func (j *JobDb) GetJobRunLogRepository() *JobRunLogRepository {
 	return &JobRunLogRepository{
-		UnimplementedBootRepository: odm.UnimplementedBootRepository[JobRunLogModel]{
-			Database:       j.Database,
-			CollectionName: "JobRunLogs",
-		},
+		UnimplementedBootRepository: odm.NewUnimplementedBootRepository[JobRunLogModel](
+			odm.WithDatabase(j.Database),
+			odm.WithCollectionName("JobRunLogs"),
+		),
 	}
 }

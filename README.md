@@ -11,7 +11,7 @@ go-api-boot is a complete framework with batteries included to build API applica
 - Adds JWT, logging middleware by default.
 - Provides support for cloud (aws/azure) resources.
 - APIs use generics of Go 1.18
-- Provides handling secrets and config with Azure Keyvault integration and godotenv.
+- Provides handling secrets and config with Azure Keyvault integration and .env.
 - Supports scheduled workers with monitoring and DB logging of running status of the workers.
 - Generates dependency injection wiring using github.com/google/wire. wire.go is generated as go-api-boot cli is used to create repositories/services. No need to hand code wire.go.
 
@@ -22,8 +22,9 @@ Check https://github.com/Kotlang/authGo for example.
 Following environment variables are required for Go-API-Boot to start up.
 
 ```sh
-MONGO_URI=mongodb://localhost:27017
-ACCESS_SECRET=60ut694f-0a61-46f1-2175-8987b-24b56bd
+# Env variable name MONGO-URI is compatible with secret managers like keyvault.
+MONGO-URI=mongodb://localhost:27017 
+ACCESS-SECRET=60ut694f-0a61-46f1-2175-8987b-24b56bd
 ```
 
 ## Bootstrapping Project
@@ -54,6 +55,28 @@ type LoginService struct {
 //removing auth interceptor
 func (u *LoginService) AuthFuncOverride(ctx context.Context, fullMethodName string) (context.Context, error) {
 	return ctx, nil
+}
+```
+
+## Server
+
+```
+func main() {
+	server.LoadEnv()
+
+	app := InitializeApp()
+	app.CloudFns.LoadSecretsIntoEnv()
+
+	corsConfig := cors.New(
+		cors.Options{
+			AllowedHeaders: []string{"*"},
+		})
+	bootServer := server.NewGoApiBoot(
+		server.WithCorsConfig(corsConfig),
+		server.AppendUnaryInterceptors(app.UnaryInterceptors),
+		server.AppendStreamInterceptors(app.StreamInterceptors))
+
+	bootServer.Start(grpcPort, webPort)
 }
 ```
 

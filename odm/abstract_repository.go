@@ -7,7 +7,6 @@ import (
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	"github.com/jinzhu/copier"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.uber.org/zap"
 )
@@ -27,26 +26,21 @@ type BootRepository[T any] interface {
 }
 
 type UnimplementedBootRepository[T any] struct {
-	Database       string
-	CollectionName string
+	collection CollectionInterface
+	timer      Timer
 }
 
-func (r *UnimplementedBootRepository[T]) db() *mongo.Database {
-	return GetClient().Database(r.Database)
-}
+func NewUnimplementedBootRepository[T any](options ...Option) UnimplementedBootRepository[T] {
+	config := NewConfig(options...)
 
-func convertToBson(model DbModel) (bson.M, error) {
-	pByte, err := bson.Marshal(model)
-	if err != nil {
-		return nil, err
+	if config.Client == nil {
+		config.Client = GetClient()
 	}
 
-	var update bson.M
-	err = bson.Unmarshal(pByte, &update)
-	if err != nil {
-		return nil, err
+	return UnimplementedBootRepository[T]{
+		collection: config.Client.Database(config.Database).Collection(config.CollectionName),
+		timer:      DefaultTimer{},
 	}
-	return update, nil
 }
 
 func (r *UnimplementedBootRepository[T]) Save(model DbModel) chan error {
@@ -54,7 +48,6 @@ func (r *UnimplementedBootRepository[T]) Save(model DbModel) chan error {
 
 	go func() {
 		id := model.Id()
-		collection := r.db().Collection(r.CollectionName)
 		document, err := convertToBson(model)
 		if err != nil {
 			ch <- err
@@ -63,12 +56,12 @@ func (r *UnimplementedBootRepository[T]) Save(model DbModel) chan error {
 
 		document["_id"] = id
 		if r.IsExistsById(id) {
-			document["updatedOn"] = time.Now().Unix()
+			document["updatedOn"] = r.timer.Now()
 		} else {
-			document["createdOn"] = time.Now().Unix()
+			document["createdOn"] = r.timer.Now()
 		}
 
-		_, err = collection.UpdateOne(
+		_, err = r.collection.UpdateOne(
 			context.Background(),
 			bson.M{"_id": id},
 			bson.M{"$set": document},
@@ -93,8 +86,7 @@ func (r *UnimplementedBootRepository[T]) FindOneById(id string) (chan *T, chan e
 // checks if a record exists by id.
 // Synchronous becuase it is expected to be very light-weighted without deserialization etc.
 func (r *UnimplementedBootRepository[T]) IsExistsById(id string) bool {
-	collection := r.db().Collection(r.CollectionName)
-	count, err := collection.CountDocuments(context.Background(), bson.M{"_id": id})
+	count, err := r.collection.CountDocuments(context.Background(), bson.M{"_id": id})
 	if err != nil {
 		logger.Error("Failed getting count of object", zap.Error(err))
 		return false
@@ -109,8 +101,7 @@ func (r *UnimplementedBootRepository[T]) CountDocuments(filters bson.M) (chan in
 	errorChan := make(chan error)
 
 	go func() {
-		collection := r.db().Collection(r.CollectionName)
-		count, err := collection.CountDocuments(context.Background(), filters)
+		count, err := r.collection.CountDocuments(context.Background(), filters)
 
 		if err != nil {
 			errorChan <- err
@@ -128,10 +119,9 @@ func (r *UnimplementedBootRepository[T]) Distinct(fieldName string, filters bson
 	errorChan := make(chan error)
 
 	go func() {
-		collection := r.db().Collection(r.CollectionName)
 		opts := &options.DistinctOptions{}
 		opts.SetMaxTime(serverMaxTime)
-		distinctValues, err := collection.Distinct(context.Background(), fieldName, filters, opts)
+		distinctValues, err := r.collection.Distinct(context.Background(), fieldName, filters, opts)
 
 		if err != nil {
 			errorChan <- err
@@ -149,8 +139,7 @@ func (r *UnimplementedBootRepository[T]) FindOne(filters bson.M) (chan *T, chan 
 	errorChan := make(chan error)
 
 	go func() {
-		collection := r.db().Collection(r.CollectionName)
-		document := collection.FindOne(context.Background(), filters)
+		document := r.collection.FindOne(context.Background(), filters)
 
 		if document.Err() != nil {
 			errorChan <- document.Err()
@@ -169,8 +158,6 @@ func (r *UnimplementedBootRepository[T]) Find(filters bson.M, sort bson.D, limit
 	errorChan := make(chan error)
 
 	go func() {
-		collection := r.db().Collection(r.CollectionName)
-
 		findOptions := options.Find()
 		if sort != nil {
 			findOptions.SetSort(sort)
@@ -178,7 +165,7 @@ func (r *UnimplementedBootRepository[T]) Find(filters bson.M, sort bson.D, limit
 		findOptions.SetLimit(limit)
 		findOptions.SetSkip(skip)
 
-		cursor, err := collection.Find(context.Background(), filters, findOptions)
+		cursor, err := r.collection.Find(context.Background(), filters, findOptions)
 		if err != nil {
 			errorChan <- err
 			return
@@ -200,8 +187,7 @@ func (r *UnimplementedBootRepository[T]) DeleteById(id string) chan error {
 	ch := make(chan error)
 
 	go func() {
-		collection := r.db().Collection(r.CollectionName)
-		_, err := collection.DeleteOne(context.Background(), bson.M{"_id": id})
+		_, err := r.collection.DeleteOne(context.Background(), bson.M{"_id": id})
 		ch <- err
 	}()
 
@@ -212,8 +198,7 @@ func (r *UnimplementedBootRepository[T]) DeleteOne(filters bson.M) chan error {
 	ch := make(chan error)
 
 	go func() {
-		collection := r.db().Collection(r.CollectionName)
-		_, err := collection.DeleteOne(context.Background(), filters)
+		_, err := r.collection.DeleteOne(context.Background(), filters)
 		ch <- err
 	}()
 
@@ -232,8 +217,7 @@ func (r *UnimplementedBootRepository[T]) Aggregate(pipeline bson.A) (chan []T, c
 	errorChan := make(chan error)
 
 	go func() {
-		collection := r.db().Collection(r.CollectionName)
-		cursor, err := collection.Aggregate(context.Background(), pipeline)
+		cursor, err := r.collection.Aggregate(context.Background(), pipeline)
 		if err != nil {
 			errorChan <- err
 			return
@@ -248,4 +232,18 @@ func (r *UnimplementedBootRepository[T]) Aggregate(pipeline bson.A) (chan []T, c
 	}()
 
 	return resultChan, errorChan
+}
+
+func convertToBson(model DbModel) (bson.M, error) {
+	pByte, err := bson.Marshal(model)
+	if err != nil {
+		return nil, err
+	}
+
+	var update bson.M
+	err = bson.Unmarshal(pByte, &update)
+	if err != nil {
+		return nil, err
+	}
+	return update, nil
 }

@@ -13,7 +13,6 @@ import (
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"cloud.google.com/go/storage"
 	"github.com/SaiNageswarS/go-api-boot/logger"
-	"github.com/joho/godotenv"
 	"go.uber.org/zap"
 	"google.golang.org/api/iterator"
 )
@@ -22,11 +21,6 @@ type GCP struct{}
 
 // listSecrets lists all secrets in the given project.
 func (c *GCP) LoadSecretsIntoEnv() {
-	err := godotenv.Load()
-	if err != nil {
-		logger.Error("Error loading .env file", zap.Error(err))
-	}
-
 	// Create the client.
 	ctx := context.Background()
 	client, err := secretmanager.NewClient(ctx)

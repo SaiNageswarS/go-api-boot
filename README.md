@@ -107,15 +107,16 @@ Repository:
 
 ```
 type ProfileRepository struct {
-	odm.AbstractRepository[models.ProfileModel]
+	odm.UnimplementedBootRepository[ProfileModel]
 }
 
 func NewProfileRepo() *ProfileRepository {
-	repo := odm.AbstractRepository[models.ProfileModel]{
-		Database:       "auth",
-		CollectionName: "profiles",
-	}
-	return &ProfileRepository{repo}
+	// baseRepo provides basic CRUD - Save, FindOneById, Find, DeleteById etc.
+	baseRepo := odm.NewUnimplementedBootRepository[models.ProfileModel](
+		odm.WithDatabase("authGo"),
+		odm.WithCollectionName("profiles"),
+	)
+	return &ProfileRepository{baseRepo}
 }
 ```
 

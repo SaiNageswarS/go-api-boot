@@ -38,10 +38,10 @@ jobs:
           filename: coverage.out
 
     - name: Verify Changed files
-        uses: tj-actions/verify-changed-files@v16
-        id: verify-changed-files
-        with:
-          files: README.md
+      uses: tj-actions/verify-changed-files@v16
+      id: verify-changed-files
+      with:
+        files: README.md
 
     - name: Commit coverage badge changes
       run: |

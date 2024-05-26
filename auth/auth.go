@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"os"
 
 	"github.com/SaiNageswarS/go-api-boot/logger"
@@ -16,10 +17,9 @@ type Claims string
 
 var USER_ID_CLAIM = Claims("userId")
 var TENANT_CLAIM = Claims("tenantId")
+var USER_TYPE_CLAIM = Claims("userType")
 
 func VerifyToken() grpc_auth.AuthFunc {
-	var ACCESS_SECRET = os.Getenv("ACCESS-SECRET")
-
 	return func(ctx context.Context) (context.Context, error) {
 		token, err := grpc_auth.AuthFromMD(ctx, "bearer")
 		if err != nil {
@@ -27,26 +27,16 @@ func VerifyToken() grpc_auth.AuthFunc {
 			return nil, status.Errorf(codes.Unauthenticated, err.Error())
 		}
 
-		parsedToken, err := jwt.ParseWithClaims(
-			token,
-			&jwt.StandardClaims{},
-			func(token *jwt.Token) (interface{}, error) {
-				return []byte(ACCESS_SECRET), nil
-			})
-
+		userId, tenant, userType, err := decryptToken(token)
 		if err != nil {
 			logger.Error("Error getting token", zap.Error(err))
 			return nil, status.Errorf(codes.Unauthenticated, err.Error())
 		}
 
-		claims, ok := parsedToken.Claims.(*jwt.StandardClaims)
+		newCtx := context.WithValue(ctx, USER_ID_CLAIM, userId)
+		newCtx = context.WithValue(newCtx, TENANT_CLAIM, tenant)
+		newCtx = context.WithValue(newCtx, USER_TYPE_CLAIM, userType)
 
-		if !ok || !parsedToken.Valid {
-			logger.Error("Failed validating token", zap.Error(err))
-			return nil, status.Errorf(codes.Unauthenticated, "Bad authorization string")
-		}
-		newCtx := context.WithValue(ctx, USER_ID_CLAIM, claims.Id)
-		newCtx = context.WithValue(newCtx, TENANT_CLAIM, claims.Audience)
 		return newCtx, nil
 	}
 }
@@ -78,4 +68,37 @@ func GetUserIdAndTenant(ctx context.Context) (string, string) {
 	}
 
 	return userId, tenant
+}
+
+func GetUserType(ctx context.Context) string {
+	userTypeClaim := ctx.Value(USER_TYPE_CLAIM)
+	if userTypeClaimStr, ok := userTypeClaim.(string); ok {
+		return userTypeClaimStr
+	}
+
+	return ""
+}
+
+// returns userId, tenant, userType
+func decryptToken(token string) (string, string, string, error) {
+	accessSecret := os.Getenv("ACCESS-SECRET")
+
+	parsedToken, err := jwt.ParseWithClaims(
+		token,
+		&jwt.StandardClaims{},
+		func(token *jwt.Token) (interface{}, error) {
+			return []byte(accessSecret), nil
+		})
+
+	if err != nil {
+		return "", "", "", err
+	}
+
+	claims, ok := parsedToken.Claims.(*jwt.StandardClaims)
+
+	if !ok || !parsedToken.Valid {
+		return "", "", "", errors.New("failed reading claims")
+	}
+
+	return claims.Id, claims.Audience, claims.Subject, nil
 }

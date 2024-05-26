@@ -94,6 +94,19 @@ func TestFindOneById(t *testing.T) {
 	}
 }
 
+func TestDeleteById(t *testing.T) {
+	collection := &MockCollection{}
+	baseRepo := UnimplementedBootRepository[TestModel]{collection: collection, timer: &MockTimer{}}
+	repo := &TestRepository{baseRepo}
+
+	expectedFilter := bson.M{"_id": "rg"}
+
+	collection.On("DeleteOne", mock.Anything, expectedFilter, mock.Anything).Return(&mongo.DeleteResult{DeletedCount: 1}, nil)
+
+	err := <-repo.DeleteById("rg")
+	require.NoError(t, err)
+}
+
 type MockCollection struct {
 	mock.Mock
 }

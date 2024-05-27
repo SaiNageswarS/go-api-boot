@@ -8,7 +8,11 @@ import (
 // LoadEnv loads environment variables from .env file.
 func LoadEnv(envPath ...string) error {
 	if len(envPath) == 0 {
-		envPath = append(envPath, ".env")
+		_, err := os.Stat(".env")
+
+		if err == nil {
+			envPath = append(envPath, ".env")
+		}
 	}
 
 	for _, filename := range envPath {

@@ -37,3 +37,8 @@ func TestLoadEnvFromString(t *testing.T) {
 		}
 	}
 }
+
+func TestNoEnvFile(t *testing.T) {
+	err := LoadEnv()
+	require.NoError(t, err)
+}

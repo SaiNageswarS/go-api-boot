@@ -94,6 +94,33 @@ func TestFindOneById(t *testing.T) {
 	}
 }
 
+func TestAggregate(t *testing.T) {
+	collection := &MockCollection{}
+	baseRepo := UnimplementedBootRepository[TestModel]{collection: collection, timer: &MockTimer{}}
+	repo := &TestRepository{baseRepo}
+
+	expectedPipeline := mongo.Pipeline{
+		bson.D{{Key: "$match", Value: bson.D{{Key: "Name", Value: "Rick"}}}},
+		bson.D{{Key: "$sample", Value: bson.D{{Key: "size", Value: 1}}}},
+	}
+
+	expectedModels := []TestModel{
+		{Name: "Rick", PhotoUrl: "rick.png", Email: "rick.ag@gmail.com"},
+		{Name: "Rick", PhotoUrl: "rickPt.png", Email: "rick.pt@gmail.com"},
+	}
+
+	aggregateResult, _ := mongo.NewCursorFromDocuments(toInterface(expectedModels), nil, nil)
+	collection.On("Aggregate", mock.Anything, expectedPipeline, mock.Anything).Return(aggregateResult, nil)
+
+	resChan, errChan := repo.Aggregate(expectedPipeline)
+	select {
+	case res := <-resChan:
+		require.Equal(t, expectedModels, res)
+	case err := <-errChan:
+		require.NoError(t, err)
+	}
+}
+
 func TestDeleteById(t *testing.T) {
 	collection := &MockCollection{}
 	baseRepo := UnimplementedBootRepository[TestModel]{collection: collection, timer: &MockTimer{}}
@@ -150,4 +177,12 @@ type MockTimer struct{}
 
 func (m *MockTimer) Now() int64 {
 	return 2024
+}
+
+func toInterface(models []TestModel) []interface{} {
+	interfaces := make([]interface{}, len(models))
+	for i, model := range models {
+		interfaces[i] = model
+	}
+	return interfaces
 }

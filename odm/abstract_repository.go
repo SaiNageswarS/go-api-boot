@@ -7,6 +7,7 @@ import (
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	"github.com/jinzhu/copier"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.uber.org/zap"
 )
@@ -22,7 +23,7 @@ type BootRepository[T any] interface {
 	DeleteById(id string) chan error
 	DeleteOne(filters bson.M) chan error
 	GetModel(proto interface{}) *T
-	Aggregate(pipeline bson.A) (chan []T, chan error)
+	Aggregate(pipeline mongo.Pipeline) (chan []T, chan error)
 }
 
 type UnimplementedBootRepository[T any] struct {
@@ -212,7 +213,7 @@ func (r *UnimplementedBootRepository[T]) GetModel(proto interface{}) *T {
 	return model
 }
 
-func (r *UnimplementedBootRepository[T]) Aggregate(pipeline bson.A) (chan []T, chan error) {
+func (r *UnimplementedBootRepository[T]) Aggregate(pipeline mongo.Pipeline) (chan []T, chan error) {
 	resultChan := make(chan []T)
 	errorChan := make(chan error)
 

@@ -3,8 +3,6 @@ package jobs
 import (
 	"sync"
 	"time"
-
-	"github.com/thoas/go-funk"
 )
 
 // Job Detail
@@ -54,12 +52,10 @@ func (j *JobManager) RegisterJob(name string, duration time.Duration, job Job) {
 	defer j.mutex.Unlock()
 
 	// check if job already exists
-	jd := funk.Find(j.JobDetails, func(j jobDetail) bool {
-		return j.Name == name
-	})
-	// if job already exists, return
-	if jd != nil {
-		return
+	for _, jd := range j.JobDetails {
+		if jd.Name == name {
+			return
+		}
 	}
 
 	// save job details to db.

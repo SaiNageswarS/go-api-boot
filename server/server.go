@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"time"
@@ -19,6 +20,7 @@ import (
 type GoApiBoot struct {
 	GrpcServer *grpc.Server
 	WebServer  *http.Server
+	ssl        bool
 }
 
 func NewGoApiBoot(options ...Option) *GoApiBoot {
@@ -31,6 +33,7 @@ func NewGoApiBoot(options ...Option) *GoApiBoot {
 	// get web server
 	wrappedGrpc := GetWebProxy(boot.GrpcServer)
 	boot.WebServer = buildWebServer(wrappedGrpc, config.CorsConfig, config.ExtraHttpHandlers)
+	boot.ssl = config.SSL
 	return boot
 }
 
@@ -44,9 +47,19 @@ func (g *GoApiBoot) Start(grpcPort, webPort string) {
 	}()
 
 	logger.Info("Starting web server at ", zap.String("port", webPort))
+	if g.ssl {
+		sslManager := NewSSLManager()
+		sslManager.RunAcmeChallengeListener()
+		sslManager.DownloadCertificatesWithRetry()
 
-	if err := g.WebServer.Serve(getListener(webPort)); err != nil {
-		logger.Fatal("Failed to serve", zap.Error(err))
+		g.WebServer.TLSConfig = &tls.Config{GetCertificate: sslManager.certManager.GetCertificate}
+		if err := g.WebServer.ServeTLS(getListener(webPort), "", ""); err != nil {
+			logger.Fatal("Failed to serve", zap.Error(err))
+		}
+	} else {
+		if err := g.WebServer.Serve(getListener(webPort)); err != nil {
+			logger.Fatal("Failed to serve", zap.Error(err))
+		}
 	}
 }
 

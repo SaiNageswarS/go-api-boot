@@ -21,6 +21,7 @@ type Config struct {
 
 	// Additional http handlers. All of the gRpc APIs will be exposed by default on http Rest for web.
 	ExtraHttpHandlers map[string]func(http.ResponseWriter, *http.Request)
+	SSL               bool
 }
 
 func NewConfig(options ...Option) *Config {
@@ -67,5 +68,11 @@ func AppendStreamInterceptors(interceptors []grpc.StreamServerInterceptor) Optio
 func AppendHttpHandlers(handlers map[string]func(http.ResponseWriter, *http.Request)) Option {
 	return func(c *Config) {
 		c.ExtraHttpHandlers = handlers
+	}
+}
+
+func WithSSL(ssl bool) Option {
+	return func(c *Config) {
+		c.SSL = ssl
 	}
 }

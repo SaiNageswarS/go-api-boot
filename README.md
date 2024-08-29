@@ -148,6 +148,26 @@ var cloudFns cloud.Cloud = aws{}  // can be azure{} or gcp{} as well.
 preSignedUrl, downloadUrl := cloudFns.GetPresignedUrl(s3Bucket, key, expiry)
 ```
 
+## Zero Config SSL Support
+The go-api-boot framework provides seamless support for zero-configuration SSL/TLS using Let's Encrypt. This feature simplifies the process of securing your API with SSL, allowing you to enable HTTPS with minimal setup.
+
+### Features
+- **Automatic SSL Certificate Acquisition**: When SSL is enabled in the configuration, the framework automatically downloads and manages SSL certificates from Let's Encrypt.
+- **ACME Challenge Handling**: The framework internally handles the ACME challenge process to prove ownership of the domain.
+- **Minimal Configuration**: All you need to do is set the ssl configuration to true and provide your domain via an environment variable.
+
+### How It Works
+Just below two lines of code will enable SSL.
+
+```go
+os.Setenv("DOMAIN", "myservername.com")
+bootServer := server.NewGoApiBoot(server.WithSSL(true))
+```
+
+### Deployment Instructions
+- **Expose Port 80**: Ensure that port 80 is exposed when deploying your server. Let's Encrypt uses port 80 to complete the ACME challenge and verify domain ownership.
+- **Use Port 443 for the Web Server**: It is recommended to run your web server on port 443, which is the standard port for HTTPS. However, user is free to pass any port to bootServer.Start()
+
 ## Boot Utils
 Boot utils provide other grpc common utils used in API development.
 

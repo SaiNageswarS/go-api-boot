@@ -154,6 +154,7 @@ The go-api-boot framework provides seamless support for zero-configuration SSL/T
 ### Features
 - **Automatic SSL Certificate Acquisition**: When SSL is enabled in the configuration, the framework automatically downloads and manages SSL certificates from Let's Encrypt.
 - **ACME Challenge Handling**: The framework internally handles the ACME challenge process to prove ownership of the domain.
+- **Exponential Backoff Retries for ACME Challenge**: The framework attempts to solve the ACME challenge with exponential backoff retries, making it ideal for deployment on platforms like Google Cloud Run or Azure Container Instances, where it can account for the initial IP address assignment and DNS record updates.**
 - **Minimal Configuration**: All you need to do is set the ssl configuration to true and provide your domain via an environment variable.
 
 ### How It Works

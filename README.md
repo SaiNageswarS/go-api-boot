@@ -20,20 +20,18 @@ Check https://github.com/Kotlang/authGo for example.
 
 # Getting Started
 
-Following environment variables are required for Go-API-Boot to start up.
+A go-api-boot project can be bootstrapped using below command. The bootstrap command needs a fully qualified name of the go project and the proto path for the build scripts.
+
+```sh
+go install github.com/SaiNageswarS/go-api-boot/cmd/go-api-boot
+go-api-boot bootstrap github.com/SaiNageswarS/quizGo/quizService proto
+```
+Various modules like ODM, JWT depend on environment variables for secrets. For example,
 
 ```sh
 # Env variable name MONGO-URI is compatible with secret managers like keyvault.
 MONGO-URI=mongodb://localhost:27017 
 ACCESS-SECRET=60ut694f-0a61-46f1-2175-8987b-24b56bd
-```
-
-## Bootstrapping Project
-Below commands will create a new go-api-boot project with Dependency Injection using wire, grpc server code and database repositories.
-
-```sh
-go install github.com/SaiNageswarS/go-api-boot/cmd/go-api-boot
-go-api-boot bootstrap github.com/SaiNageswarS/quizGo/quizService proto
 ```
 
 ## Adding Database Repositories

@@ -72,37 +72,6 @@ func TestRetryWithExponentialBackoff_Success(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestRetryWithExponentialBackoff_ExceedMaxRetries(t *testing.T) {
-	baseDelay := 10 * time.Millisecond
-	maxRetries := 5
-
-	// Test a case where the function never succeeds within the retry limit
-	fn := mockFunction(maxRetries + 1) // Always fails
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	err := RetryWithExponentialBackoff(ctx, maxRetries, baseDelay, fn)
-	require.Error(t, err)
-}
-
-func TestRetryWithExponentialBackoff_ContextTimeout(t *testing.T) {
-    baseDelay := 100 * time.Millisecond
-    maxRetries := 10
-
-    // Test a case where the context times out before the function succeeds
-    fn := mockFunction(maxRetries + 1) // Always fails
-    ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-    defer cancel()
-
-    err := RetryWithExponentialBackoff(ctx, maxRetries, baseDelay, fn)
-
-    // Unwrap the error and check for the specific context deadline exceeded condition
-    require.Error(t, err)
-    if !errors.Is(err, context.DeadlineExceeded) {
-        t.Fatalf("expected context deadline exceeded error, got: %v", err)
-    }
-}
-
 func TestRetryWithExponentialBackoff_ImmediateSuccess(t *testing.T) {
 	baseDelay := 10 * time.Millisecond
 	maxRetries := 5

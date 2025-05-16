@@ -35,7 +35,12 @@ func NewUnimplementedBootRepository[T any](options ...Option) UnimplementedBootR
 	config := NewConfig(options...)
 
 	if config.Client == nil {
-		config.Client = GetClient()
+		mongoClient, err := GetClient()
+		if err != nil {
+			logger.Fatal("Failed to get MongoDB client", zap.Error(err))
+		}
+
+		config.Client = mongoClient
 	}
 
 	return UnimplementedBootRepository[T]{

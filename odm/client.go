@@ -3,7 +3,9 @@ package odm
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/SaiNageswarS/go-api-boot/logger"
@@ -12,40 +14,55 @@ import (
 	"go.uber.org/zap"
 )
 
-var connection *mongo.Client = nil
+var (
+	connection MongoClient
+	once       sync.Once
+	connErr    error
+)
 
-func newMongoConn() *mongo.Client {
-	mongoUri := os.Getenv("MONGO-URI")
-
-	mongoOpts := options.Client().ApplyURI(mongoUri)
-	mongoOpts.TLSConfig.MinVersion = tls.VersionTLS12
-	// make sure to install ca-certs in docker image.
-	// mongoOpts.TLSConfig.InsecureSkipVerify = true
-
-	client, err := mongo.NewClient(mongoOpts)
-	if err != nil {
-		logger.Fatal("Failed to connect to mongo", zap.Error(err))
+var mongoConnect = func(ctx context.Context, uri string) (MongoClient, error) {
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
 	}
 
-	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-	err = client.Connect(ctx)
-	if err != nil {
-		logger.Fatal("Failed to connect to mongo", zap.Error(err))
-	}
+	opts := options.Client().ApplyURI(uri).SetTLSConfig(tlsConfig)
 
-	err = client.Ping(ctx, nil)
-	if err != nil {
-		logger.Fatal("Failed to connect to mongo", zap.Error(err))
-	}
-
-	return client
+	return mongo.Connect(ctx, opts)
 }
 
-func GetClient() *mongo.Client {
-	if connection != nil {
-		return connection
+// newMongoConn creates and returns a new mongo client connection
+func newMongoConn(ctx context.Context) (MongoClient, error) {
+	mongoUri := os.Getenv("MONGO-URI")
+	if mongoUri == "" {
+		return nil, errors.New("MONGO-URI environment variable is not set")
 	}
 
-	connection = newMongoConn()
-	return connection
+	client, err := mongoConnect(ctx, mongoUri)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := client.Ping(ctx, nil); err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
+// GetClient returns a singleton Mongo client, initialized once.
+func GetClient() (MongoClient, error) {
+	once.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		client, err := newMongoConn(ctx)
+		if err != nil {
+			connErr = err
+			logger.Error("Mongo connection failed", zap.Error(err))
+			return
+		}
+
+		connection = client
+	})
+
+	return connection, connErr
 }

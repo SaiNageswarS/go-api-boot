@@ -6,6 +6,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 )
 
 type CollectionInterface interface {
@@ -16,6 +17,11 @@ type CollectionInterface interface {
 	Aggregate(ctx context.Context, pipeline interface{}, opts ...*options.AggregateOptions) (*mongo.Cursor, error)
 	CountDocuments(ctx context.Context, filter interface{}, opts ...*options.CountOptions) (int64, error)
 	Distinct(ctx context.Context, fieldName string, filter interface{}, opts ...*options.DistinctOptions) ([]interface{}, error)
+}
+
+type MongoClient interface {
+	Ping(context.Context, *readpref.ReadPref) error
+	Database(name string, opts ...*options.DatabaseOptions) *mongo.Database
 }
 
 type Timer interface {

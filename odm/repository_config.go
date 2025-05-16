@@ -7,7 +7,7 @@ type Option func(*Config)
 type Config struct {
 	Database       string
 	CollectionName string
-	Client         *mongo.Client
+	Client         MongoClient
 }
 
 func NewConfig(options ...Option) *Config {

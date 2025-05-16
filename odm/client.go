@@ -15,25 +15,29 @@ import (
 )
 
 var (
-	connection *mongo.Client
+	connection MongoClient
 	once       sync.Once
 	connErr    error
 )
 
+var mongoConnect = func(ctx context.Context, uri string) (MongoClient, error) {
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+
+	opts := options.Client().ApplyURI(uri).SetTLSConfig(tlsConfig)
+
+	return mongo.Connect(ctx, opts)
+}
+
 // newMongoConn creates and returns a new mongo client connection
-func newMongoConn(ctx context.Context) (*mongo.Client, error) {
+func newMongoConn(ctx context.Context) (MongoClient, error) {
 	mongoUri := os.Getenv("MONGO-URI")
 	if mongoUri == "" {
 		return nil, errors.New("MONGO-URI environment variable is not set")
 	}
 
-	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS12,
-	}
-
-	mongoOpts := options.Client().ApplyURI(mongoUri).SetTLSConfig(tlsConfig)
-
-	client, err := mongo.Connect(ctx, mongoOpts)
+	client, err := mongoConnect(ctx, mongoUri)
 	if err != nil {
 		return nil, err
 	}
@@ -41,12 +45,11 @@ func newMongoConn(ctx context.Context) (*mongo.Client, error) {
 	if err := client.Ping(ctx, nil); err != nil {
 		return nil, err
 	}
-
 	return client, nil
 }
 
 // GetClient returns a singleton Mongo client, initialized once.
-func GetClient() (*mongo.Client, error) {
+func GetClient() (MongoClient, error) {
 	once.Do(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

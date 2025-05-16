@@ -5,122 +5,162 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/Azure/azure-sdk-for-go/sdk/keyvault/azsecrets"
-	"github.com/Azure/azure-storage-blob-go/azblob"
+	azsecrets "github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
+	azblob "github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	"go.uber.org/zap"
 )
 
-type Azure struct{}
+// Azure is the public implementation of the Cloud interface
+// It uses injected clients for testability
+type Azure struct {
+	KeyVaultClient KeyVaultClient
+	StorageClient  StorageUploader
+}
 
-func (c *Azure) LoadSecretsIntoEnv() {
+// ProvideAzure returns an instance of Azure with nil clients initially (created lazily)
+func ProvideAzure() Cloud {
+	return &Azure{}
+}
+
+func (a *Azure) LoadSecretsIntoEnv() {
 	logger.Info("Loading Azure Keyvault secrets into environment variables.")
-	client := getKeyvaultClient()
-	if client == nil {
-		logger.Error("Failed to load Azure Keyvault secrets into environment variables.")
-		return
+
+	if a.KeyVaultClient == nil {
+		keyVaultName := os.Getenv("AZURE-KEYVAULT-NAME")
+		if keyVaultName == "" {
+			logger.Error("AZURE-KEYVAULT-NAME not set")
+			return
+		}
+		url := fmt.Sprintf("https://%s.vault.azure.net/", keyVaultName)
+
+		cred, err := azidentity.NewDefaultAzureCredential(nil)
+		if err != nil {
+			logger.Error("Failed to get Azure credential", zap.Error(err))
+			return
+		}
+
+		client, err := azsecrets.NewClient(url, cred, nil)
+		if err != nil {
+			logger.Error("Failed to create KeyVault client", zap.Error(err))
+			return
+		}
+		a.KeyVaultClient = &realKeyVaultClient{client}
 	}
 
-	//List secrets
+	client := a.KeyVaultClient
 	var secretList []string
-	pager := client.NewListSecretsPager(nil)
+	pager := client.ListSecrets(nil)
 
 	for pager.More() {
 		page, err := pager.NextPage(context.TODO())
 		if err != nil {
-			logger.Error("failed to get next page: %v", zap.Error(err))
+			logger.Error("failed to get next page", zap.Error(err))
 			return
 		}
 
 		for _, secret := range page.Value {
-			resp, err := client.GetSecret(context.TODO(), secret.ID.Name(), secret.ID.Version(), nil)
+			name := *secret.ID.Name
+			resp, err := client.GetSecret(context.TODO(), name, "", nil)
 			if err != nil {
-				logger.Error("failed to get secret: %v", zap.Error(err))
+				logger.Error("failed to get secret", zap.Error(err))
 				continue
 			}
-
-			os.Setenv(secret.ID.Name(), *resp.Value)
-			secretList = append(secretList, secret.ID.Name())
+			os.Setenv(name, *resp.Value)
+			secretList = append(secretList, name)
 		}
 	}
 
-	logger.Info("Successfully loaded Azure Keyvault secrets into environment variables.", zap.Any("secrets", secretList))
+	logger.Info("Loaded Azure secrets into env", zap.Any("secrets", secretList))
 }
 
-// Uploads a stream to Azure storage.
-// containerName - Azure Container Name.
-// path - Azure path for the object like profile-photos/photo.jpg
-func (c *Azure) UploadStream(containerName, path string, imageData bytes.Buffer) (chan string, chan error) {
+func (a *Azure) UploadStream(container, path string, buf bytes.Buffer) (chan string, chan error) {
 	resultChan := make(chan string)
 	errorChan := make(chan error)
 
 	go func() {
-		accountName, accountKey := os.Getenv("AZURE-STORAGE-ACCOUNT"), os.Getenv("AZURE-STORAGE-ACCESS-KEY")
-		if len(accountName) == 0 || len(accountKey) == 0 {
-			logger.Error("Either the AZURE_STORAGE_ACCOUNT or AZURE_STORAGE_ACCESS_KEY environment variable is not set")
-			err := errors.New("missing azure account or access key")
-			errorChan <- err
-			return
+		if a.StorageClient == nil {
+			accountName := os.Getenv("AZURE-STORAGE-ACCOUNT")
+			accountKey := os.Getenv("AZURE-STORAGE-ACCESS-KEY")
+
+			if accountName == "" || accountKey == "" {
+				errorChan <- errors.New("missing azure account or key")
+				return
+			}
+
+			cred, err := azblob.NewSharedKeyCredential(accountName, accountKey)
+			if err != nil {
+				errorChan <- err
+				return
+			}
+
+			uploader := &realStorageUploader{accountName: accountName, credential: cred}
+			a.StorageClient = uploader
 		}
 
-		// Create a default request pipeline using your storage account name and account key.
-		credential, err := azblob.NewSharedKeyCredential(accountName, accountKey)
+		url, err := a.StorageClient.Upload(container, path, buf.Bytes())
 		if err != nil {
-			logger.Error("Invalid credentials with error: " + err.Error())
 			errorChan <- err
 			return
 		}
-		p := azblob.NewPipeline(credential, azblob.PipelineOptions{})
-
-		URL, _ := url.Parse(
-			fmt.Sprintf("https://%s.blob.core.windows.net/%s", accountName, containerName))
-
-		containerURL := azblob.NewContainerURL(*URL, p)
-		blobURL := containerURL.NewBlockBlobURL(path)
-		_, err = azblob.UploadBufferToBlockBlob(context.Background(), imageData.Bytes(), blobURL, azblob.UploadToBlockBlobOptions{
-			BlockSize:   4 * 1024 * 1024,
-			Parallelism: 16})
-
-		if err != nil {
-			logger.Error("Failed uploading image.")
-			errorChan <- err
-			return
-		}
-
-		uploadPath := fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s", accountName, containerName, path)
-		resultChan <- uploadPath
+		resultChan <- url
 	}()
 
 	return resultChan, errorChan
 }
 
-func (c *Azure) GetPresignedUrl(bucketName, path, contentType string, expiry time.Duration) (string, string) {
-	//TODO: Get presigned upload url and download url
+func (a *Azure) GetPresignedUrl(bucketName, path, contentType string, expiry time.Duration) (string, string) {
+	// Not implemented
 	return "", ""
 }
 
-func getKeyvaultClient() *azsecrets.Client {
-	keyVaultName := os.Getenv("AZURE-KEYVAULT-NAME")
-	keyVaultUrl := fmt.Sprintf("https://%s.vault.azure.net/", keyVaultName)
+// Interfaces for injection
 
-	//Create a credential using the NewDefaultAzureCredential type.
-	cred, err := azidentity.NewDefaultAzureCredential(nil)
+type KeyVaultClient interface {
+	ListSecrets(*azsecrets.ListSecretsOptions) *runtime.Pager[azsecrets.ListSecretsResponse]
+	GetSecret(ctx context.Context, name, version string, options *azsecrets.GetSecretOptions) (azsecrets.GetSecretResponse, error)
+}
+
+type StorageUploader interface {
+	Upload(container, path string, data []byte) (string, error)
+}
+
+// Real production implementations
+
+type realKeyVaultClient struct {
+	client *azsecrets.Client
+}
+
+func (r *realKeyVaultClient) ListSecrets(opts *azsecrets.ListSecretsOptions) *runtime.Pager[azsecrets.ListSecretsResponse] {
+	return r.client.NewListSecretsPager(opts)
+}
+
+func (r *realKeyVaultClient) GetSecret(ctx context.Context, name, version string, options *azsecrets.GetSecretOptions) (azsecrets.GetSecretResponse, error) {
+	return r.client.GetSecret(ctx, name, version, options)
+}
+
+type realStorageUploader struct {
+	accountName string
+	credential  *azblob.SharedKeyCredential
+}
+
+func (r *realStorageUploader) Upload(container, path string, data []byte) (string, error) {
+	serviceURL := fmt.Sprintf("https://%s.blob.core.windows.net/", r.accountName)
+	containerClient, err := azblob.NewContainerClient(fmt.Sprintf("%s%s", serviceURL, container), r.credential, nil)
 	if err != nil {
-		logger.Error("failed to obtain a credential: %v", zap.Error(err))
-		return nil
+		return "", err
 	}
 
-	//Establish a connection to the Key Vault client
-	client, err := azsecrets.NewClient(keyVaultUrl, cred, nil)
+	blobClient := containerClient.NewBlockBlobClient(path)
+	_, err = blobClient.UploadBuffer(context.Background(), data, azblob.UploadOption{})
 	if err != nil {
-		logger.Error("failed to connect to client: %v", zap.Error(err))
-		return nil
+		return "", err
 	}
 
-	return client
+	return fmt.Sprintf("%s%s/%s", serviceURL, container, path), nil
 }

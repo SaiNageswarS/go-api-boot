@@ -3,7 +3,9 @@ package odm
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/SaiNageswarS/go-api-boot/logger"
@@ -12,40 +14,52 @@ import (
 	"go.uber.org/zap"
 )
 
-var connection *mongo.Client = nil
+var (
+	connection *mongo.Client
+	once       sync.Once
+	connErr    error
+)
 
-func newMongoConn() *mongo.Client {
+// newMongoConn creates and returns a new mongo client connection
+func newMongoConn(ctx context.Context) (*mongo.Client, error) {
 	mongoUri := os.Getenv("MONGO-URI")
-
-	mongoOpts := options.Client().ApplyURI(mongoUri)
-	mongoOpts.TLSConfig.MinVersion = tls.VersionTLS12
-	// make sure to install ca-certs in docker image.
-	// mongoOpts.TLSConfig.InsecureSkipVerify = true
-
-	client, err := mongo.NewClient(mongoOpts)
-	if err != nil {
-		logger.Fatal("Failed to connect to mongo", zap.Error(err))
+	if mongoUri == "" {
+		return nil, errors.New("MONGO-URI environment variable is not set")
 	}
 
-	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-	err = client.Connect(ctx)
-	if err != nil {
-		logger.Fatal("Failed to connect to mongo", zap.Error(err))
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
 	}
 
-	err = client.Ping(ctx, nil)
+	mongoOpts := options.Client().ApplyURI(mongoUri).SetTLSConfig(tlsConfig)
+
+	client, err := mongo.Connect(ctx, mongoOpts)
 	if err != nil {
-		logger.Fatal("Failed to connect to mongo", zap.Error(err))
+		return nil, err
 	}
 
-	return client
+	if err := client.Ping(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	return client, nil
 }
 
-func GetClient() *mongo.Client {
-	if connection != nil {
-		return connection
-	}
+// GetClient returns a singleton Mongo client, initialized once.
+func GetClient() (*mongo.Client, error) {
+	once.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 
-	connection = newMongoConn()
-	return connection
+		client, err := newMongoConn(ctx)
+		if err != nil {
+			connErr = err
+			logger.Error("Mongo connection failed", zap.Error(err))
+			return
+		}
+
+		connection = client
+	})
+
+	return connection, connErr
 }

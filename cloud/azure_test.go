@@ -1,99 +1,145 @@
 package cloud
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"os"
+	"fmt"
 	"testing"
-	"time"
 
-	azsecrets "github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
+	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 )
 
-func TestLoadSecretsIntoEnv(t *testing.T) {
-	secrets := map[string]string{
-		"DB_USER": "admin",
-		"DB_PASS": "secret",
+func TestAzure_LoadSecretsIntoEnv(t *testing.T) {
+	mockSecrets := map[string]string{
+		"FOO": "bar",
+		"BAZ": "qux",
 	}
-	az := &Azure{KeyVaultClient: &mockKeyVaultClient{Secrets: secrets}}
-	az.LoadSecretsIntoEnv()
+	collectedEnv := map[string]string{}
 
-	assert.Equal(t, "admin", os.Getenv("DB_USER"))
-	assert.Equal(t, "secret", os.Getenv("DB_PASS"))
+	a := &Azure{
+		overrideVaultClient: func() (KeyVaultClient, error) {
+			return &mockVaultClient{secrets: mockSecrets}, nil
+		},
+		overrideSetEnv: func(key, value string) error {
+			collectedEnv[key] = value
+			return nil
+		},
+	}
+
+	a.LoadSecretsIntoEnv()
+
+	assert.Equal(t, "bar", collectedEnv["FOO"])
+	assert.Equal(t, "qux", collectedEnv["BAZ"])
 }
 
-func TestUploadStreamSuccess(t *testing.T) {
-	az := &Azure{StorageClient: &mockUploader{}}
-	resCh, errCh := az.UploadStream("test-container", "path.txt", *bytes.NewBufferString("data"))
+func TestAzure_UploadStream_Success(t *testing.T) {
+	a := &Azure{
+		overrideBlobClient: func(account string) (BlobClient, error) {
+			return &mockBlobClient{}, nil
+		},
+	}
+
+	resultChan, errChan := a.UploadStream("mystorage", "container", "myblob.txt", []byte("test content"))
 
 	select {
-	case url := <-resCh:
-		assert.Contains(t, url, "https://mock.blob.core.windows.net/test-container/path.txt")
-	case err := <-errCh:
-		t.Errorf("Unexpected error: %v", err)
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for result")
+	case err := <-errChan:
+		t.Fatalf("Unexpected error: %v", err)
+	case url := <-resultChan:
+		assert.Contains(t, url, "https://mystorage.blob.core.windows.net/container/myblob.txt")
 	}
 }
 
-func TestUploadStreamFailure(t *testing.T) {
-	az := &Azure{StorageClient: &mockUploader{Fail: true}}
-	_, errCh := az.UploadStream("test-container", "path.txt", *bytes.NewBufferString("data"))
+func TestAzure_UploadStream_Failure(t *testing.T) {
+	a := &Azure{
+		overrideBlobClient: func(account string) (BlobClient, error) {
+			return &mockBlobClient{ShouldFail: true}, nil
+		},
+	}
+
+	resultChan, errChan := a.UploadStream("mystorage", "container", "myblob.txt", []byte("test content"))
 
 	select {
-	case err := <-errCh:
+	case res := <-resultChan:
+		t.Fatalf("Expected error but got result: %v", res)
+	case err := <-errChan:
 		assert.EqualError(t, err, "upload failed")
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for error")
 	}
 }
 
-type mockKeyVaultClient struct {
-	mock.Mock
-	Secrets map[string]string
-}
-
-func (m *mockKeyVaultClient) ListSecrets(opts *azsecrets.ListSecretsOptions) *mockPager {
-	return &mockPager{secrets: m.Secrets}
-}
-
-func (m *mockKeyVaultClient) GetSecret(ctx context.Context, name, version string, options *azsecrets.GetSecretOptions) (azsecrets.GetSecretResponse, error) {
-	val, ok := m.Secrets[name]
-	if !ok {
-		return azsecrets.GetSecretResponse{}, errors.New("not found")
+func TestAzure_UploadStream_BlobClientNil(t *testing.T) {
+	a := &Azure{
+		overrideBlobClient: func(account string) (BlobClient, error) {
+			return nil, errors.New("simulated init failure")
+		},
 	}
-	return azsecrets.GetSecretResponse{Value: &val}, nil
+
+	resultChan, errChan := a.UploadStream("badaccount", "container", "myblob.txt", []byte("data"))
+
+	select {
+	case <-resultChan:
+		t.Fatal("Expected error, got success")
+	case err := <-errChan:
+		assert.ErrorContains(t, err, "simulated init failure")
+	}
 }
 
-type mockPager struct {
+type mockVaultClient struct {
 	secrets map[string]string
-	called  bool
 }
 
-func (m *mockPager) More() bool {
-	return !m.called
-}
-
-func (m *mockPager) NextPage(ctx context.Context) (azsecrets.ListSecretsResponse, error) {
-	m.called = true
-	var props []*azsecrets.SecretProperties
+func (m *mockVaultClient) NewListSecretPropertiesPager(*azsecrets.ListSecretPropertiesOptions) *runtime.Pager[azsecrets.ListSecretPropertiesResponse] {
+	keys := make([]string, 0, len(m.secrets))
 	for k := range m.secrets {
-		name := k
-		props = append(props, &azsecrets.SecretProperties{ID: &azsecrets.ID{Name: &name}})
+		keys = append(keys, k)
 	}
-	return azsecrets.ListSecretsResponse{Value: props}, nil
+	index := 0
+
+	return runtime.NewPager(runtime.PagingHandler[azsecrets.ListSecretPropertiesResponse]{
+		More: func(resp azsecrets.ListSecretPropertiesResponse) bool {
+			return index < len(keys)
+		},
+		Fetcher: func(ctx context.Context, _ *azsecrets.ListSecretPropertiesResponse) (azsecrets.ListSecretPropertiesResponse, error) {
+			if index >= len(keys) {
+				return azsecrets.ListSecretPropertiesResponse{}, nil
+			}
+
+			secretName := keys[index]
+			index++
+
+			// Simulate the full URL (format used in actual Azure response)
+			fullID := azsecrets.ID(fmt.Sprintf("https://fake-vault.vault.azure.net/secrets/%s/123456", secretName))
+
+			return azsecrets.ListSecretPropertiesResponse{
+				SecretPropertiesListResult: azsecrets.SecretPropertiesListResult{
+					Value: []*azsecrets.SecretProperties{
+						{
+							ID: &fullID,
+						},
+					},
+				},
+			}, nil
+		},
+	})
 }
 
-type mockUploader struct {
-	Fail bool
+func (m *mockVaultClient) GetSecret(ctx context.Context, name string, version string, secretOptions *azsecrets.GetSecretOptions) (azsecrets.GetSecretResponse, error) {
+	if val, ok := m.secrets[name]; ok {
+		return azsecrets.GetSecretResponse{Secret: azsecrets.Secret{Value: &val}}, nil
+	}
+
+	return azsecrets.GetSecretResponse{}, errors.New("not found")
 }
 
-func (m *mockUploader) Upload(container, path string, data []byte) (string, error) {
-	if m.Fail {
-		return "", errors.New("upload failed")
+type mockBlobClient struct {
+	ShouldFail bool
+}
+
+func (m *mockBlobClient) UploadBuffer(ctx context.Context, containerName string, blobName string, data []byte, opts *azblob.UploadBufferOptions) (azblob.UploadBufferResponse, error) {
+	if m.ShouldFail {
+		return azblob.UploadBufferResponse{}, errors.New("upload failed")
 	}
-	return "https://mock.blob.core.windows.net/" + container + "/" + path, nil
+	return azblob.UploadBufferResponse{}, nil
 }

@@ -10,8 +10,7 @@ import (
 
 // Sanity tests to check generation runs without error and creates files.
 // These tests do not check the content of the generated files, only that they
-// are created and do not return an error. The content is checked in
-// templates_test.go.
+// are created and do not return an error.
 
 func TestGenerateMain_OK(t *testing.T) {
 	tmp := t.TempDir()

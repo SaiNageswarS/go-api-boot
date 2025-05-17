@@ -24,6 +24,11 @@ func (c *AWS) UploadStream(bucketName, path string, imageData bytes.Buffer) (cha
 	return nil, nil
 }
 
+func (c *AWS) DownloadFile(bucketName, path string) (chan string, chan error) {
+	//TODO: Download file from aws bucket
+	return nil, nil
+}
+
 // Returns pre-signed upload Url and download URL.
 func (c *AWS) GetPresignedUrl(bucketName, path, contentType string, expiry time.Duration) (string, string) {
 	awsRegion := bootUtils.GetEnvOrDefault("AWS_REGION", "ap-south-1")

@@ -3,13 +3,14 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"net/http"
+	"os"
+	"time"
+
 	"github.com/SaiNageswarS/go-api-boot/bootUtils"
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/acme/autocert"
-	"net/http"
-	"os"
-	"time"
 )
 
 type SSLManager struct {
@@ -17,14 +18,17 @@ type SSLManager struct {
 	domain      string
 }
 
-func NewSSLManager() *SSLManager {
+func NewSSLManager(cache autocert.Cache) *SSLManager {
 	domain := os.Getenv("DOMAIN")
+	if domain == "" {
+		logger.Fatal("DOMAIN environment variable is not set.")
+	}
 
 	return &SSLManager{
 		certManager: autocert.Manager{
 			Prompt:     autocert.AcceptTOS,
 			HostPolicy: autocert.HostWhitelist(domain), // Your domain name here
-			Cache:      autocert.DirCache("certs"),     // Folder for storing certificates
+			Cache:      cache,
 		},
 
 		domain: domain,

@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/SaiNageswarS/go-api-boot/auth"
+	"github.com/SaiNageswarS/go-api-boot/cloud"
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	grpc_zap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
@@ -22,6 +23,7 @@ type Config struct {
 	// Additional http handlers. All of the gRpc APIs will be exposed by default on http Rest for web.
 	ExtraHttpHandlers map[string]func(http.ResponseWriter, *http.Request)
 	SSL               bool
+	CloudFns          cloud.Cloud
 }
 
 func NewConfig(options ...Option) *Config {

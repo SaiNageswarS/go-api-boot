@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
@@ -67,11 +68,17 @@ func (a *Azure) LoadSecretsIntoEnv() {
 // Uploads a stream to Azure storage.
 // containerName - Azure Container Name.
 // blobName - Azure path for the object like profile-photos/photo.jpg
-func (a *Azure) UploadStream(accountName, containerName, blobName string, fileData []byte) (chan string, chan error) {
+func (a *Azure) UploadStream(containerName, blobName string, fileData []byte) (chan string, chan error) {
 	resultChan := make(chan string, 1)
 	errorChan := make(chan error, 1)
 
 	go func() {
+		accountName := os.Getenv("AZURE_STORAGE_ACCOUNT")
+		if accountName == "" {
+			errorChan <- fmt.Errorf("AZURE_STORAGE_ACCOUNT environment variable not set")
+			return
+		}
+
 		var client BlobClient
 		var err error
 		if a.overrideBlobClient != nil {
@@ -97,6 +104,59 @@ func (a *Azure) UploadStream(accountName, containerName, blobName string, fileDa
 
 		url := fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s", accountName, containerName, blobName)
 		resultChan <- url
+	}()
+
+	return resultChan, errorChan
+}
+
+func (a *Azure) DownloadFile(containerName, blobName string) (chan string, chan error) {
+	resultChan := make(chan string, 1)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		accountName := os.Getenv("AZURE_STORAGE_ACCOUNT")
+		if accountName == "" {
+			errorChan <- fmt.Errorf("AZURE_STORAGE_ACCOUNT environment variable not set")
+			return
+		}
+
+		var client BlobClient
+		var err error
+		if a.overrideBlobClient != nil {
+			client, err = a.overrideBlobClient(accountName)
+		} else {
+			client, err = getServiceClientTokenCredential(accountName)
+		}
+
+		if err != nil || client == nil {
+			errorChan <- fmt.Errorf("failed to create blob client: %v", err)
+			return
+		}
+
+		// Get file name from blob path (e.g., "folder/image.png" → "image.png")
+		fileName := path.Base(blobName)
+
+		// Create temp file in the system temp dir
+		tmpDir := os.TempDir()
+		tmpFilePath := path.Join(tmpDir, fileName)
+		tmpFile, err := os.Create(tmpFilePath)
+		if err != nil {
+			errorChan <- fmt.Errorf("failed to create temp file: %v", err)
+			return
+		}
+		defer tmpFile.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		_, err = client.DownloadFile(ctx, containerName, blobName, tmpFile, nil)
+		if err != nil {
+			logger.Error("failed to download blob to file", zap.Error(err))
+			errorChan <- err
+			return
+		}
+
+		resultChan <- tmpFilePath
 	}()
 
 	return resultChan, errorChan
@@ -146,4 +206,5 @@ type KeyVaultClient interface {
 
 type BlobClient interface {
 	UploadBuffer(context.Context, string, string, []byte, *azblob.UploadBufferOptions) (azblob.UploadBufferResponse, error)
+	DownloadFile(ctx context.Context, containerName string, blobName string, file *os.File, o *azblob.DownloadFileOptions) (int64, error)
 }

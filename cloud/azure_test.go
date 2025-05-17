@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
@@ -42,7 +43,8 @@ func TestAzure_UploadStream_Success(t *testing.T) {
 		},
 	}
 
-	resultChan, errChan := a.UploadStream("mystorage", "container", "myblob.txt", []byte("test content"))
+	os.Setenv("AZURE_STORAGE_ACCOUNT", "mystorage")
+	resultChan, errChan := a.UploadStream("container", "myblob.txt", []byte("test content"))
 
 	select {
 	case err := <-errChan:
@@ -59,7 +61,8 @@ func TestAzure_UploadStream_Failure(t *testing.T) {
 		},
 	}
 
-	resultChan, errChan := a.UploadStream("mystorage", "container", "myblob.txt", []byte("test content"))
+	os.Setenv("AZURE_STORAGE_ACCOUNT", "mystorage")
+	resultChan, errChan := a.UploadStream("container", "myblob.txt", []byte("test content"))
 
 	select {
 	case res := <-resultChan:
@@ -76,13 +79,72 @@ func TestAzure_UploadStream_BlobClientNil(t *testing.T) {
 		},
 	}
 
-	resultChan, errChan := a.UploadStream("badaccount", "container", "myblob.txt", []byte("data"))
+	os.Setenv("AZURE_STORAGE_ACCOUNT", "mystorage")
+	resultChan, errChan := a.UploadStream("container", "myblob.txt", []byte("data"))
 
 	select {
 	case <-resultChan:
 		t.Fatal("Expected error, got success")
 	case err := <-errChan:
 		assert.ErrorContains(t, err, "simulated init failure")
+	}
+}
+
+func TestAzure_DownloadFile_Success(t *testing.T) {
+	a := &Azure{
+		overrideBlobClient: func(account string) (BlobClient, error) {
+			return &mockBlobClient{}, nil
+		},
+	}
+
+	os.Setenv("AZURE_STORAGE_ACCOUNT", "mystorage")
+	resultChan, errChan := a.DownloadFile("container", "path/to/blob.txt")
+
+	select {
+	case err := <-errChan:
+		t.Fatalf("Unexpected error: %v", err)
+	case filePath := <-resultChan:
+		assert.Contains(t, filePath, "blob.txt")
+		content, err := os.ReadFile(filePath)
+		assert.NoError(t, err)
+		assert.Equal(t, "mock blob content", string(content))
+		_ = os.Remove(filePath) // cleanup
+	}
+}
+
+func TestAzure_DownloadFile_Failure(t *testing.T) {
+	a := &Azure{
+		overrideBlobClient: func(account string) (BlobClient, error) {
+			return &mockBlobClient{ShouldFail: true}, nil
+		},
+	}
+
+	os.Setenv("AZURE_STORAGE_ACCOUNT", "mystorage")
+	resultChan, errChan := a.DownloadFile("container", "blob.txt")
+
+	select {
+	case <-resultChan:
+		t.Fatal("Expected error, got success")
+	case err := <-errChan:
+		assert.EqualError(t, err, "download failed")
+	}
+}
+
+func TestAzure_DownloadFile_BlobClientNil(t *testing.T) {
+	a := &Azure{
+		overrideBlobClient: func(account string) (BlobClient, error) {
+			return nil, errors.New("client init failed")
+		},
+	}
+
+	os.Setenv("AZURE_STORAGE_ACCOUNT", "mystorage")
+	resultChan, errChan := a.DownloadFile("container", "blob.txt")
+
+	select {
+	case <-resultChan:
+		t.Fatal("Expected error, got success")
+	case err := <-errChan:
+		assert.ErrorContains(t, err, "client init failed")
 	}
 }
 
@@ -142,4 +204,15 @@ func (m *mockBlobClient) UploadBuffer(ctx context.Context, containerName string,
 		return azblob.UploadBufferResponse{}, errors.New("upload failed")
 	}
 	return azblob.UploadBufferResponse{}, nil
+}
+
+func (m *mockBlobClient) DownloadFile(ctx context.Context, containerName string, blobName string, file *os.File, o *azblob.DownloadFileOptions) (int64, error) {
+	if m.ShouldFail {
+		return 0, errors.New("download failed")
+	}
+	_, err := file.Write([]byte("mock blob content"))
+	if err != nil {
+		return 0, err
+	}
+	return int64(len("mock blob content")), nil
 }

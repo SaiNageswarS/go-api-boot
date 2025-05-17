@@ -10,7 +10,9 @@ import (
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
+	"golang.org/x/crypto/acme/autocert"
 
+	"github.com/SaiNageswarS/go-api-boot/cloud"
 	"github.com/SaiNageswarS/go-api-boot/logger"
 
 	"go.uber.org/zap"
@@ -21,6 +23,7 @@ type GoApiBoot struct {
 	GrpcServer *grpc.Server
 	WebServer  *http.Server
 	ssl        bool
+	cloudFns   cloud.Cloud
 }
 
 func NewGoApiBoot(options ...Option) *GoApiBoot {
@@ -48,7 +51,14 @@ func (g *GoApiBoot) Start(grpcPort, webPort string) {
 
 	logger.Info("Starting web server at ", zap.String("port", webPort))
 	if g.ssl {
-		sslManager := NewSSLManager()
+		var cache autocert.Cache
+		if g.cloudFns != nil {
+			cache = NewSslCloudCache(g.cloudFns)
+		} else {
+			cache = autocert.DirCache("certs")
+		}
+
+		sslManager := NewSSLManager(cache)
 		sslManager.RunAcmeChallengeListener()
 		sslManager.DownloadCertificatesWithRetry()
 

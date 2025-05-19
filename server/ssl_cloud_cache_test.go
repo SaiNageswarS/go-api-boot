@@ -15,7 +15,7 @@ func TestSslCloudCache_Get_NoBucketEnv(t *testing.T) {
 	cc := NewSslCloudCache(config, &mockCloud{})
 
 	_, err := cc.Get(context.Background(), "does-not-matter.pem")
-	if err == nil || err.Error() != "SSL_BUCKET environment variable is not set" {
+	if err == nil || err.Error() != "SslBucket not set" {
 		t.Fatalf("expected env-var error, got %v", err)
 	}
 }
@@ -78,7 +78,7 @@ func TestSslCloudCache_Put_NoBucketEnv(t *testing.T) {
 	cc := NewSslCloudCache(config, &mockCloud{})
 
 	err := cc.Put(context.Background(), "cert.pem", []byte("bytes"))
-	if err == nil || err.Error() != "SSL_BUCKET environment variable is not set" {
+	if err == nil || err.Error() != "SslBucket not set" {
 		t.Fatalf("expected env-var error, got %v", err)
 	}
 }

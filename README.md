@@ -131,6 +131,11 @@ $ ./build/quizService
 ### Server
 
 ```go
+type AppConfig struct {
+	BootConfig  `ini:",extends"`
+	CustomField string `env:"CUSTOM-FIELD" ini:"custom_field"`
+}
+
 // Load secrets and config
 dotenv.LoadEnv()
 // Pick a cloud provider – all implement cloud.Cloud
@@ -139,8 +144,8 @@ cloudFns := cloud.Azure{}
 cloudFns.LoadSecretsIntoEnv()
 
 // load config file
-var ccfg *config.BootConfig // extend BootConfig with your own struct.
-config.LoadConfig[config.BootConfig]("config.ini", ccfg)
+var ccfg *config.AppConfig 
+config.LoadConfig("config.ini", ccfg)
 
 boot, _ := server.New(cfg).
     GRPCPort(":50051").        // or ":0" for dynamic

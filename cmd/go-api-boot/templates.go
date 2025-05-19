@@ -40,6 +40,10 @@ func CopyGitIgnore(folderName string) error {
 	return generateCode(folderName, "templates/.gitignore.tmpl", ".gitignore", map[string]string{})
 }
 
+func CopyIniFile(folderName string) error {
+	return generateCode(folderName, "templates/config.ini.tmpl", "config.ini", map[string]string{})
+}
+
 func GenerateRepo(modelName string) error {
 	data := map[string]string{
 		"ModelName": modelName,

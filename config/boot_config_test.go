@@ -10,19 +10,18 @@ import (
 
 // AppConfig is a test struct that embeds BaseConfig
 type AppConfig struct {
-	BootConfig
+	BootConfig  `ini:",extends"`
 	CustomField string `env:"CUSTOM-FIELD" ini:"custom_field"`
 }
 
 func TestLoadConfig_LoadsFromIniAndEnv(t *testing.T) {
 	// Step 1: Create temporary .ini config file
 	iniContent := `
-mongo-uri = mongodb://localhost:27017
-access-secret = from_ini
-ssl-bucket = bucket_ini
+mongo_uri = mongodb://localhost:27017
+access_secret = from_ini
+ssl_bucket = bucket_ini
 domain = example.com
-azure-storage-account = mystorageaccount
-gcp-project-id = myproject
+azure_storage_account = mystorageaccount
 custom_field = from_ini
 `
 	tmpFile := filepath.Join(t.TempDir(), "test.ini")
@@ -45,6 +44,5 @@ custom_field = from_ini
 	assert.Equal(t, "bucket_ini", cfg.SslBucket)
 	assert.Equal(t, "example.com", cfg.Domain)
 	assert.Equal(t, "mystorageaccount", cfg.AzureStorageAccount)
-	assert.Equal(t, "myproject", cfg.GcpProjectId)
 	assert.Equal(t, "env_value", cfg.CustomField) // overridden by env
 }

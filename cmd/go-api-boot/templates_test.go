@@ -62,6 +62,10 @@ func TestGenerateDockerAndGitIgnore_OK(t *testing.T) {
 		t.Fatalf("CopyGitIgnore: %v", err)
 	}
 
+	if err := CopyIniFile(tmp); err != nil {
+		t.Fatalf("CopyIniFile: %v", err)
+	}
+
 	if _, err := os.Stat(filepath.Join(tmp, "Dockerfile")); err != nil {
 		t.Fatalf("Dockerfile not created: %v", err)
 	}

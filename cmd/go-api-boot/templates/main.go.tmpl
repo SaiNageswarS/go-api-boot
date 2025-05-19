@@ -6,6 +6,11 @@ import (
 	"github.com/rs/cors"
 )
 
+type AppConfig struct {
+	BootConfig  `ini:",extends"`
+	CustomField string `env:"CUSTOM-FIELD" ini:"custom_field"`
+}
+
 func main() {
 
 	// Load secrets and config
@@ -16,8 +21,8 @@ func main() {
 	cloudFns.LoadSecretsIntoEnv()
 
 	// load config file
-	var ccfg *config.BootConfig // extend BootConfig with your own struct.
-	config.LoadConfig[config.BootConfig]("config.ini", ccfg)
+	var ccfg *AppConfig 
+	config.LoadConfig("config.ini", ccfg)
 
 	boot, _ := server.New(cfg).
 		GRPCPort(":50051").        // or ":0" for dynamic

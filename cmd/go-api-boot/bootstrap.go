@@ -31,6 +31,9 @@ func Bootstrap(projectName, protoPath string) {
 	err = CopyGitIgnore(folderName)
 	CheckErr(err)
 
+	err = CopyIniFile(folderName)
+	CheckErr(err)
+
 	err = GenerateDockerFile(folderName)
 	CheckErr(err)
 }

@@ -11,6 +11,7 @@ EXPOSE 8081
 EXPOSE 50051
 
 ADD build/{{.ExeName}} /app/{{.ExeName}}
+ADD config.ini /app/config.ini
 RUN ls -l
 
 CMD /app/{{.ExeName}}

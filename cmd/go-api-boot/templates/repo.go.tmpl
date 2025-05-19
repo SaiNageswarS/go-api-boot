@@ -11,19 +11,6 @@ func (m *{{.ModelName}}Model) Id() string {
     return ""
 }
 
-type {{.ModelName}}RepositoryInterface interface {
-    odm.BootRepository[{{.ModelName}}Model]
-}
-
-type {{.ModelName}}Repository struct {
-    odm.UnimplementedBootRepository[{{.ModelName}}Model]
-}
-
-func Provide{{.ModelName}}Repository() {{.ModelName}}RepositoryInterface {
-    baseRepo := odm.NewUnimplementedBootRepository[{{.ModelName}}Model](
-		odm.WithDatabase(""),
-        odm.WithCollectionName(""),
-	)
-
-    return &{{.ModelName}}Repository{baseRepo}
+func (m *{{.ModelName}}Model) CollectionName() string {
+    return "{{.ModelName}}"
 }

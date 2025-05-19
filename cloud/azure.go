@@ -11,6 +11,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/SaiNageswarS/go-api-boot/config"
+	"github.com/SaiNageswarS/go-api-boot/dotenv"
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	"go.uber.org/zap"
 )
@@ -68,14 +70,14 @@ func (a *Azure) LoadSecretsIntoEnv() {
 // Uploads a stream to Azure storage.
 // containerName - Azure Container Name.
 // blobName - Azure path for the object like profile-photos/photo.jpg
-func (a *Azure) UploadStream(containerName, blobName string, fileData []byte) (chan string, chan error) {
+func (a *Azure) UploadStream(config *config.BootConfig, containerName, blobName string, fileData []byte) (chan string, chan error) {
 	resultChan := make(chan string, 1)
 	errorChan := make(chan error, 1)
 
 	go func() {
-		accountName := os.Getenv("AZURE_STORAGE_ACCOUNT")
+		accountName := config.AzureStorageAccount
 		if accountName == "" {
-			errorChan <- fmt.Errorf("AZURE_STORAGE_ACCOUNT environment variable not set")
+			errorChan <- fmt.Errorf("AzureStorageAccount config not set")
 			return
 		}
 
@@ -109,14 +111,15 @@ func (a *Azure) UploadStream(containerName, blobName string, fileData []byte) (c
 	return resultChan, errorChan
 }
 
-func (a *Azure) DownloadFile(containerName, blobName string) (chan string, chan error) {
+func (a *Azure) DownloadFile(config *config.BootConfig, containerName, blobName string) (chan string, chan error) {
+	dotenv.LoadEnv()
 	resultChan := make(chan string, 1)
 	errorChan := make(chan error, 1)
 
 	go func() {
-		accountName := os.Getenv("AZURE_STORAGE_ACCOUNT")
+		accountName := config.AzureStorageAccount
 		if accountName == "" {
-			errorChan <- fmt.Errorf("AZURE_STORAGE_ACCOUNT environment variable not set")
+			errorChan <- fmt.Errorf("AzureStorageAccount config not set")
 			return
 		}
 
@@ -162,7 +165,7 @@ func (a *Azure) DownloadFile(containerName, blobName string) (chan string, chan 
 	return resultChan, errorChan
 }
 
-func (c *Azure) GetPresignedUrl(bucketName, path, contentType string, expiry time.Duration) (string, string) {
+func (c *Azure) GetPresignedUrl(config *config.BootConfig, bucketName, path, contentType string, expiry time.Duration) (string, string) {
 	//TODO: Get presigned upload url and download url
 	return "", ""
 }

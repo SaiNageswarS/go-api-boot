@@ -31,16 +31,10 @@ func Bootstrap(projectName, protoPath string) {
 	err = CopyGitIgnore(folderName)
 	CheckErr(err)
 
+	err = CopyIniFile(folderName)
+	CheckErr(err)
+
 	err = GenerateDockerFile(folderName)
-	CheckErr(err)
-
-	err = GenerateAppState(projectName, folderName)
-	CheckErr(err)
-
-	err = GenerateDbApi(folderName, []map[string]string{})
-	CheckErr(err)
-
-	err = GenerateWire(projectName, folderName, []map[string]string{}, []map[string]string{})
 	CheckErr(err)
 }
 

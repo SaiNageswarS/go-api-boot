@@ -13,20 +13,9 @@ func AddService(serviceName string) {
 
 	fmt.Printf("Adding service %sService\n", serviceName)
 
-	appState, err := ReadAppState()
+	projectName, err := GetProjectName()
 	CheckErr(err)
 
-	data := map[string]string{
-		"ServiceName": serviceName,
-	}
-
-	appState.Services = append(appState.Services, data)
-	err = WriteAppState(appState)
-	CheckErr(err)
-
-	err = GenerateService(serviceName, appState.ProjectName)
-	CheckErr(err)
-
-	err = GenerateWire(appState.ProjectName, ".", appState.DbModels, appState.Services)
+	err = GenerateService(serviceName, projectName)
 	CheckErr(err)
 }

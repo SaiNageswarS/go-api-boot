@@ -19,17 +19,21 @@ type TestModel struct {
 	Email    string `bson:"email"`
 }
 
-func (m *TestModel) Id() string {
+func (m TestModel) Id() string {
 	return "rg"
 }
 
+func (m TestModel) CollectionName() string {
+	return "test"
+}
+
 type TestRepository struct {
-	UnimplementedBootRepository[TestModel]
+	OdmCollection[TestModel]
 }
 
 func TestSave(t *testing.T) {
 	collection := &MockCollection{}
-	baseRepo := UnimplementedBootRepository[TestModel]{collection: collection, timer: &MockTimer{}}
+	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
 	repo := &TestRepository{baseRepo}
 
 	expectedFilter := bson.M{"_id": "rg"}
@@ -46,7 +50,7 @@ func TestSave(t *testing.T) {
 
 func TestSaveErr(t *testing.T) {
 	collection := &MockCollection{}
-	baseRepo := UnimplementedBootRepository[TestModel]{collection: collection, timer: &MockTimer{}}
+	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
 	repo := &TestRepository{baseRepo}
 
 	expectedErr := fmt.Errorf("failed to save")
@@ -60,7 +64,7 @@ func TestSaveErr(t *testing.T) {
 
 func TestUpdate(t *testing.T) {
 	collection := &MockCollection{}
-	baseRepo := UnimplementedBootRepository[TestModel]{collection: collection, timer: &MockTimer{}}
+	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
 	repo := &TestRepository{baseRepo}
 
 	expectedFilter := bson.M{"_id": "rg"}
@@ -77,7 +81,7 @@ func TestUpdate(t *testing.T) {
 
 func TestFindOneById(t *testing.T) {
 	collection := &MockCollection{}
-	baseRepo := UnimplementedBootRepository[TestModel]{collection: collection, timer: &MockTimer{}}
+	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
 	repo := &TestRepository{baseRepo}
 
 	expectedFilter := bson.M{"_id": "rg"}
@@ -97,7 +101,7 @@ func TestFindOneById(t *testing.T) {
 
 func TestFind(t *testing.T) {
 	collection := &MockCollection{}
-	baseRepo := UnimplementedBootRepository[TestModel]{collection: collection, timer: &MockTimer{}}
+	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
 	repo := &TestRepository{baseRepo}
 
 	filter := bson.M{"email": "rick@gmail.com"}
@@ -120,7 +124,7 @@ func TestFind(t *testing.T) {
 
 func TestAggregate(t *testing.T) {
 	collection := &MockCollection{}
-	baseRepo := UnimplementedBootRepository[TestModel]{collection: collection, timer: &MockTimer{}}
+	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
 	repo := &TestRepository{baseRepo}
 
 	expectedPipeline := mongo.Pipeline{
@@ -147,7 +151,7 @@ func TestAggregate(t *testing.T) {
 
 func TestDeleteById(t *testing.T) {
 	collection := &MockCollection{}
-	baseRepo := UnimplementedBootRepository[TestModel]{collection: collection, timer: &MockTimer{}}
+	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
 	repo := &TestRepository{baseRepo}
 
 	expectedFilter := bson.M{"_id": "rg"}
@@ -160,7 +164,7 @@ func TestDeleteById(t *testing.T) {
 
 func TestDeleteOne(t *testing.T) {
 	collection := &MockCollection{}
-	baseRepo := UnimplementedBootRepository[TestModel]{collection: collection, timer: &MockTimer{}}
+	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
 	repo := &TestRepository{baseRepo}
 
 	filter := bson.M{"email": "rick@gmail.com"}
@@ -172,7 +176,7 @@ func TestDeleteOne(t *testing.T) {
 
 func TestCountDocuments(t *testing.T) {
 	collection := &MockCollection{}
-	baseRepo := UnimplementedBootRepository[TestModel]{collection: collection, timer: &MockTimer{}}
+	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
 	repo := &TestRepository{baseRepo}
 
 	filter := bson.M{"email": "rick@gmail.com"}
@@ -189,7 +193,7 @@ func TestCountDocuments(t *testing.T) {
 
 func TestDistinct(t *testing.T) {
 	collection := &MockCollection{}
-	baseRepo := UnimplementedBootRepository[TestModel]{collection: collection, timer: &MockTimer{}}
+	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
 	repo := &TestRepository{baseRepo}
 
 	field := "email"
@@ -209,7 +213,7 @@ func TestDistinct(t *testing.T) {
 
 func TestIsExistsById(t *testing.T) {
 	collection := &MockCollection{}
-	baseRepo := UnimplementedBootRepository[TestModel]{collection: collection, timer: &MockTimer{}}
+	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
 	repo := &TestRepository{baseRepo}
 
 	collection.On("CountDocuments", mock.Anything, bson.M{"_id": "rg"}, mock.Anything).Return(int64(1), nil)

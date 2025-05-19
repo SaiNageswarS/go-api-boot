@@ -40,22 +40,8 @@ func CopyGitIgnore(folderName string) error {
 	return generateCode(folderName, "templates/.gitignore.tmpl", ".gitignore", map[string]string{})
 }
 
-func GenerateDbApi(folderName string, models []map[string]string) error {
-	return generateCode(folderName+"/db", "templates/dbApi.go.tmpl", "dbApi.go", models)
-}
-
-func GenerateWire(projectName, folderName string, models []map[string]string, services []map[string]string) error {
-	data := map[string]interface{}{
-		"Models":      models,
-		"ProjectPath": projectName,
-		"Services":    services,
-	}
-
-	return generateCode(folderName, "templates/wire.go.tmpl", "wire.go", data)
-}
-
-func GenerateAppState(projectName, folderName string) error {
-	return generateCode(folderName, "templates/appState.json.tmpl", "appState.json", map[string]string{"ProjectName": projectName})
+func CopyIniFile(folderName string) error {
+	return generateCode(folderName, "templates/config.ini.tmpl", "config.ini", map[string]string{})
 }
 
 func GenerateRepo(modelName string) error {

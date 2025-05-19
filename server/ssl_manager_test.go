@@ -9,16 +9,17 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 )
 
+// ─────────────────────────────────────────────────────────────
+// NewSSLManager – constructor sanity check
+// ─────────────────────────────────────────────────────────────
 func TestNewSSLManager_WithDomain(t *testing.T) {
-	t.Setenv("DOMAIN", "example.com")
-
-	mgr := NewSSLManager(tempCache(t))
+	mgr := NewSSLManager("example.com", tempCache(t))
 
 	if got, want := mgr.domain, "example.com"; got != want {
 		t.Fatalf("mgr.domain = %q, want %q", got, want)
 	}
 
-	// quick sanity: HostPolicy must approve our domain
+	// HostPolicy must approve the given domain.
 	if err := mgr.certManager.HostPolicy(context.Background(), "example.com"); err != nil {
 		t.Fatalf("HostPolicy rejected domain: %v", err)
 	}
@@ -26,33 +27,39 @@ func TestNewSSLManager_WithDomain(t *testing.T) {
 
 /*
 ────────────────────────────────────────────────────────────────────────────────
-RunAcmeChallengeListener test
+Run(ctx) must respect context cancellation promptly.
 
-The function should return immediately (it spawns a goroutine).
-We don’t assert on the ListenAndServe outcome – it will fail quickly on
-port 80 in most test environments, which is acceptable.
+We don’t assert on the ListenAndServe outcome – it is expected to fail on
+port 80 in most CI environments, and that is fine as long as Run() returns.
 */
-func TestRunAcmeChallengeListener_NonBlocking(t *testing.T) {
+func TestRun_ContextCancellation(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("Test uses :http which is unsupported on Windows")
+		t.Skip("ACME :http listener is unsupported on Windows CI")
 	}
 
-	t.Setenv("DOMAIN", "example.com")
-	mgr := NewSSLManager(tempCache(t))
+	mgr := NewSSLManager("example.com", tempCache(t))
 
+	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
+
 	go func() {
-		mgr.RunAcmeChallengeListener()
+		_ = mgr.Run(ctx) // ignore error (port 80 likely unavailable)
 		close(done)
 	}()
 
+	// Give the goroutine a brief moment to start.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
 	select {
 	case <-done:
-	case <-time.After(200 * time.Millisecond):
-		t.Fatalf("RunAcmeChallengeListener blocked the caller")
+		// success
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("Run(ctx) did not return promptly after cancellation")
 	}
 }
 
+// helper: temp directory cache
 func tempCache(t *testing.T) autocert.Cache {
 	t.Helper()
 	return autocert.DirCache(t.TempDir())

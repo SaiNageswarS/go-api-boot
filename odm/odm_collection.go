@@ -82,7 +82,7 @@ func (r *OdmCollection[T]) FindOneById(id string) (chan *T, chan error) {
 }
 
 // checks if a record exists by id.
-// Synchronous becuase it is expected to be very light-weighted without deserialization etc.
+// Synchronous because it is expected to be very light-weighted without deserialization etc.
 func (r *OdmCollection[T]) IsExistsById(id string) bool {
 	count, err := r.col.CountDocuments(context.Background(), bson.M{"_id": id})
 	if err != nil {

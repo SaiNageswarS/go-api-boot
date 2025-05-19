@@ -61,7 +61,7 @@ The result: you write business logic, not boilerplate.
 ## Key Features
 
 * **First‑class gRPC & gRPC‑Web** – serve browsers natively without Envoy.
-* **Generic ODM for MongoDB** – type‑safe repos (`BootRepository[T]`) with async helpers.
+* **Generic ODM for MongoDB** – type‑safe generic multi-tenant Object Model - (`CollectionOf[T](client, tenant).FindOneById(id)`) with async helpers.
 * **JWT Auth & Middleware Stack** – observability, logging, panic recovery pre‑wired.
 * **Cloud Providers** – interchangeable AWS / Azure / GCP helpers for storage & secrets.
 * **Zero‑Config SSL** – automatic Let’s Encrypt certificates with exponential back‑off and optional cloud-backed cache (SslCloudCache) for stateless containers.
@@ -91,7 +91,7 @@ quizService/
 ├── generated/       # proto stubs (via build script)
 ├── services/        # business logic
 ├── Dockerfile       # multistage build
-└── wire.go          # dependency injection (generated)
+└── config.ini       # config
 ```
 
 ### Running Locally
@@ -131,16 +131,28 @@ $ ./build/quizService
 ### Server
 
 ```go
-// Pick a cloud provider – all implement cloud.Cloud
-cloudFns := cloud.NewAWS() // or NewAzure(), NewGCP()
+// Load secrets and config
+dotenv.LoadEnv()
+var ccfg *config.BootConfig // extend BootConfig with your own struct.
+config.LoadConfig[config.BootConfig]("config.ini", ccfg)
 
-boot := server.NewGoApiBoot(
-    server.WithCorsConfig(cors.AllowAll()),
-    server.AppendUnaryInterceptors(app.UnaryInterceptors),
-    server.WithSSL(true),          // HTTPS via Let’s Encrypt
-    server.WithCloudCache(cloudFns), // <— stores certs in S3 / Blob / GCS
-)
-boot.Start(":50051", ":8081")
+// Pick a cloud provider – all implement cloud.Cloud
+cloudFns := cloud.NewAWS()
+
+boot, _ := server.New(cfg).
+    GRPCPort(":50051").        // or ":0" for dynamic
+    HTTPPort(":8080").
+    EnableSSL(server.CloudCacheProvider(cfg, cloudFns)).
+    // Dependency injection
+    Provide(cfg).
+    Provide(cloudFns).
+    // Register gRPC service impls
+    Register(pb.RegisterLoginServer, NewLoginService).
+    Build()
+
+ctx, cancel := context.WithCancel(context.Background())
+// catch SIGINT ‑> cancel
+_ = boot.Serve(ctx)
 ```
 
 * gRPC, gRPC‑Web, and optional REST gateway on the same port.
@@ -155,22 +167,11 @@ type Profile struct {
     Name  string `bson:"name"`
 }
 func (p *Profile) Id() string { return p.ID }
+func (p *Profile) CollectionName() string { return "profile" }
 
-// Repository – generated with CLI
-type ProfileRepository struct {
-    odm.UnimplementedBootRepository[Profile]
-}
-var _ ProfileRepoInterface = (*ProfileRepository)(nil)
-
-// Provide via Wire
-func ProvideProfileRepo() ProfileRepoInterface {
-    return &ProfileRepository{
-        odm.NewUnimplementedBootRepository[Profile](
-            odm.WithDatabase("authGo"),
-            odm.WithCollectionName("profiles"),
-        ),
-    }
-}
+// Query
+client, _ := GetClient(ccfg)
+profile := CollectionOf[Profile](client, tenant).FindOneById(id)
 ```
 
 Async helpers return `<-chan T` + `<-chan error` for fan‑out concurrency.
@@ -190,7 +191,7 @@ func (s *LoginService) AuthFuncOverride(ctx context.Context, method string) (con
 
 ```go
 var cloudFns cloud.Cloud = cloud.NewAWS()
-url, download := cloudFns.GetPresignedUrl(bucket, key, 15*time.Minute)
+url, download := cloudFns.GetPresignedUrl(ccfg, bucket, key, 15*time.Minute)
 ```
 
 Switch provider with one line – signatures stay identical.
@@ -203,23 +204,10 @@ There are two ways to persist the Let’s Encrypt certificates:
 2. **Distributed cache with** SslCloudCache – perfect for Docker / Kubernetes where the container filesystem is ephemeral.
 
 ```go
-import (
-    "github.com/SaiNageswarS/go-api-boot/cloud"
-    "github.com/SaiNageswarS/go-api-boot/server"
-)
-
-func main() {
-    os.Setenv("DOMAIN", "api.example.com")  // required
-    os.Setenv("SSL_BUCKET", "my-cert-bucket") // for SslCloudCache
-
-    cloudFns := cloud.NewAWS()              // swap for Azure / GCP
-
-    boot := server.NewGoApiBoot(
-        server.WithSSL(true),
-        server.WithCloudCache(cloudFns),    // enable SslCloudCache
-    )
-    boot.Start(":50051", ":8081")           // :8081 will be HTTPS
-}
+boot, _ := server.New(cfg).
+    GRPCPort(":50051").HTTPPort(":8080").
+    EnableSSL(server.DirCache("certs"))  // local cache
+    Build()
 ```
 
 * ACME challenge handled internally, exponential back‑off for cloud IP propagation.

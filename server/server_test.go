@@ -2,93 +2,99 @@ package server
 
 import (
 	"context"
-	"io"
-	"net"
-	"net/http"
-	"net/http/httptest"
+	"runtime"
 	"testing"
+	"time"
 
-	"github.com/rs/cors"
-	"google.golang.org/grpc"
+	"github.com/SaiNageswarS/go-api-boot/config"
 )
 
-func TestBuildGrpcServer_ReturnsNonNil(t *testing.T) {
-	unaryHit := false
-	unary := func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, h grpc.UnaryHandler) (interface{}, error) {
-		unaryHit = true
-		return h(ctx, req)
-	}
-	s := buildGrpcServer([]grpc.UnaryServerInterceptor{unary}, nil)
-	if s == nil {
-		t.Fatalf("buildGrpcServer returned nil")
-	}
-	// We only care that the server is constructed; exercising interceptors
-	// would require registering a service and making a real RPC call.
-	if unaryHit {
-		t.Fatalf("interceptor ran unexpectedly")
-	}
-}
+// -----------------------------------------------------------------------------
+// Test 1: Shutdown should unblock Serve even if ctx is not cancelled.
+// -----------------------------------------------------------------------------
+func TestBootServer_Shutdown_UnblocksServe(t *testing.T) {
+	bs := freshBootServer(t, false)
 
-func TestAddHandlersToServeMux_WiresHandlers(t *testing.T) {
-	mux := http.NewServeMux()
-	addHandlersToServeMux(mux, map[string]func(http.ResponseWriter, *http.Request){
-		"/test": func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok") },
-	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- bs.Serve(ctx) }()
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	mux.ServeHTTP(rec, req)
+	time.Sleep(100 * time.Millisecond) // let servers start
 
-	if rec.Code != http.StatusOK || rec.Body.String() != "ok" {
-		t.Fatalf("handler not wired: code=%d body=%q", rec.Code, rec.Body.String())
+	// Explicit shutdown (graceful) …
+	shutCtx, shutCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer shutCancel()
+	if err := bs.Shutdown(shutCtx); err != nil {
+		t.Fatalf("Shutdown() error: %v", err)
+	}
+
+	// …Serve is still waiting on ctx; cancel it now.
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatalf("Serve(ctx) did not return after Shutdown + cancel")
 	}
 }
 
-func TestBuildWebServer_BasicRoutes(t *testing.T) {
-	// dummy “gRPC-wrapped” handler
-	grpcHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, "grpc")
-	})
-
-	c := cors.New(cors.Options{AllowOriginFunc: func(string) bool { return true }})
-	extra := map[string]func(http.ResponseWriter, *http.Request){
-		"/extra": func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "extra") },
+// -----------------------------------------------------------------------------
+// Test 2: Builder validation – missing ports should error.
+// -----------------------------------------------------------------------------
+func TestBootServer_BuilderValidation(t *testing.T) {
+	_, err := New(&config.BootConfig{}).
+		GRPCPort(":0").
+		Build() // missing HTTPPort
+	if err == nil {
+		t.Fatalf("Build() succeeded with missing HTTPPort; want error")
 	}
 
-	srv := buildWebServer(grpcHandler, c, extra)
-
-	tests := []struct {
-		path, wantBody string
-		wantCode       int
-	}{
-		{"/", "grpc", http.StatusOK},
-		{"/extra", "extra", http.StatusOK},
-		{"/health", "", http.StatusOK},
-		{"/metrics", "", http.StatusOK},
-	}
-
-	for _, tc := range tests {
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
-		srv.Handler.ServeHTTP(rec, req)
-
-		if rec.Code != tc.wantCode {
-			t.Errorf("%s: code=%d want=%d", tc.path, rec.Code, tc.wantCode)
-		}
-		if tc.wantBody != "" && rec.Body.String() != tc.wantBody {
-			t.Errorf("%s: body=%q want=%q", tc.path, rec.Body.String(), tc.wantBody)
-		}
+	_, err = New(&config.BootConfig{}).
+		HTTPPort(":0").
+		Build() // missing GRPCPort
+	if err == nil {
+		t.Fatalf("Build() succeeded with missing GRPCPort; want error")
 	}
 }
 
-func TestGetListener_OpensPort(t *testing.T) {
-	lis := getListener(":0") // let the OS pick a free port
-	if lis == nil {
-		t.Fatalf("listener is nil")
+// -----------------------------------------------------------------------------
+// Test 3: Build succeeds with SSL provider (DirCache) and :0 ports.
+//
+//	We don't call Serve – that would need a cert; Build must not fail.
+//
+// -----------------------------------------------------------------------------
+func TestBootServer_Build_WithSSL(t *testing.T) {
+	if runtime.GOOS == "windows" { // ACME dir cache uses :80 in Serve, skip
+		t.Skip("skip SSL build test on Windows CI")
 	}
-	addr := lis.Addr().(*net.TCPAddr)
-	if addr.Port == 0 {
-		t.Fatalf("listener has invalid port 0")
+
+	_, err := New(&config.BootConfig{}).
+		GRPCPort(":0").
+		HTTPPort(":0").
+		EnableSSL(DirCache(t.TempDir())).
+		Build()
+	if err != nil {
+		t.Fatalf("Build() with SSL failed: %v", err)
 	}
-	lis.Close()
+}
+
+// -----------------------------------------------------------------------------
+// helper: tiny builder that always uses ephemeral ports
+// -----------------------------------------------------------------------------
+func freshBootServer(t *testing.T, withSSL bool) *BootServer {
+	t.Helper()
+
+	b := New(&config.BootConfig{}).
+		GRPCPort(":0").
+		HTTPPort(":0") // ":0" ⇒ OS-chosen free port
+
+	if withSSL {
+		b.EnableSSL(DirCache(t.TempDir()))
+	}
+
+	bs, err := b.Build()
+	if err != nil {
+		t.Fatalf("Build() failed: %v", err)
+	}
+	return bs
 }

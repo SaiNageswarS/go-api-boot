@@ -10,6 +10,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/SaiNageswarS/go-api-boot/config"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -43,8 +44,10 @@ func TestAzure_UploadStream_Success(t *testing.T) {
 		},
 	}
 
-	os.Setenv("AZURE_STORAGE_ACCOUNT", "mystorage")
-	resultChan, errChan := a.UploadStream("container", "myblob.txt", []byte("test content"))
+	config := &config.BaseConfig{
+		AzureStorageAccount: "mystorage",
+	}
+	resultChan, errChan := a.UploadStream(config, "container", "myblob.txt", []byte("test content"))
 
 	select {
 	case err := <-errChan:
@@ -61,8 +64,10 @@ func TestAzure_UploadStream_Failure(t *testing.T) {
 		},
 	}
 
-	os.Setenv("AZURE_STORAGE_ACCOUNT", "mystorage")
-	resultChan, errChan := a.UploadStream("container", "myblob.txt", []byte("test content"))
+	config := &config.BaseConfig{
+		AzureStorageAccount: "mystorage",
+	}
+	resultChan, errChan := a.UploadStream(config, "container", "myblob.txt", []byte("test content"))
 
 	select {
 	case res := <-resultChan:
@@ -79,8 +84,10 @@ func TestAzure_UploadStream_BlobClientNil(t *testing.T) {
 		},
 	}
 
-	os.Setenv("AZURE_STORAGE_ACCOUNT", "mystorage")
-	resultChan, errChan := a.UploadStream("container", "myblob.txt", []byte("data"))
+	config := &config.BaseConfig{
+		AzureStorageAccount: "mystorage",
+	}
+	resultChan, errChan := a.UploadStream(config, "container", "myblob.txt", []byte("data"))
 
 	select {
 	case <-resultChan:
@@ -97,8 +104,10 @@ func TestAzure_DownloadFile_Success(t *testing.T) {
 		},
 	}
 
-	os.Setenv("AZURE_STORAGE_ACCOUNT", "mystorage")
-	resultChan, errChan := a.DownloadFile("container", "path/to/blob.txt")
+	config := &config.BaseConfig{
+		AzureStorageAccount: "mystorage",
+	}
+	resultChan, errChan := a.DownloadFile(config, "container", "path/to/blob.txt")
 
 	select {
 	case err := <-errChan:
@@ -119,8 +128,10 @@ func TestAzure_DownloadFile_Failure(t *testing.T) {
 		},
 	}
 
-	os.Setenv("AZURE_STORAGE_ACCOUNT", "mystorage")
-	resultChan, errChan := a.DownloadFile("container", "blob.txt")
+	config := &config.BaseConfig{
+		AzureStorageAccount: "mystorage",
+	}
+	resultChan, errChan := a.DownloadFile(config, "container", "blob.txt")
 
 	select {
 	case <-resultChan:
@@ -137,8 +148,10 @@ func TestAzure_DownloadFile_BlobClientNil(t *testing.T) {
 		},
 	}
 
-	os.Setenv("AZURE_STORAGE_ACCOUNT", "mystorage")
-	resultChan, errChan := a.DownloadFile("container", "blob.txt")
+	config := &config.BaseConfig{
+		AzureStorageAccount: "mystorage",
+	}
+	resultChan, errChan := a.DownloadFile(config, "container", "blob.txt")
 
 	select {
 	case <-resultChan:

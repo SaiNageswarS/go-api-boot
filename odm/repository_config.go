@@ -2,36 +2,36 @@ package odm
 
 import "go.mongodb.org/mongo-driver/mongo"
 
-type Option func(*Config)
+type Option func(*OdmSettings)
 
-type Config struct {
+type OdmSettings struct {
 	Database       string
 	CollectionName string
 	Client         MongoClient
 }
 
-func NewConfig(options ...Option) *Config {
-	config := &Config{Client: nil}
+func NewOdmSettings(options ...Option) *OdmSettings {
+	odmSettings := &OdmSettings{Client: nil}
 	for _, option := range options {
-		option(config)
+		option(odmSettings)
 	}
-	return config
+	return odmSettings
 }
 
 func WithDatabase(database string) Option {
-	return func(c *Config) {
+	return func(c *OdmSettings) {
 		c.Database = database
 	}
 }
 
 func WithCollectionName(collectionName string) Option {
-	return func(c *Config) {
+	return func(c *OdmSettings) {
 		c.CollectionName = collectionName
 	}
 }
 
 func WithClient(client *mongo.Client) Option {
-	return func(c *Config) {
+	return func(c *OdmSettings) {
 		c.Client = client
 	}
 }

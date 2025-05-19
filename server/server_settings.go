@@ -13,9 +13,9 @@ import (
 	"google.golang.org/grpc"
 )
 
-type Option func(*Config)
+type Option func(*BootServerSettings)
 
-type Config struct {
+type BootServerSettings struct {
 	CorsConfig         *cors.Cors
 	UnaryInterceptors  []grpc.UnaryServerInterceptor
 	StreamInterceptors []grpc.StreamServerInterceptor
@@ -26,8 +26,9 @@ type Config struct {
 	CloudFns          cloud.Cloud
 }
 
-func NewConfig(options ...Option) *Config {
-	config := &Config{
+func NewBootServerSettings(options ...Option) *BootServerSettings {
+	// Default settings
+	bootServerSettings := &BootServerSettings{
 		CorsConfig: cors.New(cors.Options{AllowedHeaders: []string{"*"}}),
 		UnaryInterceptors: []grpc.UnaryServerInterceptor{
 			grpc_ctxtags.UnaryServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
@@ -43,38 +44,38 @@ func NewConfig(options ...Option) *Config {
 	}
 
 	for _, option := range options {
-		option(config)
+		option(bootServerSettings)
 	}
 
-	return config
+	return bootServerSettings
 }
 
 func WithCorsConfig(corsConfig *cors.Cors) Option {
-	return func(c *Config) {
+	return func(c *BootServerSettings) {
 		c.CorsConfig = corsConfig
 	}
 }
 
 func AppendUnaryInterceptors(interceptors []grpc.UnaryServerInterceptor) Option {
-	return func(c *Config) {
+	return func(c *BootServerSettings) {
 		c.UnaryInterceptors = append(c.UnaryInterceptors, interceptors...)
 	}
 }
 
 func AppendStreamInterceptors(interceptors []grpc.StreamServerInterceptor) Option {
-	return func(c *Config) {
+	return func(c *BootServerSettings) {
 		c.StreamInterceptors = append(c.StreamInterceptors, interceptors...)
 	}
 }
 
 func AppendHttpHandlers(handlers map[string]func(http.ResponseWriter, *http.Request)) Option {
-	return func(c *Config) {
+	return func(c *BootServerSettings) {
 		c.ExtraHttpHandlers = handlers
 	}
 }
 
 func WithSSL(ssl bool) Option {
-	return func(c *Config) {
+	return func(c *BootServerSettings) {
 		c.SSL = ssl
 	}
 }

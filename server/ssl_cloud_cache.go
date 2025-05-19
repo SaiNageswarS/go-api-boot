@@ -7,24 +7,26 @@ import (
 	"time"
 
 	"github.com/SaiNageswarS/go-api-boot/cloud"
+	"github.com/SaiNageswarS/go-api-boot/config"
 	"golang.org/x/crypto/acme/autocert"
 )
 
 type SslCloudCache struct {
-	cloud cloud.Cloud
+	cloud  cloud.Cloud
+	config *config.BaseConfig
 }
 
-func NewSslCloudCache(cloud cloud.Cloud) *SslCloudCache {
-	return &SslCloudCache{cloud: cloud}
+func NewSslCloudCache(config *config.BaseConfig, cloud cloud.Cloud) *SslCloudCache {
+	return &SslCloudCache{config: config, cloud: cloud}
 }
 
 func (cc *SslCloudCache) Get(ctx context.Context, name string) ([]byte, error) {
-	bucket := os.Getenv("SSL_BUCKET")
+	bucket := cc.config.SslBucket
 	if bucket == "" {
-		return nil, fmt.Errorf("SSL_BUCKET environment variable is not set")
+		return nil, fmt.Errorf("SslBucket config is not set")
 	}
 
-	dataChan, errChan := cc.cloud.DownloadFile(bucket, name)
+	dataChan, errChan := cc.cloud.DownloadFile(cc.config, bucket, name)
 	select {
 	case dataPath := <-dataChan:
 		return os.ReadFile(dataPath)
@@ -36,12 +38,12 @@ func (cc *SslCloudCache) Get(ctx context.Context, name string) ([]byte, error) {
 }
 
 func (cc *SslCloudCache) Put(ctx context.Context, name string, data []byte) error {
-	bucket := os.Getenv("SSL_BUCKET")
+	bucket := cc.config.SslBucket
 	if bucket == "" {
-		return fmt.Errorf("SSL_BUCKET environment variable is not set")
+		return fmt.Errorf("SslBucket config is not set")
 	}
 
-	resultChan, errChan := cc.cloud.UploadStream(bucket, name, data)
+	resultChan, errChan := cc.cloud.UploadStream(cc.config, bucket, name, data)
 	select {
 	case <-resultChan:
 		return nil

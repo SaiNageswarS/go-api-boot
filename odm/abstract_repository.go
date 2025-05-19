@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/SaiNageswarS/go-api-boot/config"
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	"github.com/jinzhu/copier"
 	"go.mongodb.org/mongo-driver/bson"
@@ -31,20 +32,20 @@ type UnimplementedBootRepository[T any] struct {
 	timer      Timer
 }
 
-func NewUnimplementedBootRepository[T any](options ...Option) UnimplementedBootRepository[T] {
-	config := NewConfig(options...)
+func NewUnimplementedBootRepository[T any](config *config.BaseConfig, options ...Option) UnimplementedBootRepository[T] {
+	odmSettings := NewOdmSettings(options...)
 
-	if config.Client == nil {
-		mongoClient, err := GetClient()
+	if odmSettings.Client == nil {
+		mongoClient, err := GetClient(config)
 		if err != nil {
 			logger.Fatal("Failed to get MongoDB client", zap.Error(err))
 		}
 
-		config.Client = mongoClient
+		odmSettings.Client = mongoClient
 	}
 
 	return UnimplementedBootRepository[T]{
-		collection: config.Client.Database(config.Database).Collection(config.CollectionName),
+		collection: odmSettings.Client.Database(odmSettings.Database).Collection(odmSettings.CollectionName),
 		timer:      DefaultTimer{},
 	}
 }

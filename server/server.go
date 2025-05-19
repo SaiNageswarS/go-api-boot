@@ -13,6 +13,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/SaiNageswarS/go-api-boot/cloud"
+	"github.com/SaiNageswarS/go-api-boot/config"
 	"github.com/SaiNageswarS/go-api-boot/logger"
 
 	"go.uber.org/zap"
@@ -24,19 +25,20 @@ type GoApiBoot struct {
 	WebServer  *http.Server
 	ssl        bool
 	cloudFns   cloud.Cloud
+	config     *config.BaseConfig
 }
 
-func NewGoApiBoot(options ...Option) *GoApiBoot {
-	config := NewConfig(options...)
-	boot := &GoApiBoot{}
+func NewGoApiBoot(config *config.BaseConfig, options ...Option) *GoApiBoot {
+	bootServerSettings := NewBootServerSettings(options...)
+	boot := &GoApiBoot{config: config}
 
 	// get grpc server
-	boot.GrpcServer = buildGrpcServer(config.UnaryInterceptors, config.StreamInterceptors)
+	boot.GrpcServer = buildGrpcServer(bootServerSettings.UnaryInterceptors, bootServerSettings.StreamInterceptors)
 
 	// get web server
 	wrappedGrpc := GetWebProxy(boot.GrpcServer)
-	boot.WebServer = buildWebServer(wrappedGrpc, config.CorsConfig, config.ExtraHttpHandlers)
-	boot.ssl = config.SSL
+	boot.WebServer = buildWebServer(wrappedGrpc, bootServerSettings.CorsConfig, bootServerSettings.ExtraHttpHandlers)
+	boot.ssl = bootServerSettings.SSL
 	return boot
 }
 
@@ -53,7 +55,7 @@ func (g *GoApiBoot) Start(grpcPort, webPort string) {
 	if g.ssl {
 		var cache autocert.Cache
 		if g.cloudFns != nil {
-			cache = NewSslCloudCache(g.cloudFns)
+			cache = NewSslCloudCache(g.config, g.cloudFns)
 		} else {
 			cache = autocert.DirCache("certs")
 		}

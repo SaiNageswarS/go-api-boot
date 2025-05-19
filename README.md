@@ -133,11 +133,14 @@ $ ./build/quizService
 ```go
 // Load secrets and config
 dotenv.LoadEnv()
+// Pick a cloud provider – all implement cloud.Cloud
+cloudFns := cloud.Azure{}
+// load secrets from Keyvault/SecretManader
+cloudFns.LoadSecretsIntoEnv()
+
+// load config file
 var ccfg *config.BootConfig // extend BootConfig with your own struct.
 config.LoadConfig[config.BootConfig]("config.ini", ccfg)
-
-// Pick a cloud provider – all implement cloud.Cloud
-cloudFns := cloud.NewAWS()
 
 boot, _ := server.New(cfg).
     GRPCPort(":50051").        // or ":0" for dynamic

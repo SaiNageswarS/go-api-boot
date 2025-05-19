@@ -13,22 +13,6 @@ func AddRepository(modelName string) {
 
 	fmt.Printf("Adding repository %s Repository\n", modelName)
 
-	appState, err := ReadAppState()
-	CheckErr(err)
-
-	data := map[string]string{
-		"ModelName": modelName,
-	}
-	appState.DbModels = append(appState.DbModels, data)
-	err = WriteAppState(appState)
-	CheckErr(err)
-
-	err = GenerateRepo(modelName)
-	CheckErr(err)
-
-	err = GenerateDbApi(".", appState.DbModels)
-	CheckErr(err)
-
-	err = GenerateWire(appState.ProjectName, ".", appState.DbModels, appState.Services)
+	err := GenerateRepo(modelName)
 	CheckErr(err)
 }

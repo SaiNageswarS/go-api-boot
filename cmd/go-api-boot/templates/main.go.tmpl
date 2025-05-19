@@ -1,29 +1,36 @@
 package main
 
 import (
+	"github.com/SaiNageswarS/go-api-boot/dotenv"
 	"github.com/SaiNageswarS/go-api-boot/server"
 	"github.com/rs/cors"
 )
 
-var grpcPort = ":50051"
-var webPort = ":8081"
-
 func main() {
 
-	InitializeApp()
+	// Load secrets and config
+	dotenv.LoadEnv()
+	// Pick a cloud provider – all implement cloud.Cloud
+	cloudFns := cloud.Azure{}
+	// load secrets from Keyvault/SecretManader
+	cloudFns.LoadSecretsIntoEnv()
 
-	corsConfig := cors.New(
-		cors.Options{
-			AllowedHeaders: []string{"*"},
-		})
+	// load config file
+	var ccfg *config.BootConfig // extend BootConfig with your own struct.
+	config.LoadConfig[config.BootConfig]("config.ini", ccfg)
 
-	customMiddleware := []grpc.UnaryServerInterceptor {}
-	customRestEndpoints := map[string]func(http.ResponseWriter, *http.Request){}
+	boot, _ := server.New(cfg).
+		GRPCPort(":50051").        // or ":0" for dynamic
+		HTTPPort(":8080").
+		EnableSSL(server.CloudCacheProvider(cfg, cloudFns)).
+		// Dependency injection
+		Provide(cfg).
+		Provide(cloudFns).
+		// Register gRPC service impls
+		Register(pb.RegisterLoginServer, NewLoginService).
+		Build()
 
-	bootServer := server.NewGoApiBoot(
-		server.WithCorsConfig(corsConfig), 
-		server.AppendUnaryInterceptors(customMiddleware),
-		server.AppendHttpHandlers(customRestEndpoints))
-
-	bootServer.Start(grpcPort, webPort)
+	ctx, cancel := context.WithCancel(context.Background())
+	// catch SIGINT ‑> cancel
+	_ = boot.Serve(ctx)
 }

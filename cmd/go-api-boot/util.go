@@ -1,16 +1,11 @@
 package main
 
 import (
-	"encoding/json"
+	"bufio"
 	"fmt"
 	"os"
+	"strings"
 )
-
-type AppState struct {
-	ProjectName string              `json:"projectName"`
-	DbModels    []map[string]string `json:"dbModels"`
-	Services    []map[string]string `json:"services"`
-}
 
 func CheckErr(err error) {
 	if err != nil {
@@ -19,29 +14,26 @@ func CheckErr(err error) {
 	}
 }
 
-func ReadAppState() (AppState, error) {
-	byteValue, err := os.ReadFile("appState.json")
+func GetProjectName() (string, error) {
+	f, err := os.Open("go.mod")
 	if err != nil {
-		return AppState{}, err
+		return "", fmt.Errorf("open %s: %w", "go.mod", err)
 	}
+	defer f.Close()
 
-	var appState AppState
-	if err := json.Unmarshal(byteValue, &appState); err != nil {
-		return AppState{}, err
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue // skip comments / blank lines
+		}
+		if strings.HasPrefix(line, "module ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "module ")), nil
+		}
+		break // first non-comment line wasn't a module directive
 	}
-
-	return appState, nil
-}
-
-func WriteAppState(appState AppState) error {
-	jsonData, err := json.Marshal(appState)
-	if err != nil {
-		return err
+	if err := sc.Err(); err != nil {
+		return "", err
 	}
-
-	if err := os.WriteFile("appState.json", jsonData, 0644); err != nil {
-		return err
-	}
-
-	return nil
+	return "", fmt.Errorf("no module directive found in %s", "go.mod")
 }

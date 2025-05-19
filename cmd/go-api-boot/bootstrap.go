@@ -33,15 +33,6 @@ func Bootstrap(projectName, protoPath string) {
 
 	err = GenerateDockerFile(folderName)
 	CheckErr(err)
-
-	err = GenerateAppState(projectName, folderName)
-	CheckErr(err)
-
-	err = GenerateDbApi(folderName, []map[string]string{})
-	CheckErr(err)
-
-	err = GenerateWire(projectName, folderName, []map[string]string{}, []map[string]string{})
-	CheckErr(err)
 }
 
 func initializeGoProject(prjName string) (string, error) {

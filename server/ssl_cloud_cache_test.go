@@ -11,7 +11,7 @@ import (
 )
 
 func TestSslCloudCache_Get_NoBucketEnv(t *testing.T) {
-	config := &config.BaseConfig{}
+	config := &config.BootConfig{}
 	cc := NewSslCloudCache(config, &mockCloud{})
 
 	_, err := cc.Get(context.Background(), "does-not-matter.pem")
@@ -41,7 +41,7 @@ func TestSslCloudCache_Get_Success(t *testing.T) {
 		downloadErrChan:  errCh,
 	}
 
-	config := &config.BaseConfig{SslBucket: "my-bucket"}
+	config := &config.BootConfig{SslBucket: "my-bucket"}
 	cc := NewSslCloudCache(config, mock)
 
 	got, err := cc.Get(context.Background(), "cert.pem")
@@ -64,7 +64,7 @@ func TestSslCloudCache_Get_DownloadError(t *testing.T) {
 		downloadErrChan:  errCh,
 	}
 
-	config := &config.BaseConfig{SslBucket: "my-bucket"}
+	config := &config.BootConfig{SslBucket: "my-bucket"}
 	cc := NewSslCloudCache(config, mock)
 
 	_, err := cc.Get(context.Background(), "cert.pem")
@@ -74,7 +74,7 @@ func TestSslCloudCache_Get_DownloadError(t *testing.T) {
 }
 
 func TestSslCloudCache_Put_NoBucketEnv(t *testing.T) {
-	config := &config.BaseConfig{}
+	config := &config.BootConfig{}
 	cc := NewSslCloudCache(config, &mockCloud{})
 
 	err := cc.Put(context.Background(), "cert.pem", []byte("bytes"))
@@ -93,7 +93,7 @@ func TestSslCloudCache_Put_Success(t *testing.T) {
 		uploadErrChan: errCh,
 	}
 
-	config := &config.BaseConfig{SslBucket: "my-bucket"}
+	config := &config.BootConfig{SslBucket: "my-bucket"}
 	cc := NewSslCloudCache(config, mock)
 
 	if err := cc.Put(context.Background(), "cert.pem", []byte("bytes")); err != nil {
@@ -112,7 +112,7 @@ func TestSslCloudCache_Put_Error(t *testing.T) {
 		uploadErrChan: errCh,
 	}
 
-	config := &config.BaseConfig{SslBucket: "my-bucket"}
+	config := &config.BootConfig{SslBucket: "my-bucket"}
 	cc := NewSslCloudCache(config, mock)
 
 	if err := cc.Put(context.Background(), "cert.pem", []byte("bytes")); !errors.Is(err, wantErr) {
@@ -127,11 +127,11 @@ type mockCloud struct {
 	uploadErrChan    chan error
 }
 
-func (m *mockCloud) DownloadFile(config *config.BaseConfig, bucketName, path string) (chan string, chan error) {
+func (m *mockCloud) DownloadFile(config *config.BootConfig, bucketName, path string) (chan string, chan error) {
 	return m.downloadDataChan, m.downloadErrChan
 }
 
-func (m *mockCloud) UploadStream(config *config.BaseConfig, bucket, name string, data []byte) (chan string, chan error) {
+func (m *mockCloud) UploadStream(config *config.BootConfig, bucket, name string, data []byte) (chan string, chan error) {
 	return m.uploadResChan, m.uploadErrChan
 }
 
@@ -139,7 +139,7 @@ func (m *mockCloud) LoadSecretsIntoEnv() {
 	// No-op for testing
 }
 
-func (m *mockCloud) GetPresignedUrl(config *config.BaseConfig, bucketName, path, contentType string, expiry time.Duration) (string, string) {
+func (m *mockCloud) GetPresignedUrl(config *config.BootConfig, bucketName, path, contentType string, expiry time.Duration) (string, string) {
 	// No-op for testing
 	return "", ""
 }

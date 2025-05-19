@@ -10,7 +10,7 @@ import (
 
 // AppConfig is a test struct that embeds BaseConfig
 type AppConfig struct {
-	BaseConfig
+	BootConfig
 	CustomField string `env:"CUSTOM-FIELD" ini:"custom_field"`
 }
 

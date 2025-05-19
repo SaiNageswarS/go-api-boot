@@ -25,10 +25,10 @@ type GoApiBoot struct {
 	WebServer  *http.Server
 	ssl        bool
 	cloudFns   cloud.Cloud
-	config     *config.BaseConfig
+	config     *config.BootConfig
 }
 
-func NewGoApiBoot(config *config.BaseConfig, options ...Option) *GoApiBoot {
+func NewGoApiBoot(config *config.BootConfig, options ...Option) *GoApiBoot {
 	bootServerSettings := NewBootServerSettings(options...)
 	boot := &GoApiBoot{config: config}
 

@@ -14,19 +14,19 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 )
 
-func TestNewMongoConn_ErrorWhenEnvMissing(t *testing.T) {
+func TestNewMongoConn_ErrorWhenConfigMissing(t *testing.T) {
 	resetMongoClientGlobals()
-	config := &config.BaseConfig{}
+	config := &config.BootConfig{}
 
-	client, err := newMongoConn(context.Background(), config)
+	client, err := GetClient(config)
 	assert.Nil(t, client)
-	assert.EqualError(t, err, "MONGO-URI environment variable is not set")
+	assert.EqualError(t, err, "MongoUri config is not set")
 }
 
 func TestNewMongoConn_PingFails(t *testing.T) {
 	resetMongoClientGlobals()
 
-	config := &config.BaseConfig{MongoUri: "mongodb://test:27017"}
+	config := &config.BootConfig{MongoUri: "mongodb://test:27017"}
 
 	// simulate connection and ping error
 	originalMongoConnect := mongoConnect
@@ -45,7 +45,7 @@ func TestNewMongoConn_PingFails(t *testing.T) {
 func TestNewMongoConn_Success(t *testing.T) {
 	resetMongoClientGlobals()
 
-	config := &config.BaseConfig{MongoUri: "mongodb://test:27017"}
+	config := &config.BootConfig{MongoUri: "mongodb://test:27017"}
 
 	originalMongoConnect := mongoConnect
 	mongoConnect = func(ctx context.Context, uri string) (MongoClient, error) {
@@ -63,7 +63,7 @@ func TestNewMongoConn_Success(t *testing.T) {
 func TestGetClient_Success(t *testing.T) {
 	resetMongoClientGlobals()
 
-	config := &config.BaseConfig{MongoUri: "mongodb://test:27017"}
+	config := &config.BootConfig{MongoUri: "mongodb://test:27017"}
 
 	originalMongoConnect := mongoConnect
 	mongoConnect = func(ctx context.Context, uri string) (MongoClient, error) {
@@ -81,7 +81,7 @@ func TestGetClient_Success(t *testing.T) {
 func TestGetClient_Failure(t *testing.T) {
 	resetMongoClientGlobals()
 
-	config := &config.BaseConfig{MongoUri: "mongodb://test:27017"}
+	config := &config.BootConfig{MongoUri: "mongodb://test:27017"}
 
 	originalMongoConnect := mongoConnect
 	mongoConnect = func(ctx context.Context, uri string) (MongoClient, error) {

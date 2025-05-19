@@ -44,7 +44,7 @@ func TestAzure_UploadStream_Success(t *testing.T) {
 		},
 	}
 
-	config := &config.BaseConfig{
+	config := &config.BootConfig{
 		AzureStorageAccount: "mystorage",
 	}
 	resultChan, errChan := a.UploadStream(config, "container", "myblob.txt", []byte("test content"))
@@ -64,7 +64,7 @@ func TestAzure_UploadStream_Failure(t *testing.T) {
 		},
 	}
 
-	config := &config.BaseConfig{
+	config := &config.BootConfig{
 		AzureStorageAccount: "mystorage",
 	}
 	resultChan, errChan := a.UploadStream(config, "container", "myblob.txt", []byte("test content"))
@@ -84,7 +84,7 @@ func TestAzure_UploadStream_BlobClientNil(t *testing.T) {
 		},
 	}
 
-	config := &config.BaseConfig{
+	config := &config.BootConfig{
 		AzureStorageAccount: "mystorage",
 	}
 	resultChan, errChan := a.UploadStream(config, "container", "myblob.txt", []byte("data"))
@@ -104,7 +104,7 @@ func TestAzure_DownloadFile_Success(t *testing.T) {
 		},
 	}
 
-	config := &config.BaseConfig{
+	config := &config.BootConfig{
 		AzureStorageAccount: "mystorage",
 	}
 	resultChan, errChan := a.DownloadFile(config, "container", "path/to/blob.txt")
@@ -128,7 +128,7 @@ func TestAzure_DownloadFile_Failure(t *testing.T) {
 		},
 	}
 
-	config := &config.BaseConfig{
+	config := &config.BootConfig{
 		AzureStorageAccount: "mystorage",
 	}
 	resultChan, errChan := a.DownloadFile(config, "container", "blob.txt")
@@ -148,7 +148,7 @@ func TestAzure_DownloadFile_BlobClientNil(t *testing.T) {
 		},
 	}
 
-	config := &config.BaseConfig{
+	config := &config.BootConfig{
 		AzureStorageAccount: "mystorage",
 	}
 	resultChan, errChan := a.DownloadFile(config, "container", "blob.txt")

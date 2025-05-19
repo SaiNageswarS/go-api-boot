@@ -6,7 +6,7 @@ import (
 	"github.com/go-ini/ini"
 )
 
-type BaseConfig struct {
+type BootConfig struct {
 	MongoUri string `env:"MONGO-URI"`
 
 	// jwt

@@ -13,10 +13,10 @@ import (
 
 type SslCloudCache struct {
 	cloud  cloud.Cloud
-	config *config.BaseConfig
+	config *config.BootConfig
 }
 
-func NewSslCloudCache(config *config.BaseConfig, cloud cloud.Cloud) *SslCloudCache {
+func NewSslCloudCache(config *config.BootConfig, cloud cloud.Cloud) *SslCloudCache {
 	return &SslCloudCache{config: config, cloud: cloud}
 }
 

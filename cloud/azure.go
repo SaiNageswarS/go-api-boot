@@ -70,7 +70,7 @@ func (a *Azure) LoadSecretsIntoEnv() {
 // Uploads a stream to Azure storage.
 // containerName - Azure Container Name.
 // blobName - Azure path for the object like profile-photos/photo.jpg
-func (a *Azure) UploadStream(config *config.BaseConfig, containerName, blobName string, fileData []byte) (chan string, chan error) {
+func (a *Azure) UploadStream(config *config.BootConfig, containerName, blobName string, fileData []byte) (chan string, chan error) {
 	resultChan := make(chan string, 1)
 	errorChan := make(chan error, 1)
 
@@ -111,7 +111,7 @@ func (a *Azure) UploadStream(config *config.BaseConfig, containerName, blobName 
 	return resultChan, errorChan
 }
 
-func (a *Azure) DownloadFile(config *config.BaseConfig, containerName, blobName string) (chan string, chan error) {
+func (a *Azure) DownloadFile(config *config.BootConfig, containerName, blobName string) (chan string, chan error) {
 	dotenv.LoadEnv()
 	resultChan := make(chan string, 1)
 	errorChan := make(chan error, 1)
@@ -165,7 +165,7 @@ func (a *Azure) DownloadFile(config *config.BaseConfig, containerName, blobName 
 	return resultChan, errorChan
 }
 
-func (c *Azure) GetPresignedUrl(config *config.BaseConfig, bucketName, path, contentType string, expiry time.Duration) (string, string) {
+func (c *Azure) GetPresignedUrl(config *config.BootConfig, bucketName, path, contentType string, expiry time.Duration) (string, string) {
 	//TODO: Get presigned upload url and download url
 	return "", ""
 }

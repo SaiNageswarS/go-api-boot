@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/SaiNageswarS/go-api-boot/logger"
+	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 )
@@ -23,6 +25,7 @@ func (s *BootServer) Serve(ctx context.Context) error {
 	grp, ctx := errgroup.WithContext(ctx)
 
 	grp.Go(func() error {
+		logger.Info("Starting gRPC server at", zap.String("port", s.lnGrpc.Addr().String()))
 		return s.grpc.Serve(s.lnGrpc)
 	})
 
@@ -35,8 +38,11 @@ func (s *BootServer) Serve(ctx context.Context) error {
 		}
 		// choose ServeTLS vs Serve
 		if s.sslProvider != nil {
+			logger.Info("Starting https server at", zap.String("port", s.lnHTTP.Addr().String()))
 			return s.http.ServeTLS(s.lnHTTP, "", "")
 		}
+
+		logger.Info("Starting http server at", zap.String("port", s.lnHTTP.Addr().String()))
 		return s.http.Serve(s.lnHTTP)
 	})
 

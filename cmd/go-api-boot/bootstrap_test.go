@@ -69,4 +69,10 @@ func TestBootstrap_Success(t *testing.T) {
 	if _, err := os.Stat("bootproj"); os.IsNotExist(err) {
 		t.Errorf("Expected folder bootproj to be created")
 	}
+
+	// Check LoginService file
+	loginServicePath := filepath.Join("bootproj", "services", "loginService.go")
+	if _, err := os.Stat(loginServicePath); os.IsNotExist(err) {
+		t.Errorf("Expected loginService.go to be created")
+	}
 }

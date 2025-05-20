@@ -37,7 +37,7 @@ func Bootstrap(projectName, protoPath string) {
 	err = GenerateDockerFile(folderName)
 	CheckErr(err)
 
-	err = GenerateLoginService(projectName)
+	err = GenerateLoginService(projectName, folderName)
 	CheckErr(err)
 }
 

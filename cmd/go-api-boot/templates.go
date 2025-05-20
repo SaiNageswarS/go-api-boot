@@ -61,12 +61,14 @@ func GenerateService(serviceName string, projectPath string) error {
 	return generateCode("services", "templates/services.go.tmpl", serviceName+"Service.go", data)
 }
 
-func GenerateLoginService(projectPath string) error {
+// Used in bootstrap which runs outside of the project folder and needs folder name
+// to be passed as argument.
+func GenerateLoginService(projectPath string, folderName string) error {
 	data := map[string]string{
 		"ProjectPath": projectPath,
 	}
 
-	return generateCode("services", "templates/login_service.go.tmpl", "loginService.go", data)
+	return generateCode(folderName+"/services", "templates/login_service.go.tmpl", "loginService.go", data)
 }
 
 func generateCode(folderName, templatePath, fileName string, templateData interface{}) error {

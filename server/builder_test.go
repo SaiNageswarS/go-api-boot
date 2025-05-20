@@ -19,10 +19,10 @@ type svc struct{ d *dep }
 type regSpy struct {
 	called  int
 	gotSrv  any
-	gotGRPC *grpc.Server
+	gotGRPC grpc.ServiceRegistrar
 }
 
-func (r *regSpy) fn(g *grpc.Server, s any) {
+func (r *regSpy) fn(g grpc.ServiceRegistrar, s any) {
 	r.called++
 	r.gotGRPC = g
 	r.gotSrv = s

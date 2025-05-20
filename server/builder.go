@@ -33,8 +33,8 @@ type Builder struct {
 }
 
 type registration struct {
-	register func(*grpc.Server, any) // generated pb.Register…Server
-	factory  reflect.Value           // user-supplied func(dep1,…)*Svc
+	register func(grpc.ServiceRegistrar, any) // generated pb.Register…Server
+	factory  reflect.Value                    // user-supplied func(dep1,…)*Svc
 }
 
 // New returns a fresh builder; cfg may be nil if you DI it later.
@@ -90,7 +90,7 @@ func (b *Builder) ProvideFunc(fn any) *Builder {
 
 // Register ties a generated pb.Register…Server with your factory func.
 func (b *Builder) Register(
-	register func(*grpc.Server, any),
+	register func(grpc.ServiceRegistrar, any),
 	factory any,
 ) *Builder {
 	v := reflect.ValueOf(factory)

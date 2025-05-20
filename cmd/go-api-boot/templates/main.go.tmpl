@@ -24,7 +24,7 @@ func main() {
 	var ccfg *AppConfig 
 	config.LoadConfig("config.ini", ccfg)
 
-	mongoClient, err := odm.GetGetClient(ccfg.MongoURI)
+	mongoClient, err := odm.GetClient(ccfg.MongoURI)
 	if err != nil {
 		logger.Fatal("Failed to connect to MongoDB", zap.Error(err))
 	}
@@ -35,9 +35,10 @@ func main() {
 		EnableSSL(server.CloudCacheProvider(cfg, cloudFns)).
 		// Dependency injection
 		Provide(cfg).
-		Provide(cloudFns).
+		ProvideAs(cloudFns, (*cloud.Cloud)(nil)).
+		ProvideAs(mongoClient, (*odm.MongoClient)(nil)).
 		// Register gRPC service impls
-		Register(pb.RegisterLoginServer, NewLoginService).
+		Register(server.Adapt(pb.RegisterLoginServer), ProvideLoginService).
 		Build()
 
 	if err != nil {

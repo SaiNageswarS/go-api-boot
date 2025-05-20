@@ -3,10 +3,11 @@ package bootUtils
 import (
 	"context"
 	"errors"
-	"github.com/SaiNageswarS/go-api-boot/logger"
-	"go.uber.org/zap"
 	"os"
 	"time"
+
+	"github.com/SaiNageswarS/go-api-boot/logger"
+	"go.uber.org/zap"
 
 	"golang.org/x/time/rate"
 )

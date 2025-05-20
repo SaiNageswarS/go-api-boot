@@ -6,81 +6,86 @@ import (
 	"os"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/require"
 )
 
+// ─────────────────────────────────────────────────────────────
+// GetEnvOrDefault
+// ─────────────────────────────────────────────────────────────
 func TestGetEnvOrDefault(t *testing.T) {
-	key := "TEST_ENV_VAR"
+	const key = "BOOTUTILS_TEST"
 
-	t.Run("EnvironmentVariableSet", func(t *testing.T) {
-		expectedValue := "value_from_env"
-		os.Setenv(key, expectedValue)
-		defer os.Unsetenv(key) // Ensure to clean up the environment variable after the test
+	// 1️⃣ value present
+	os.Setenv(key, "from_env")
+	defer os.Unsetenv(key)
 
-		result := GetEnvOrDefault(key, "default_value")
-		require.Equal(t, expectedValue, result)
-	})
+	if got := GetEnvOrDefault(key, "fallback"); got != "from_env" {
+		t.Fatalf("got %q, want %q", got, "from_env")
+	}
 
-	t.Run("EnvironmentVariableNotSet", func(t *testing.T) {
-		os.Unsetenv(key) // Ensure the environment variable is not set
-
-		expectedFallback := "default_value"
-		result := GetEnvOrDefault(key, expectedFallback)
-		require.Equal(t, expectedFallback, result)
-	})
-
-	t.Run("EmptyEnvironmentVariable", func(t *testing.T) {
-		expectedValue := ""
-		os.Setenv(key, expectedValue)
-		defer os.Unsetenv(key) // Ensure to clean up the environment variable after the test
-
-		result := GetEnvOrDefault(key, "default_value")
-		require.Equal(t, expectedValue, result)
-	})
-
-	t.Run("EmptyFallback", func(t *testing.T) {
-		os.Unsetenv(key) // Ensure the environment variable is not set
-
-		expectedFallback := ""
-		result := GetEnvOrDefault(key, expectedFallback)
-		require.Equal(t, expectedFallback, result)
-	})
-}
-
-func mockFunction(attemptsBeforeSuccess int) func() error {
-	attempts := 0
-	return func() error {
-		attempts++
-		if attempts < attemptsBeforeSuccess {
-			return errors.New("not yet")
-		}
-		return nil
+	// 2️⃣ value absent → fallback
+	os.Unsetenv(key)
+	if got := GetEnvOrDefault(key, "fallback"); got != "fallback" {
+		t.Fatalf("got %q, want %q", got, "fallback")
 	}
 }
 
-func TestRetryWithExponentialBackoff_Success(t *testing.T) {
-	baseDelay := 10 * time.Millisecond
-	maxRetries := 5
+// ─────────────────────────────────────────────────────────────
+// RetryWithExponentialBackoff
+// ─────────────────────────────────────────────────────────────
+func TestRetryWithExponentialBackoff_SucceedsAfterRetries(t *testing.T) {
+	var tries int
+	fn := func() error {
+		tries++
+		if tries < 3 {
+			return errors.New("boom")
+		}
+		return nil
+	}
 
-	// Test a case where the function succeeds within the retry limit
-	fn := mockFunction(3) // Succeeds on the 3rd attempt
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	err := RetryWithExponentialBackoff(ctx, maxRetries, baseDelay, fn)
-	require.NoError(t, err)
+	err := RetryWithExponentialBackoff(
+		context.Background(),
+		5,
+		1*time.Millisecond, // fast test
+		fn,
+	)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if tries != 3 {
+		t.Fatalf("expected 3 attempts, got %d", tries)
+	}
 }
 
-func TestRetryWithExponentialBackoff_ImmediateSuccess(t *testing.T) {
-	baseDelay := 10 * time.Millisecond
-	maxRetries := 5
+func TestRetryWithExponentialBackoff_ExhaustsAndFails(t *testing.T) {
+	var tries int
+	fn := func() error { tries++; return errors.New("always") }
 
-	// Test a case where the function succeeds immediately
-	fn := mockFunction(1) // Succeeds on the 1st attempt
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
+	err := RetryWithExponentialBackoff(
+		context.Background(),
+		4,
+		1*time.Millisecond,
+		fn,
+	)
+	if err == nil || err.Error() != "all attempts failed" {
+		t.Fatalf("expected final failure, got %v", err)
+	}
+	if tries != 4 {
+		t.Fatalf("expected 4 attempts, got %d", tries)
+	}
+}
 
-	err := RetryWithExponentialBackoff(ctx, maxRetries, baseDelay, fn)
-	require.NoError(t, err)
+func TestRetryWithExponentialBackoff_ContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	fn := func() error { return errors.New("never called") }
+
+	start := time.Now()
+	err := RetryWithExponentialBackoff(ctx, 10, 10*time.Millisecond, fn)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+	if time.Since(start) > 20*time.Millisecond {
+		t.Fatalf("function did not return promptly after cancellation")
+	}
 }

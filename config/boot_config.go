@@ -9,9 +9,6 @@ import (
 type BootConfig struct {
 	MongoUri string `env:"MONGO-URI" ini:"mongo_uri"`
 
-	// jwt
-	AccessSecret string `env:"ACCESS-SECRET" ini:"access_secret"`
-
 	// ssl
 	SslBucket string `env:"SSL-BUCKET" ini:"ssl_bucket"`
 	Domain    string `env:"DOMAIN" ini:"domain"`

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"sync"
 	"time"
 
 	"github.com/SaiNageswarS/go-api-boot/config"
@@ -12,12 +11,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.uber.org/zap"
-)
-
-var (
-	connection MongoClient
-	once       sync.Once
-	connErr    error
 )
 
 var mongoConnect = func(ctx context.Context, uri string) (MongoClient, error) {
@@ -36,25 +29,19 @@ func GetClient(config *config.BootConfig) (MongoClient, error) {
 		return nil, errors.New("MongoUri config is not set")
 	}
 
-	once.Do(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-		client, err := mongoConnect(ctx, config.MongoUri)
-		if err != nil {
-			connErr = err
-			logger.Error("Mongo connection failed", zap.Error(err))
-			return
-		}
+	client, err := mongoConnect(ctx, config.MongoUri)
+	if err != nil {
+		logger.Error("Mongo connection failed", zap.Error(err))
+		return nil, err
+	}
 
-		if err := client.Ping(ctx, nil); err != nil {
-			connErr = err
-			logger.Error("Mongo ping failed", zap.Error(err))
-			return
-		}
+	if err := client.Ping(ctx, nil); err != nil {
+		logger.Error("Mongo ping failed", zap.Error(err))
+		return nil, err
+	}
 
-		connection = client
-	})
-
-	return connection, connErr
+	return client, nil
 }

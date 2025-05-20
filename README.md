@@ -174,8 +174,8 @@ type Profile struct {
     ID    string `bson:"_id"`
     Name  string `bson:"name"`
 }
-func (p *Profile) Id() string { return p.ID }
-func (p *Profile) CollectionName() string { return "profile" }
+func (p Profile) Id() string { return p.ID }
+func (p Profile) CollectionName() string { return "profile" }
 
 // Query
 client, _ := GetClient(ccfg)

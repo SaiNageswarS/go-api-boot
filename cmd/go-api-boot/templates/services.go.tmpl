@@ -2,15 +2,17 @@ package services
 
 import (
     "{{.ProjectPath}}/db"
+    pb "{{.ProjectPath}}/generated/pb"
 )
 
 type {{.ServiceName}}Service struct {
-    db  *db.DbApi
+    pb.Unimplemented{{.ServiceName}}Server
+    mongo odm.MongoClient
 }
 
-func Provide{{.ServiceName}}Service(db *db.DbApi) *{{.ServiceName}}Service {
+func Provide{{.ServiceName}}Service(mongo odm.MongoClient) *{{.ServiceName}}Service {
     return &{{.ServiceName}}Service {
-        db: db,
+        mongo: mongo,
     }
 }
 

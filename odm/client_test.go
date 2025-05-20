@@ -3,7 +3,6 @@ package odm
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 
 	"github.com/SaiNageswarS/go-api-boot/config"
@@ -15,7 +14,6 @@ import (
 )
 
 func TestNewMongoConn_ErrorWhenConfigMissing(t *testing.T) {
-	resetMongoClientGlobals()
 	config := &config.BootConfig{}
 
 	client, err := GetClient(config)
@@ -24,8 +22,6 @@ func TestNewMongoConn_ErrorWhenConfigMissing(t *testing.T) {
 }
 
 func TestNewMongoConn_PingFails(t *testing.T) {
-	resetMongoClientGlobals()
-
 	config := &config.BootConfig{MongoUri: "mongodb://test:27017"}
 
 	// simulate connection and ping error
@@ -43,8 +39,6 @@ func TestNewMongoConn_PingFails(t *testing.T) {
 }
 
 func TestNewMongoConn_Success(t *testing.T) {
-	resetMongoClientGlobals()
-
 	config := &config.BootConfig{MongoUri: "mongodb://test:27017"}
 
 	originalMongoConnect := mongoConnect
@@ -61,8 +55,6 @@ func TestNewMongoConn_Success(t *testing.T) {
 }
 
 func TestGetClient_Success(t *testing.T) {
-	resetMongoClientGlobals()
-
 	config := &config.BootConfig{MongoUri: "mongodb://test:27017"}
 
 	originalMongoConnect := mongoConnect
@@ -79,8 +71,6 @@ func TestGetClient_Success(t *testing.T) {
 }
 
 func TestGetClient_Failure(t *testing.T) {
-	resetMongoClientGlobals()
-
 	config := &config.BootConfig{MongoUri: "mongodb://test:27017"}
 
 	originalMongoConnect := mongoConnect
@@ -92,12 +82,6 @@ func TestGetClient_Failure(t *testing.T) {
 	client, err := GetClient(config)
 	assert.Nil(t, client)
 	assert.EqualError(t, err, "connect error")
-}
-
-func resetMongoClientGlobals() {
-	connection = nil
-	connErr = nil
-	once = sync.Once{}
 }
 
 type MockMongoClient struct {

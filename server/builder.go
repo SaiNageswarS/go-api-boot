@@ -77,6 +77,19 @@ func (b *Builder) Provide(value any) *Builder {
 	return b
 }
 
+// Registers a value as a singleton for the given interface type.
+func (b *Builder) ProvideAs(value any, ifacePtr any) *Builder {
+	ifaceType := reflect.TypeOf(ifacePtr).Elem() // Extract the interface type
+	val := reflect.ValueOf(value)
+
+	if !val.Type().Implements(ifaceType) {
+		panic("provided value does not implement the given interface")
+	}
+
+	b.singletons[ifaceType] = val
+	return b
+}
+
 // ProvideFunc registers a lazy provider func(dep1,…,depN) T.
 func (b *Builder) ProvideFunc(fn any) *Builder {
 	v := reflect.ValueOf(fn)
@@ -99,6 +112,11 @@ func (b *Builder) Register(
 	}
 	b.reg = append(b.reg, registration{register, v})
 	return b
+}
+
+// Wrapper for Register that adapts a grpc function with a specific type.
+func Adapt[S any](fn func(grpc.ServiceRegistrar, S)) func(grpc.ServiceRegistrar, any) {
+	return func(r grpc.ServiceRegistrar, v any) { fn(r, v.(S)) }
 }
 
 // ----- build -----------------------------------------------------------------

@@ -1,0 +1,41 @@
+package services
+
+import (
+    "{{.ProjectPath}}/db"
+    pb "{{.ProjectPath}}/generated/pb"
+    "github.com/SaiNageswarS/go-api-boot/auth"
+    "google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+type LoginService struct {
+    pb.UnimplementedLoginServer
+    mongo odm.MongoClient
+}
+
+func ProvideLoginService(mongo odm.MongoClient) *LoginService {
+    return &LoginService {
+        mongo: mongo,
+    }
+}
+
+// removing auth interceptor
+func (u *LoginService) AuthFuncOverride(ctx context.Context, fullMethodName string) (context.Context, error) {
+	return ctx, nil
+}
+
+func (s *LoginService) Login(ctx context.Context, req *pb.LoginRequest) (*pb.StatusResponse, error) {
+    loginInfo := odm.CollectionOf[LoginModel](mongo, req.Tenant).FindOneById(req.Id)
+    // verify login logic 
+
+    jwtToken, err := auth.GetToken(req.Domain, loginInfo.Id(), loginInfo.UserType)
+    if err != nil {
+        return nil, status.Error(codes.PermissionDenied, "Wrong claim") 
+    }
+
+    return &pb.StatusResponse{
+        Status: 200,
+        Message: "Login successful",
+    }, nil
+}
+

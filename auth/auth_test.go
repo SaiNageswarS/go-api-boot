@@ -13,7 +13,7 @@ func TestGenerateAndVerifyToken(t *testing.T) {
 	// Set ACCESS_SECRET environment variable
 	os.Setenv("ACCESS-SECRET", "CONST-SECRET")
 	// Generate token
-	token := GetToken("testTenant", "rick", "non-admin")
+	token, _ := GetToken("testTenant", "rick", "non-admin")
 	// Verify token
 	userId, tenant, userType, err := decryptToken(token)
 
@@ -23,11 +23,20 @@ func TestGenerateAndVerifyToken(t *testing.T) {
 	require.Equal(t, "non-admin", userType)
 }
 
+func TestGenerateAccessSecretNotSet(t *testing.T) {
+	// Clear ACCESS_SECRET environment variable
+	os.Unsetenv("ACCESS-SECRET")
+	// Generate token
+	token, err := GetToken("testTenant", "rick", "non-admin")
+	require.Error(t, err)
+	require.Empty(t, token)
+}
+
 func TestFailTokenTampered(t *testing.T) {
 	// Set ACCESS_SECRET environment variable
 	os.Setenv("ACCESS-SECRET", "CONST-SECRET")
 	// Generate token
-	token := GetToken("testTenant", "rick", "non-admin")
+	token, _ := GetToken("testTenant", "rick", "non-admin")
 	// Tamper token
 	token = token + "tampered"
 	// Verify token
@@ -39,7 +48,7 @@ func TestFailAccessSecretChanged(t *testing.T) {
 	// Set ACCESS_SECRET environment variable
 	os.Setenv("ACCESS-SECRET", "FIRST-SECRET")
 	// Generate token
-	token := GetToken("testTenant", "rick", "non-admin")
+	token, _ := GetToken("testTenant", "rick", "non-admin")
 	// Set ACCESS_SECRET environment variable
 	os.Setenv("ACCESS-SECRET", "SECOND-SECRET")
 	// Verify token

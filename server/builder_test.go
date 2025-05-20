@@ -132,3 +132,37 @@ func TestContainerResolveSignature(t *testing.T) {
 		t.Fatalf("expected error for missing provider, got nil (v = %v)", v)
 	}
 }
+
+type iface interface {
+	GetID() int
+}
+
+// concrete type implementing iface
+type ifaceImpl struct{ id int }
+
+func (i *ifaceImpl) GetID() int { return i.id }
+
+func TestBuilder_ProvideAs_BindsInterface(t *testing.T) {
+	impl := &ifaceImpl{id: 99}
+	spy := &regSpy{}
+
+	builder := New(&config.BootConfig{}).
+		GRPCPort(":0").
+		HTTPPort(":0").
+		ProvideAs(impl, (*iface)(nil)). // <- use ProvideAs here
+		Register(spy.fn, func(i iface) *svc {
+			return &svc{d: &dep{id: i.GetID()}} // embed id into dep for validation
+		})
+
+	if _, err := builder.Build(); err != nil {
+		t.Fatalf("Build() failed: %v", err)
+	}
+
+	s, ok := spy.gotSrv.(*svc)
+	if !ok {
+		t.Fatalf("register fn received wrong service type: %T", spy.gotSrv)
+	}
+	if s.d.id != 99 {
+		t.Fatalf("interface method injection failed: got %d, want 99", s.d.id)
+	}
+}

@@ -7,10 +7,10 @@ import (
 type {{.ModelName}}Model struct {
 }
 
-func (m *{{.ModelName}}Model) Id() string {
+func (m {{.ModelName}}Model) Id() string {
     return ""
 }
 
-func (m *{{.ModelName}}Model) CollectionName() string {
+func (m {{.ModelName}}Model) CollectionName() string {
     return "{{.ModelName}}"
 }

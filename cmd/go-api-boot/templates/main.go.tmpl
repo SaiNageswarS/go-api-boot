@@ -24,7 +24,12 @@ func main() {
 	var ccfg *AppConfig 
 	config.LoadConfig("config.ini", ccfg)
 
-	boot, _ := server.New(cfg).
+	mongoClient, err := odm.GetGetClient(ccfg.MongoURI)
+	if err != nil {
+		logger.Fatal("Failed to connect to MongoDB", zap.Error(err))
+	}
+
+	boot, err := server.New(cfg).
 		GRPCPort(":50051").        // or ":0" for dynamic
 		HTTPPort(":8080").
 		EnableSSL(server.CloudCacheProvider(cfg, cloudFns)).
@@ -34,6 +39,10 @@ func main() {
 		// Register gRPC service impls
 		Register(pb.RegisterLoginServer, NewLoginService).
 		Build()
+
+	if err != nil {
+		logger.Fatal("Dependency Injection Failed", zap.Error(err))
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	// catch SIGINT ‑> cancel

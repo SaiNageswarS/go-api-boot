@@ -41,16 +41,25 @@ func VerifyToken() grpc_auth.AuthFunc {
 	}
 }
 
-func GetToken(tenant, userId, userType string) string {
+func GetToken(tenant, userId, userType string) (string, error) {
 	atClaims := jwt.StandardClaims{}
 	atClaims.Id = userId
 	atClaims.Audience = tenant
 	atClaims.Subject = userType
 
 	var ACCESS_SECRET = os.Getenv("ACCESS-SECRET")
+	if ACCESS_SECRET == "" {
+		return "", errors.New("ACCESS-SECRET is not set in environment")
+	}
+
 	at := jwt.NewWithClaims(jwt.SigningMethodHS256, atClaims)
-	token, _ := at.SignedString([]byte(ACCESS_SECRET))
-	return token
+	token, err := at.SignedString([]byte(ACCESS_SECRET))
+
+	if err != nil {
+		logger.Error("Error signing token", zap.Error(err))
+		return "", err
+	}
+	return token, nil
 }
 
 func GetUserIdAndTenant(ctx context.Context) (string, string) {
@@ -82,6 +91,9 @@ func GetUserType(ctx context.Context) string {
 // returns userId, tenant, userType
 func decryptToken(token string) (string, string, string, error) {
 	accessSecret := os.Getenv("ACCESS-SECRET")
+	if accessSecret == "" {
+		return "", "", "", errors.New("ACCESS-SECRET is not set in environment")
+	}
 
 	parsedToken, err := jwt.ParseWithClaims(
 		token,

@@ -36,6 +36,9 @@ func Bootstrap(projectName, protoPath string) {
 
 	err = GenerateDockerFile(folderName)
 	CheckErr(err)
+
+	err = GenerateLoginService(projectName)
+	CheckErr(err)
 }
 
 func initializeGoProject(prjName string) (string, error) {

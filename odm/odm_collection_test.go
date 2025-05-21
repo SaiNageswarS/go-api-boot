@@ -13,222 +13,261 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type TestModel struct {
+/* ─────────────────────────────
+   Test scaffolding & fixtures
+   ───────────────────────────── */
+
+type testModel struct {
 	Name     string `bson:"name"`
 	PhotoUrl string `bson:"photoUrl"`
 	Email    string `bson:"email"`
 }
 
-func (m TestModel) Id() string {
-	return "rg"
+func (m testModel) Id() string             { return "rg" }
+func (m testModel) CollectionName() string { return "test" }
+
+type testOdmCollection struct {
+	odmCollection[testModel]
 }
 
-func (m TestModel) CollectionName() string {
-	return "test"
-}
+type MockTimer struct{}
 
-type TestRepository struct {
-	OdmCollection[TestModel]
-}
+func (m *MockTimer) Now() int64 { return 2024 }
 
-func TestSave(t *testing.T) {
+/* ─────────────────────────────
+   Tests
+   ───────────────────────────── */
+
+func TestSave_Insert(t *testing.T) {
+	ctx := context.Background()
+
 	collection := &MockCollection{}
-	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
-	repo := &TestRepository{baseRepo}
+	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
+	repo := &testOdmCollection{baseRepo}
 
 	expectedFilter := bson.M{"_id": "rg"}
-	expectedUpdate := bson.M{"$set": bson.M{"_id": "rg", "name": "Rick", "photoUrl": "rick.png", "email": "rick@gmail.com", "createdOn": int64(2024)}}
+	expectedUpdate := bson.M{
+		"$set": bson.M{
+			"_id":       "rg",
+			"name":      "Rick",
+			"photoUrl":  "rick.png",
+			"email":     "rick@gmail.com",
+			"createdOn": int64(2024),
+		},
+	}
 
-	collection.On("UpdateOne", mock.Anything, expectedFilter, expectedUpdate, mock.Anything).Return(&mongo.UpdateResult{}, nil)
-	// return 0 to indicate that the document does not exist
-	collection.On("CountDocuments", mock.Anything, bson.M{"_id": "rg"}, mock.Anything).Return(int64(0), nil)
+	collection.
+		On("UpdateOne", mock.Anything, expectedFilter, expectedUpdate, mock.Anything).
+		Return(&mongo.UpdateResult{}, nil)
+	collection.
+		On("CountDocuments", mock.Anything, bson.M{"_id": "rg"}, mock.Anything).
+		Return(int64(0), nil)
 
-	err := <-repo.Save(&TestModel{Name: "Rick", PhotoUrl: "rick.png", Email: "rick@gmail.com"})
+	_, err := Await(repo.Save(ctx, testModel{Name: "Rick", PhotoUrl: "rick.png", Email: "rick@gmail.com"}))
 	require.NoError(t, err)
-	collection.AssertCalled(t, "UpdateOne", mock.Anything, expectedFilter, expectedUpdate, mock.Anything)
+	collection.AssertExpectations(t)
 }
 
-func TestSaveErr(t *testing.T) {
+func TestSave_Err(t *testing.T) {
+	ctx := context.Background()
+
 	collection := &MockCollection{}
-	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
-	repo := &TestRepository{baseRepo}
+	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
+	repo := &testOdmCollection{baseRepo}
 
 	expectedErr := fmt.Errorf("failed to save")
 
-	collection.On("UpdateOne", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&mongo.UpdateResult{}, expectedErr)
-	collection.On("CountDocuments", mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil)
+	collection.
+		On("UpdateOne", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&mongo.UpdateResult{}, expectedErr)
+	collection.
+		On("CountDocuments", mock.Anything, mock.Anything, mock.Anything).
+		Return(int64(0), nil)
 
-	err := <-repo.Save(&TestModel{Name: "Rick", PhotoUrl: "rick.png", Email: "rick@gmail.com"})
+	_, err := Await(repo.Save(ctx, testModel{Name: "Rick"}))
 	require.ErrorIs(t, err, expectedErr)
 }
 
-func TestUpdate(t *testing.T) {
+func TestSave_Update(t *testing.T) {
+	ctx := context.Background()
+
 	collection := &MockCollection{}
-	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
-	repo := &TestRepository{baseRepo}
+	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
+	repo := &testOdmCollection{baseRepo}
 
 	expectedFilter := bson.M{"_id": "rg"}
-	expectedUpdate := bson.M{"$set": bson.M{"_id": "rg", "name": "Rick", "photoUrl": "rick.png", "email": "rick@gmail.com", "updatedOn": int64(2024)}}
+	expectedUpdate := bson.M{
+		"$set": bson.M{
+			"_id":       "rg",
+			"name":      "Rick",
+			"photoUrl":  "rick.png",
+			"email":     "rick@gmail.com",
+			"updatedOn": int64(2024),
+		},
+	}
 
-	collection.On("UpdateOne", mock.Anything, expectedFilter, expectedUpdate, mock.Anything).Return(&mongo.UpdateResult{}, nil)
-	// return 1 to indicate that the document exists
-	collection.On("CountDocuments", mock.Anything, bson.M{"_id": "rg"}, mock.Anything).Return(int64(1), nil)
+	collection.
+		On("UpdateOne", mock.Anything, expectedFilter, expectedUpdate, mock.Anything).
+		Return(&mongo.UpdateResult{}, nil)
+	collection.
+		On("CountDocuments", mock.Anything, bson.M{"_id": "rg"}, mock.Anything).
+		Return(int64(1), nil)
 
-	err := <-repo.Save(&TestModel{Name: "Rick", PhotoUrl: "rick.png", Email: "rick@gmail.com"})
+	_, err := Await(repo.Save(ctx, testModel{Name: "Rick", PhotoUrl: "rick.png", Email: "rick@gmail.com"}))
 	require.NoError(t, err)
-	collection.AssertCalled(t, "UpdateOne", mock.Anything, expectedFilter, expectedUpdate, mock.Anything)
+	collection.AssertExpectations(t)
 }
 
-func TestFindOneById(t *testing.T) {
+func TestFindOneByID(t *testing.T) {
+	ctx := context.Background()
+
 	collection := &MockCollection{}
-	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
-	repo := &TestRepository{baseRepo}
+	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
+	repo := &testOdmCollection{baseRepo}
 
 	expectedFilter := bson.M{"_id": "rg"}
-	expectedModel := &TestModel{Name: "Rick", PhotoUrl: "rick.png", Email: "rick@gmail.com"}
+	expectedModel := &testModel{Name: "Rick", PhotoUrl: "rick.png", Email: "rick@gmail.com"}
 
 	findOneResult := mongo.NewSingleResultFromDocument(expectedModel, nil, nil)
-	collection.On("FindOne", mock.Anything, expectedFilter, mock.Anything).Return(findOneResult)
+	collection.On("FindOne", mock.Anything, expectedFilter, mock.Anything).
+		Return(findOneResult)
 
-	resChan, errChan := repo.FindOneById("rg")
-	select {
-	case res := <-resChan:
-		require.Equal(t, expectedModel, res)
-	case err := <-errChan:
-		require.NoError(t, err)
-	}
+	res, err := Await(repo.FindOneByID(ctx, "rg"))
+	require.NoError(t, err)
+	require.Equal(t, expectedModel, res)
 }
 
 func TestFind(t *testing.T) {
+	ctx := context.Background()
+
 	collection := &MockCollection{}
-	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
-	repo := &TestRepository{baseRepo}
+	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
+	repo := &testOdmCollection{baseRepo}
 
 	filter := bson.M{"email": "rick@gmail.com"}
 	sort := bson.D{{Key: "name", Value: 1}}
-	limit := int64(10)
-	skip := int64(0)
+	limit, skip := int64(10), int64(0)
 
-	expected := []TestModel{{Name: "Rick", Email: "rick@gmail.com"}}
+	expected := []testModel{{Name: "Rick", Email: "rick@gmail.com"}}
 	cursor, _ := mongo.NewCursorFromDocuments(toInterface(expected), nil, nil)
-	collection.On("Find", mock.Anything, filter, mock.Anything).Return(cursor, nil)
 
-	resChan, errChan := repo.Find(filter, sort, limit, skip)
-	select {
-	case res := <-resChan:
-		require.Equal(t, expected, res)
-	case err := <-errChan:
-		require.NoError(t, err)
-	}
+	collection.On("Find", mock.Anything, filter, mock.Anything).
+		Return(cursor, nil)
+
+	res, err := Await(repo.Find(ctx, filter, sort, limit, skip))
+	require.NoError(t, err)
+	require.Equal(t, expected, res)
 }
 
 func TestAggregate(t *testing.T) {
-	collection := &MockCollection{}
-	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
-	repo := &TestRepository{baseRepo}
+	ctx := context.Background()
 
-	expectedPipeline := mongo.Pipeline{
+	collection := &MockCollection{}
+	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
+	repo := &testOdmCollection{baseRepo}
+
+	pipeline := mongo.Pipeline{
 		bson.D{{Key: "$match", Value: bson.D{{Key: "Name", Value: "Rick"}}}},
 		bson.D{{Key: "$sample", Value: bson.D{{Key: "size", Value: 1}}}},
 	}
 
-	expectedModels := []TestModel{
+	expected := []testModel{
 		{Name: "Rick", PhotoUrl: "rick.png", Email: "rick.ag@gmail.com"},
 		{Name: "Rick", PhotoUrl: "rickPt.png", Email: "rick.pt@gmail.com"},
 	}
 
-	aggregateResult, _ := mongo.NewCursorFromDocuments(toInterface(expectedModels), nil, nil)
-	collection.On("Aggregate", mock.Anything, expectedPipeline, mock.Anything).Return(aggregateResult, nil)
+	cursor, _ := mongo.NewCursorFromDocuments(toInterface(expected), nil, nil)
+	collection.On("Aggregate", mock.Anything, pipeline, mock.Anything).
+		Return(cursor, nil)
 
-	resChan, errChan := repo.Aggregate(expectedPipeline)
-	select {
-	case res := <-resChan:
-		require.Equal(t, expectedModels, res)
-	case err := <-errChan:
-		require.NoError(t, err)
-	}
+	res, err := Await(repo.Aggregate(ctx, pipeline))
+	require.NoError(t, err)
+	require.Equal(t, expected, res)
 }
 
-func TestDeleteById(t *testing.T) {
+func TestDeleteByID(t *testing.T) {
+	ctx := context.Background()
+
 	collection := &MockCollection{}
-	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
-	repo := &TestRepository{baseRepo}
+	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
+	repo := &testOdmCollection{baseRepo}
 
 	expectedFilter := bson.M{"_id": "rg"}
+	collection.On("DeleteOne", mock.Anything, expectedFilter, mock.Anything).
+		Return(&mongo.DeleteResult{DeletedCount: 1}, nil)
 
-	collection.On("DeleteOne", mock.Anything, expectedFilter, mock.Anything).Return(&mongo.DeleteResult{DeletedCount: 1}, nil)
-
-	err := <-repo.DeleteById("rg")
+	_, err := Await(repo.DeleteByID(ctx, "rg"))
 	require.NoError(t, err)
 }
 
 func TestDeleteOne(t *testing.T) {
+	ctx := context.Background()
+
 	collection := &MockCollection{}
-	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
-	repo := &TestRepository{baseRepo}
+	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
+	repo := &testOdmCollection{baseRepo}
 
 	filter := bson.M{"email": "rick@gmail.com"}
-	collection.On("DeleteOne", mock.Anything, filter, mock.Anything).Return(&mongo.DeleteResult{DeletedCount: 1}, nil)
+	collection.On("DeleteOne", mock.Anything, filter, mock.Anything).
+		Return(&mongo.DeleteResult{DeletedCount: 1}, nil)
 
-	err := <-repo.DeleteOne(filter)
+	_, err := Await(repo.DeleteOne(ctx, filter))
 	require.NoError(t, err)
 }
 
 func TestCountDocuments(t *testing.T) {
+	ctx := context.Background()
+
 	collection := &MockCollection{}
-	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
-	repo := &TestRepository{baseRepo}
+	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
+	repo := &testOdmCollection{baseRepo}
 
 	filter := bson.M{"email": "rick@gmail.com"}
-	collection.On("CountDocuments", mock.Anything, filter, mock.Anything).Return(int64(5), nil)
+	collection.On("CountDocuments", mock.Anything, filter, mock.Anything).
+		Return(int64(5), nil)
 
-	countChan, errChan := repo.CountDocuments(filter)
-	select {
-	case count := <-countChan:
-		require.Equal(t, int64(5), count)
-	case err := <-errChan:
-		require.NoError(t, err)
-	}
+	count, err := Await(repo.Count(ctx, filter))
+	require.NoError(t, err)
+	require.Equal(t, int64(5), count)
 }
 
 func TestDistinct(t *testing.T) {
+	ctx := context.Background()
+
 	collection := &MockCollection{}
-	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
-	repo := &TestRepository{baseRepo}
+	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
+	repo := &testOdmCollection{baseRepo}
 
 	field := "email"
 	filter := bson.D{}
 	expected := []interface{}{"rick@gmail.com", "rick@foo.com"}
 
-	collection.On("Distinct", mock.Anything, field, filter, mock.Anything).Return(expected, nil)
+	collection.On("Distinct", mock.Anything, field, filter, mock.Anything).
+		Return(expected, nil)
 
-	resChan, errChan := repo.Distinct(field, filter, time.Second)
-	select {
-	case res := <-resChan:
-		require.Equal(t, expected, res)
-	case err := <-errChan:
-		require.NoError(t, err)
-	}
+	res, err := Await(repo.Distinct(ctx, field, filter, time.Second))
+	require.NoError(t, err)
+	require.Equal(t, expected, res)
 }
 
-func TestIsExistsById(t *testing.T) {
+func TestExists(t *testing.T) {
+	ctx := context.Background()
+
 	collection := &MockCollection{}
-	baseRepo := OdmCollection[TestModel]{col: collection, timer: &MockTimer{}}
-	repo := &TestRepository{baseRepo}
+	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
+	repo := &testOdmCollection{baseRepo}
 
-	collection.On("CountDocuments", mock.Anything, bson.M{"_id": "rg"}, mock.Anything).Return(int64(1), nil)
+	collection.On("CountDocuments", mock.Anything, bson.M{"_id": "rg"}, mock.Anything).
+		Return(int64(1), nil)
 
-	exists := repo.IsExistsById("rg")
+	exists, err := Await(repo.Exists(ctx, "rg"))
+	require.NoError(t, err)
 	require.True(t, exists)
 }
 
-func TestGetModel(t *testing.T) {
-	repo := &TestRepository{}
-	proto := &TestModel{Name: "Rick", Email: "rick@gmail.com"}
-	model := repo.GetModel(proto)
-	require.Equal(t, proto.Name, model.Name)
-	require.Equal(t, proto.Email, model.Email)
-}
+/* ─────────────────────────────
+   Helpers & mocks
+   ───────────────────────────── */
 
 type MockCollection struct {
 	mock.Mock
@@ -244,7 +283,7 @@ func (m *MockCollection) FindOne(ctx context.Context, filter interface{}, opts .
 	return args.Get(0).(*mongo.SingleResult)
 }
 
-func (m *MockCollection) Find(ctx context.Context, filter interface{}, opts ...*options.FindOptions) (cur *mongo.Cursor, err error) {
+func (m *MockCollection) Find(ctx context.Context, filter interface{}, opts ...*options.FindOptions) (*mongo.Cursor, error) {
 	args := m.Called(ctx, filter, opts)
 	return args.Get(0).(*mongo.Cursor), args.Error(1)
 }
@@ -264,21 +303,15 @@ func (m *MockCollection) CountDocuments(ctx context.Context, filter interface{},
 	return args.Get(0).(int64), args.Error(1)
 }
 
-func (m *MockCollection) Distinct(ctx context.Context, fieldName string, filter interface{}, opts ...*options.DistinctOptions) ([]interface{}, error) {
-	args := m.Called(ctx, fieldName, filter, opts)
+func (m *MockCollection) Distinct(ctx context.Context, field string, filter interface{}, opts ...*options.DistinctOptions) ([]interface{}, error) {
+	args := m.Called(ctx, field, filter, opts)
 	return args.Get(0).([]interface{}), args.Error(1)
 }
 
-type MockTimer struct{}
-
-func (m *MockTimer) Now() int64 {
-	return 2024
-}
-
-func toInterface(models []TestModel) []interface{} {
-	interfaces := make([]interface{}, len(models))
-	for i, model := range models {
-		interfaces[i] = model
+func toInterface(models []testModel) []interface{} {
+	out := make([]interface{}, len(models))
+	for i, m := range models {
+		out[i] = m
 	}
-	return interfaces
+	return out
 }

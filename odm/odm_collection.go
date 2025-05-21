@@ -49,9 +49,12 @@ func CollectionOf[T DbModel](client MongoClient, tenant string) OdmCollectionInt
 	}
 }
 
-// To avoid copying of model for save, use Save as below
-// lead := &db.LeadModel { Name: "Lead1" }
-// _, err := odm.Await(odm.CollectionOf[*db.LeadModel](s.mongo, tenant).Save(ctx, lead))
+// Intentionally takes model value T. Avoid passing pointer to prevent
+// accidental dereferencing of nil pointer.
+// Also, passing pointer can fail CollectionName() in CollectionOf[T].
+// Example usage:
+// lead := db.LeadModel { Name: "Lead1" }
+// _, err := odm.Await(odm.CollectionOf[db.LeadModel](s.mongo, tenant).Save(ctx, lead))
 func (c *odmCollection[T]) Save(ctx context.Context, model T) <-chan Result[struct{}] {
 	out := make(chan Result[struct{}], 1)
 	go func() {

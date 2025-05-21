@@ -5,8 +5,6 @@ import (
 	"runtime"
 	"testing"
 	"time"
-
-	"github.com/SaiNageswarS/go-api-boot/config"
 )
 
 // -----------------------------------------------------------------------------
@@ -42,14 +40,14 @@ func TestBootServer_Shutdown_UnblocksServe(t *testing.T) {
 // Test 2: Builder validation – missing ports should error.
 // -----------------------------------------------------------------------------
 func TestBootServer_BuilderValidation(t *testing.T) {
-	_, err := New(&config.BootConfig{}).
+	_, err := New().
 		GRPCPort(":0").
 		Build() // missing HTTPPort
 	if err == nil {
 		t.Fatalf("Build() succeeded with missing HTTPPort; want error")
 	}
 
-	_, err = New(&config.BootConfig{}).
+	_, err = New().
 		HTTPPort(":0").
 		Build() // missing GRPCPort
 	if err == nil {
@@ -68,7 +66,7 @@ func TestBootServer_Build_WithSSL(t *testing.T) {
 		t.Skip("skip SSL build test on Windows CI")
 	}
 
-	_, err := New(&config.BootConfig{}).
+	_, err := New().
 		GRPCPort(":0").
 		HTTPPort(":0").
 		EnableSSL(DirCache(t.TempDir())).
@@ -84,7 +82,7 @@ func TestBootServer_Build_WithSSL(t *testing.T) {
 func freshBootServer(t *testing.T, withSSL bool) *BootServer {
 	t.Helper()
 
-	b := New(&config.BootConfig{}).
+	b := New().
 		GRPCPort(":0").
 		HTTPPort(":0") // ":0" ⇒ OS-chosen free port
 

@@ -7,17 +7,19 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/SaiNageswarS/go-api-boot/auth"
+	"github.com/SaiNageswarS/go-api-boot/logger"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
+	grpc_zap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
+	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 	"google.golang.org/grpc"
-
-	"github.com/SaiNageswarS/go-api-boot/config"
 )
 
 // ─── public fluent builder ───────────────────────────────────
 type Builder struct {
-	cfg         *config.BootConfig
 	grpcPort    string
 	httpPort    string
 	sslProvider SSLProvider
@@ -38,13 +40,22 @@ type registration struct {
 }
 
 // New returns a fresh builder; cfg may be nil if you DI it later.
-func New(cfg *config.BootConfig) *Builder {
+func New() *Builder {
 	return &Builder{
-		cfg:        cfg,
 		cors:       cors.AllowAll(),
 		extra:      map[string]http.HandlerFunc{},
 		singletons: map[reflect.Type]reflect.Value{},
 		providers:  map[reflect.Type]reflect.Value{},
+		unary: []grpc.UnaryServerInterceptor{
+			grpc_ctxtags.UnaryServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
+			grpc_zap.UnaryServerInterceptor(logger.Get()),
+			grpc_auth.UnaryServerInterceptor(auth.VerifyToken()),
+		},
+		stream: []grpc.StreamServerInterceptor{
+			grpc_ctxtags.StreamServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
+			grpc_zap.StreamServerInterceptor(logger.Get()),
+			grpc_auth.StreamServerInterceptor(auth.VerifyToken()),
+		},
 	}
 }
 

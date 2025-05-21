@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/SaiNageswarS/go-api-boot/config"
 	"google.golang.org/grpc"
 )
 
@@ -36,14 +35,14 @@ func (p *depProvider) provide() *dep { p.called++; return &dep{id: 7} }
 /* ───────────────────────────────  TESTS  ─────────────────────────────────── */
 
 func TestBuilder_BuildValidation(t *testing.T) {
-	_, err := New(&config.BootConfig{}).
+	_, err := New().
 		GRPCPort(":0").
 		Build() // missing HTTPPort
 	if err == nil {
 		t.Fatalf("Build() succeeded with missing HTTPPort; want error")
 	}
 
-	_, err = New(&config.BootConfig{}).
+	_, err = New().
 		HTTPPort(":0").
 		Build() // missing GRPCPort
 	if err == nil {
@@ -56,7 +55,7 @@ func TestBuilder_Provide_RegistersService(t *testing.T) {
 	d := &dep{id: 42}
 	spy := &regSpy{}
 
-	builder := New(&config.BootConfig{}).
+	builder := New().
 		GRPCPort(":0").
 		HTTPPort(":0").
 		Provide(d).
@@ -90,7 +89,7 @@ func TestBuilder_ProvideFunc_Memoised(t *testing.T) {
 	p := &depProvider{}
 	spy1, spy2 := &regSpy{}, &regSpy{}
 
-	b := New(&config.BootConfig{}).
+	b := New().
 		GRPCPort(":0").
 		HTTPPort(":0").
 		ProvideFunc(p.provide).
@@ -146,7 +145,7 @@ func TestBuilder_ProvideAs_BindsInterface(t *testing.T) {
 	impl := &ifaceImpl{id: 99}
 	spy := &regSpy{}
 
-	builder := New(&config.BootConfig{}).
+	builder := New().
 		GRPCPort(":0").
 		HTTPPort(":0").
 		ProvideAs(impl, (*iface)(nil)). // <- use ProvideAs here

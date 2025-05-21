@@ -134,7 +134,7 @@ cloudFns.LoadSecretsIntoEnv()
 var ccfg *config.AppConfig 
 config.LoadConfig("config.ini", ccfg)
 
-boot, _ := server.New(cfg).
+boot, _ := server.New().
     GRPCPort(":50051").        // or ":0" for dynamic
     HTTPPort(":8080").
     EnableSSL(server.CloudCacheProvider(cfg, cloudFns)).
@@ -199,7 +199,7 @@ There are two ways to persist the Let’s Encrypt certificates:
 2. **Distributed cache with** SslCloudCache – perfect for Docker / Kubernetes where the container filesystem is ephemeral.
 
 ```go
-boot, _ := server.New(cfg).
+boot, _ := server.New().
     GRPCPort(":50051").HTTPPort(":8080").
     EnableSSL(server.DirCache("certs"))  // local cache
     Build()

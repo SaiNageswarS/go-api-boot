@@ -1,3 +1,4 @@
+// odm/result.go
 package odm
 
 import (
@@ -5,28 +6,36 @@ import (
 	"time"
 
 	"github.com/SaiNageswarS/go-api-boot/logger"
-	"github.com/jinzhu/copier"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.uber.org/zap"
 )
 
-type OdmCollectionInterface[T DbModel] interface {
-	Save(model DbModel) chan error
-	FindOneById(id string) (chan *T, chan error)
-	IsExistsById(id string) bool
-	CountDocuments(filters bson.M) (chan int64, chan error)
-	Distinct(fieldName string, filters bson.D, serverMaxTime time.Duration) (chan []interface{}, chan error)
-	FindOne(filters bson.M) (chan *T, chan error)
-	Find(filters bson.M, sort bson.D, limit, skip int64) (chan []T, chan error)
-	DeleteById(id string) chan error
-	DeleteOne(filters bson.M) chan error
-	GetModel(proto interface{}) *T
-	Aggregate(pipeline mongo.Pipeline) (chan []T, chan error)
+type Result[T any] struct {
+	Data T
+	Err  error
 }
 
-type OdmCollection[T DbModel] struct {
+func Await[T any](ch <-chan Result[T]) (T, error) {
+	res := <-ch
+	return res.Data, res.Err
+}
+
+type OdmCollectionInterface[T DbModel] interface {
+	Save(ctx context.Context, model T) <-chan Result[struct{}]
+	FindOneByID(ctx context.Context, id string) <-chan Result[*T]
+	FindOne(ctx context.Context, filters bson.M) <-chan Result[*T]
+	Find(ctx context.Context, filters bson.M, sort bson.D, limit, skip int64) <-chan Result[[]T]
+	DeleteByID(ctx context.Context, id string) <-chan Result[struct{}]
+	DeleteOne(ctx context.Context, filters bson.M) <-chan Result[struct{}]
+	Count(ctx context.Context, filters bson.M) <-chan Result[int64]
+	Distinct(ctx context.Context, field string, filters bson.D, serverMaxTime time.Duration) <-chan Result[[]interface{}]
+	Aggregate(ctx context.Context, pipeline mongo.Pipeline) <-chan Result[[]T]
+	Exists(ctx context.Context, id string) <-chan Result[bool]
+}
+
+type odmCollection[T DbModel] struct {
 	col   CollectionInterface
 	timer Timer
 }
@@ -34,214 +43,149 @@ type OdmCollection[T DbModel] struct {
 func CollectionOf[T DbModel](client MongoClient, tenant string) OdmCollectionInterface[T] {
 	var zero T
 	collName := zero.CollectionName()
-
-	return &OdmCollection[T]{
+	return &odmCollection[T]{
 		col:   client.Database(tenant).Collection(collName),
 		timer: DefaultTimer{},
 	}
 }
 
-func (r *OdmCollection[T]) Save(model DbModel) chan error {
-	ch := make(chan error)
-
+func (c *odmCollection[T]) Save(ctx context.Context, model T) <-chan Result[struct{}] {
+	out := make(chan Result[struct{}], 1)
 	go func() {
-		id := model.Id()
-		document, err := convertToBson(model)
+		defer close(out)
+		doc, err := convertToBson(model)
 		if err != nil {
-			ch <- err
+			out <- Result[struct{}]{Err: err}
 			return
 		}
 
-		document["_id"] = id
-		if r.IsExistsById(id) {
-			document["updatedOn"] = r.timer.Now()
+		doc["_id"] = model.Id()
+		exists, _ := Await(c.Exists(ctx, model.Id()))
+		if exists {
+			doc["updatedOn"] = c.timer.Now()
 		} else {
-			document["createdOn"] = r.timer.Now()
+			doc["createdOn"] = c.timer.Now()
 		}
 
-		_, err = r.col.UpdateOne(
-			context.Background(),
-			bson.M{"_id": id},
-			bson.M{"$set": document},
-			options.Update().SetUpsert(true))
+		_, err = c.col.UpdateOne(ctx, bson.M{"_id": model.Id()}, bson.M{"$set": doc}, options.Update().SetUpsert(true))
+		out <- Result[struct{}]{Err: err}
+	}()
+	return out
+}
 
-		if err != nil {
-			ch <- err
+func (c *odmCollection[T]) FindOneByID(ctx context.Context, id string) <-chan Result[*T] {
+	return c.FindOne(ctx, bson.M{"_id": id})
+}
+
+func (c *odmCollection[T]) FindOne(ctx context.Context, filters bson.M) <-chan Result[*T] {
+	out := make(chan Result[*T], 1)
+	go func() {
+		defer close(out)
+		doc := c.col.FindOne(ctx, filters)
+		if doc.Err() != nil {
+			out <- Result[*T]{Err: doc.Err()}
 			return
 		}
-
-		ch <- nil
+		model := new(T)
+		err := doc.Decode(model)
+		out <- Result[*T]{Data: model, Err: err}
 	}()
-
-	return ch
+	return out
 }
 
-// Finds one object based on Id.
-func (r *OdmCollection[T]) FindOneById(id string) (chan *T, chan error) {
-	return r.FindOne(bson.M{"_id": id})
-}
-
-// checks if a record exists by id.
-// Synchronous because it is expected to be very light-weighted without deserialization etc.
-func (r *OdmCollection[T]) IsExistsById(id string) bool {
-	count, err := r.col.CountDocuments(context.Background(), bson.M{"_id": id})
-	if err != nil {
-		logger.Error("Failed getting count of object", zap.Error(err))
-		return false
-	}
-
-	return count > 0
-}
-
-// Finds documents count on filters.
-func (r *OdmCollection[T]) CountDocuments(filters bson.M) (chan int64, chan error) {
-	resultChan := make(chan int64)
-	errorChan := make(chan error)
-
+func (c *odmCollection[T]) Find(ctx context.Context, filters bson.M, sort bson.D, limit, skip int64) <-chan Result[[]T] {
+	out := make(chan Result[[]T], 1)
 	go func() {
-		count, err := r.col.CountDocuments(context.Background(), filters)
-
-		if err != nil {
-			errorChan <- err
-		} else {
-			resultChan <- count
+		defer close(out)
+		findOpts := options.Find().SetLimit(limit).SetSkip(skip)
+		if sort != nil {
+			findOpts.SetSort(sort)
 		}
+		cursor, err := c.col.Find(ctx, filters, findOpts)
+		if err != nil {
+			out <- Result[[]T]{Err: err}
+			return
+		}
+		var result []T
+		err = cursor.All(ctx, &result)
+		out <- Result[[]T]{Data: result, Err: err}
 	}()
-
-	return resultChan, errorChan
+	return out
 }
 
-// Finds all unique values for a field
-func (r *OdmCollection[T]) Distinct(fieldName string, filters bson.D, serverMaxTime time.Duration) (chan []interface{}, chan error) {
-	resultChan := make(chan []interface{})
-	errorChan := make(chan error)
+func (c *odmCollection[T]) DeleteByID(ctx context.Context, id string) <-chan Result[struct{}] {
+	return c.DeleteOne(ctx, bson.M{"_id": id})
+}
 
+func (c *odmCollection[T]) DeleteOne(ctx context.Context, filters bson.M) <-chan Result[struct{}] {
+	out := make(chan Result[struct{}], 1)
 	go func() {
+		defer close(out)
+		_, err := c.col.DeleteOne(ctx, filters)
+		out <- Result[struct{}]{Err: err}
+	}()
+	return out
+}
+
+func (c *odmCollection[T]) Count(ctx context.Context, filters bson.M) <-chan Result[int64] {
+	out := make(chan Result[int64], 1)
+	go func() {
+		defer close(out)
+		count, err := c.col.CountDocuments(ctx, filters)
+		out <- Result[int64]{Data: count, Err: err}
+	}()
+	return out
+}
+
+func (c *odmCollection[T]) Distinct(ctx context.Context, field string, filters bson.D, serverMaxTime time.Duration) <-chan Result[[]interface{}] {
+	out := make(chan Result[[]interface{}], 1)
+	go func() {
+		defer close(out)
 		opts := &options.DistinctOptions{}
 		opts.SetMaxTime(serverMaxTime)
-		distinctValues, err := r.col.Distinct(context.Background(), fieldName, filters, opts)
-
-		if err != nil {
-			errorChan <- err
-		} else {
-			resultChan <- distinctValues
-		}
+		res, err := c.col.Distinct(ctx, field, filters, opts)
+		out <- Result[[]interface{}]{Data: res, Err: err}
 	}()
-
-	return resultChan, errorChan
+	return out
 }
 
-// Finds one object based on filters.
-func (r *OdmCollection[T]) FindOne(filters bson.M) (chan *T, chan error) {
-	resultChan := make(chan *T)
-	errorChan := make(chan error)
-
+func (c *odmCollection[T]) Aggregate(ctx context.Context, pipeline mongo.Pipeline) <-chan Result[[]T] {
+	out := make(chan Result[[]T], 1)
 	go func() {
-		document := r.col.FindOne(context.Background(), filters)
-
-		if document.Err() != nil {
-			errorChan <- document.Err()
-		} else {
-			model := new(T)
-			document.Decode(model)
-			resultChan <- model
-		}
-	}()
-
-	return resultChan, errorChan
-}
-
-func (r *OdmCollection[T]) Find(filters bson.M, sort bson.D, limit, skip int64) (chan []T, chan error) {
-	resultChan := make(chan []T)
-	errorChan := make(chan error)
-
-	go func() {
-		findOptions := options.Find()
-		if sort != nil {
-			findOptions.SetSort(sort)
-		}
-		findOptions.SetLimit(limit)
-		findOptions.SetSkip(skip)
-
-		cursor, err := r.col.Find(context.Background(), filters, findOptions)
+		defer close(out)
+		cursor, err := c.col.Aggregate(ctx, pipeline)
 		if err != nil {
-			errorChan <- err
+			out <- Result[[]T]{Err: err}
 			return
 		}
-
 		var result []T
-		if err = cursor.All(context.Background(), &result); err != nil {
-			errorChan <- err
-			return
-		}
-
-		resultChan <- result
+		err = cursor.All(ctx, &result)
+		out <- Result[[]T]{Data: result, Err: err}
 	}()
-
-	return resultChan, errorChan
+	return out
 }
 
-func (r *OdmCollection[T]) DeleteById(id string) chan error {
-	ch := make(chan error)
-
+func (c *odmCollection[T]) Exists(ctx context.Context, id string) <-chan Result[bool] {
+	out := make(chan Result[bool], 1)
 	go func() {
-		_, err := r.col.DeleteOne(context.Background(), bson.M{"_id": id})
-		ch <- err
-	}()
-
-	return ch
-}
-
-func (r *OdmCollection[T]) DeleteOne(filters bson.M) chan error {
-	ch := make(chan error)
-
-	go func() {
-		_, err := r.col.DeleteOne(context.Background(), filters)
-		ch <- err
-	}()
-
-	return ch
-}
-
-// Gets an instance of model from proto or othe object.
-func (r *OdmCollection[T]) GetModel(proto interface{}) *T {
-	model := new(T)
-	copier.Copy(model, proto)
-	return model
-}
-
-func (r *OdmCollection[T]) Aggregate(pipeline mongo.Pipeline) (chan []T, chan error) {
-	resultChan := make(chan []T)
-	errorChan := make(chan error)
-
-	go func() {
-		cursor, err := r.col.Aggregate(context.Background(), pipeline)
+		defer close(out)
+		count, err := c.col.CountDocuments(ctx, bson.M{"_id": id})
 		if err != nil {
-			errorChan <- err
+			logger.Error("Exists check failed", zap.Error(err))
+			out <- Result[bool]{Data: false, Err: err}
 			return
 		}
-		defer cursor.Close(context.Background())
-		var result []T
-		if err = cursor.All(context.Background(), &result); err != nil {
-			errorChan <- err
-			return
-		}
-		resultChan <- result
+		out <- Result[bool]{Data: count > 0, Err: nil}
 	}()
-
-	return resultChan, errorChan
+	return out
 }
 
 func convertToBson(model DbModel) (bson.M, error) {
-	pByte, err := bson.Marshal(model)
+	bsonBytes, err := bson.Marshal(model)
 	if err != nil {
 		return nil, err
 	}
-
-	var update bson.M
-	err = bson.Unmarshal(pByte, &update)
-	if err != nil {
-		return nil, err
-	}
-	return update, nil
+	var doc bson.M
+	err = bson.Unmarshal(bsonBytes, &doc)
+	return doc, err
 }

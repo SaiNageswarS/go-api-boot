@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+
 	"github.com/SaiNageswarS/go-api-boot/dotenv"
 	"github.com/caarlos0/env/v11"
 	"github.com/go-ini/ini"
@@ -24,6 +26,10 @@ type BootConfig struct {
 // If loading secrets from cloud like Azure Keyvault or GCP Secret Manager, first load the secrets into
 // environment variables and then load the config struct.
 func LoadConfig[T any](path string, target *T) error {
+	if target == nil {
+		return errors.New("target cannot be nil")
+	}
+
 	file, err := ini.Load(path)
 	if err != nil {
 		return err

@@ -39,6 +39,9 @@ func Bootstrap(projectName, protoPath string) {
 
 	err = GenerateLoginService(projectName, folderName)
 	CheckErr(err)
+
+	err = GenerateLoginRepository(projectName, folderName)
+	CheckErr(err)
 }
 
 func initializeGoProject(prjName string) (string, error) {

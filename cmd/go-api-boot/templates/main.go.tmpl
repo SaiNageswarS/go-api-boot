@@ -21,7 +21,7 @@ func main() {
 	cloudFns.LoadSecretsIntoEnv()
 
 	// load config file
-	ccfg = &AppConfig{} 
+	ccfg := &AppConfig{} 
 	config.LoadConfig("config.ini", ccfg)
 
 	mongoClient, err := odm.GetClient(ccfg.MongoURI)

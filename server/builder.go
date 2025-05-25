@@ -15,6 +15,7 @@ import (
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 )
 
@@ -94,7 +95,9 @@ func (b *Builder) ProvideAs(value any, ifacePtr any) *Builder {
 	val := reflect.ValueOf(value)
 
 	if !val.Type().Implements(ifaceType) {
-		panic("provided value does not implement the given interface")
+		logger.Fatal("Provided value does not implement the given interface",
+			zap.String("valueType", val.Type().String()),
+			zap.String("interfaceType", ifaceType.String()))
 	}
 
 	b.singletons[ifaceType] = val
@@ -105,7 +108,7 @@ func (b *Builder) ProvideAs(value any, ifacePtr any) *Builder {
 func (b *Builder) ProvideFunc(fn any) *Builder {
 	v := reflect.ValueOf(fn)
 	if v.Kind() != reflect.Func {
-		panic("ProvideFunc expects a function")
+		logger.Fatal("ProvideFunc expects a function", zap.Any("received", fn))
 	}
 	out := v.Type().Out(0)
 	b.providers[out] = v
@@ -119,7 +122,7 @@ func (b *Builder) Register(
 ) *Builder {
 	v := reflect.ValueOf(factory)
 	if v.Kind() != reflect.Func {
-		panic("factory must be a function")
+		logger.Fatal("factory must be a function", zap.Any("received", factory))
 	}
 	b.reg = append(b.reg, registration{register, v})
 	return b

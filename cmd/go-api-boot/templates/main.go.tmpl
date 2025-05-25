@@ -21,7 +21,7 @@ func main() {
 	cloudFns.LoadSecretsIntoEnv()
 
 	// load config file
-	var ccfg *AppConfig 
+	ccfg := &AppConfig{} 
 	config.LoadConfig("config.ini", ccfg)
 
 	mongoClient, err := odm.GetClient(ccfg.MongoURI)
@@ -29,12 +29,12 @@ func main() {
 		logger.Fatal("Failed to connect to MongoDB", zap.Error(err))
 	}
 
-	boot, err := server.New(cfg).
+	boot, err := server.New().
 		GRPCPort(":50051").        // or ":0" for dynamic
 		HTTPPort(":8080").
 		EnableSSL(server.CloudCacheProvider(cfg, cloudFns)).
 		// Dependency injection
-		Provide(cfg).
+		Provide(ccfg).
 		ProvideAs(cloudFns, (*cloud.Cloud)(nil)).
 		ProvideAs(mongoClient, (*odm.MongoClient)(nil)).
 		// Register gRPC service impls

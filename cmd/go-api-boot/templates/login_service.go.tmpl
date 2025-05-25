@@ -25,7 +25,11 @@ func (u *LoginService) AuthFuncOverride(ctx context.Context, fullMethodName stri
 }
 
 func (s *LoginService) Login(ctx context.Context, req *pb.LoginRequest) (*pb.StatusResponse, error) {
-    loginInfo := odm.CollectionOf[LoginModel](mongo, req.Tenant).FindOneById(req.Id)
+    loginInfo, err := odm.Await(odm.CollectionOf[LoginModel](mongo, req.Tenant).FindOneByID(ctx, req.Id))
+    if err != nil || loginInfo == nil {
+		return nil, status.Error(codes.NotFound, "User not found")
+	}
+    
     // verify login logic 
 
     jwtToken, err := auth.GetToken(req.Domain, loginInfo.Id(), loginInfo.UserType)

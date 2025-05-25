@@ -71,6 +71,14 @@ func GenerateLoginService(projectPath string, folderName string) error {
 	return generateCode(folderName+"/services", "templates/login_service.go.tmpl", "loginService.go", data)
 }
 
+func GenerateLoginRepository(projectPath string, folderName string) error {
+	data := map[string]string{
+		"ProjectPath": projectPath,
+	}
+
+	return generateCode(folderName+"/db", "templates/login_repository.go.tmpl", "login_repository.go", data)
+}
+
 func generateCode(folderName, templatePath, fileName string, templateData interface{}) error {
 	tmpl, err := template.ParseFS(templatesFS, templatePath)
 	if err != nil {

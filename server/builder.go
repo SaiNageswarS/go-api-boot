@@ -108,7 +108,7 @@ func (b *Builder) ProvideAs(value any, ifacePtr any) *Builder {
 func (b *Builder) ProvideFunc(fn any) *Builder {
 	v := reflect.ValueOf(fn)
 	if v.Kind() != reflect.Func {
-		logger.Fatal("ProvideFunc expects a function")
+		logger.Fatal("ProvideFunc expects a function", zap.Any("received", fn))
 	}
 	out := v.Type().Out(0)
 	b.providers[out] = v
@@ -122,7 +122,7 @@ func (b *Builder) Register(
 ) *Builder {
 	v := reflect.ValueOf(factory)
 	if v.Kind() != reflect.Func {
-		logger.Fatal("factory must be a function")
+		logger.Fatal("factory must be a function", zap.Any("received", factory))
 	}
 	b.reg = append(b.reg, registration{register, v})
 	return b

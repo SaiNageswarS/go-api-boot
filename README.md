@@ -240,6 +240,7 @@ boot, _ := server.New().
     Build()
 
 boot.Serve(context.Background())
+```
 
 ---
 

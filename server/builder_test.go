@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"testing"
 
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/worker"
 	"google.golang.org/grpc"
 )
 
@@ -163,5 +165,43 @@ func TestBuilder_ProvideAs_BindsInterface(t *testing.T) {
 	}
 	if s.d.id != 99 {
 		t.Fatalf("interface method injection failed: got %d, want 99", s.d.id)
+	}
+}
+
+// ------ Temporal worker tests (if applicable) ------
+
+func TestBuilder_WithTemporal_StoresConfig(t *testing.T) {
+	opts := &client.Options{HostPort: "test:7233"}
+	b := New().WithTemporal("my-queue", opts)
+
+	if b.taskQueue != "my-queue" {
+		t.Errorf("expected taskQueue 'my-queue', got %q", b.taskQueue)
+	}
+	if b.temporalClientOpts != opts {
+		t.Error("expected temporalClientOpts to be stored")
+	}
+}
+
+func TestBuilder_RegisterTemporalWorker_Appends(t *testing.T) {
+	b := New()
+	called1, called2 := false, false
+
+	b.RegisterTemporalWorker(func(client.Client, worker.Worker) {
+		called1 = true
+	}).RegisterTemporalWorker(func(client.Client, worker.Worker) {
+		called2 = true
+	})
+
+	if len(b.temporalWorkerFuncs) != 2 {
+		t.Errorf("expected 2 worker funcs, got %d", len(b.temporalWorkerFuncs))
+	}
+
+	// Simulate calling
+	for _, f := range b.temporalWorkerFuncs {
+		f(nil, nil)
+	}
+
+	if !called1 || !called2 {
+		t.Error("expected both temporal worker functions to be called")
 	}
 }

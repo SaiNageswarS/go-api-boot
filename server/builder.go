@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"reflect"
@@ -15,6 +16,8 @@ import (
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/worker"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 )
@@ -33,6 +36,11 @@ type Builder struct {
 	singletons map[reflect.Type]reflect.Value
 	providers  map[reflect.Type]reflect.Value
 	reg        []registration
+
+	// temporary worker for DI
+	taskQueue           string
+	temporalWorkerFuncs []func(client.Client, worker.Worker)
+	temporalClientOpts  *client.Options
 }
 
 type registration struct {
@@ -79,6 +87,19 @@ func (b *Builder) CORS(c *cors.Cors) *Builder { b.cors = c; return b }
 
 func (b *Builder) Handle(pattern string, h http.HandlerFunc) *Builder {
 	b.extra[pattern] = h
+	return b
+}
+
+// ---- temporal worker -----------------------------------------------------
+
+func (b *Builder) WithTemporal(taskQueue string, opts *client.Options) *Builder {
+	b.taskQueue = taskQueue
+	b.temporalClientOpts = opts
+	return b
+}
+
+func (b *Builder) RegisterTemporalWorker(register func(client.Client, worker.Worker)) *Builder {
+	b.temporalWorkerFuncs = append(b.temporalWorkerFuncs, register)
 	return b
 }
 
@@ -192,12 +213,29 @@ func (b *Builder) Build() (*BootServer, error) {
 		}
 	}
 
+	// Create a temporal worker if configured
+	var tw worker.Worker
+	var tc client.Client
+	if b.temporalClientOpts != nil {
+		var err error
+		tc, err = client.Dial(*b.temporalClientOpts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create temporal client: %w", err)
+		}
+		tw = worker.New(tc, b.taskQueue, worker.Options{})
+		for _, f := range b.temporalWorkerFuncs {
+			f(tc, tw)
+		}
+	}
+
 	return &BootServer{
-		grpc:        grpcSrv,
-		http:        httpSrv,
-		lnGrpc:      lnGrpc,
-		lnHTTP:      lnHTTP,
-		sslProvider: b.sslProvider,
+		grpc:           grpcSrv,
+		http:           httpSrv,
+		lnGrpc:         lnGrpc,
+		lnHTTP:         lnHTTP,
+		sslProvider:    b.sslProvider,
+		temporalWorker: tw,
+		temporalClient: tc,
 	}, nil
 }
 

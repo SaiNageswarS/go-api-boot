@@ -24,6 +24,7 @@
    * [Auth & JWT](#auth--jwt)
    * [Cloud Abstractions](#cloud-abstractions)
    * [Zero‑Config SSL/TLS](#zero-config-ssltls)
+   * [Temporal Workers](#temporal-workers)
 7. [CLI Reference](#cli-reference)
 8. [Examples](#examples)
 9. [Contributing](#contributing)
@@ -67,7 +68,7 @@ The result: you write business logic, not boilerplate.
 * **Zero‑Config SSL** – automatic Let’s Encrypt certificates with exponential back‑off and optional cloud-backed cache (SslCloudCache) for stateless containers.
 * **Built-in Dependency Injection** – no Google Wire or codegen, with lifecycle-aware gRPC registration.
 * **Bootstrap CLI** – scaffold full service, models, repos, services, Dockerfile, build scripts.
-
+* **Temporal Workflow Support** – run long-lived, fault-tolerant background jobs with native Temporal integration and DI-based worker registration.
 ---
 
 ## Quick Start
@@ -210,6 +211,35 @@ boot, _ := server.New().
 * SslCloudCache streams certificates to the chosen object store (S3, Azure Blob, GCS).
 * Multiple replicas of your service instantly share the same certs – no race conditions, no volume mounts.
 * Exponential back-off is applied automatically while waiting for DNS / IP propagation.
+
+### Temporal Workers
+
+go-api-boot provides first-class support for running **Temporal workers** alongside your gRPC/HTTP services using the same dependency injection system. You can:
+
+* Register **workflows and activities** via a simple hook.
+* Automatically connect to Temporal server (local, Docker, or Temporal Cloud).
+* Share configuration and lifecycle across the whole service.
+
+```go
+import (
+    "github.com/SaiNageswarS/go-api-boot/server"
+    "go.temporal.io/sdk/client"
+    "go.temporal.io/sdk/worker"
+)
+
+boot, _ := server.New().
+    GRPCPort(":50051").
+    HTTPPort(":8080").
+    WithTemporal("MY_TASK_QUEUE", &client.Options{
+        HostPort: "temporal:7233", // or "localhost:7233" if running locally
+    }).
+    RegisterTemporalWorker(func(c client.Client, w worker.Worker) {
+        w.RegisterWorkflow(MyWorkflow)
+        w.RegisterActivity(MyActivity)
+    }).
+    Build()
+
+boot.Serve(context.Background())
 
 ---
 

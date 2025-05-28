@@ -7,28 +7,34 @@ import (
 	"time"
 
 	"github.com/SaiNageswarS/go-api-boot/logger"
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/worker"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 )
 
 type BootServer struct {
-	grpc        *grpc.Server
-	http        *http.Server
-	lnGrpc      net.Listener
-	lnHTTP      net.Listener
-	sslProvider SSLProvider
+	grpc           *grpc.Server
+	http           *http.Server
+	lnGrpc         net.Listener
+	lnHTTP         net.Listener
+	sslProvider    SSLProvider
+	temporalWorker worker.Worker
+	temporalClient client.Client
 }
 
 // Serve blocks until context is cancelled or a listen error occurs.
 func (s *BootServer) Serve(ctx context.Context) error {
 	grp, ctx := errgroup.WithContext(ctx)
 
+	// Start gRPC server
 	grp.Go(func() error {
 		logger.Info("Starting gRPC server at", zap.String("port", s.lnGrpc.Addr().String()))
 		return s.grpc.Serve(s.lnGrpc)
 	})
 
+	// Start HTTP server
 	grp.Go(func() error {
 		if s.sslProvider != nil {
 			// run ACME helper concurrently
@@ -46,6 +52,14 @@ func (s *BootServer) Serve(ctx context.Context) error {
 		return s.http.Serve(s.lnHTTP)
 	})
 
+	// Start Temporal worker if configured
+	if s.temporalWorker != nil {
+		grp.Go(func() error {
+			logger.Info("Starting Temporal worker...")
+			return s.temporalWorker.Run(worker.InterruptCh())
+		})
+	}
+
 	// Wait for ctx cancellation
 	<-ctx.Done()
 
@@ -54,6 +68,9 @@ func (s *BootServer) Serve(ctx context.Context) error {
 
 	s.grpc.GracefulStop()
 	_ = s.http.Shutdown(shutCtx)
+	if s.temporalClient != nil {
+		s.temporalClient.Close()
+	}
 
 	return grp.Wait()
 }

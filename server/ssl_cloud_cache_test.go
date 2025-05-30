@@ -32,13 +32,9 @@ func TestSslCloudCache_Get_Success(t *testing.T) {
 	}
 	tmp.Close()
 
-	dataCh := make(chan string, 1)
-	errCh := make(chan error, 1)
-	dataCh <- tmp.Name()
-
 	mock := &mockCloud{
-		downloadDataChan: dataCh,
-		downloadErrChan:  errCh,
+		downloadData: tmp.Name(),
+		downloadErr:  nil,
 	}
 
 	config := &config.BootConfig{SslBucket: "my-bucket"}
@@ -54,14 +50,11 @@ func TestSslCloudCache_Get_Success(t *testing.T) {
 }
 
 func TestSslCloudCache_Get_DownloadError(t *testing.T) {
-	dataCh := make(chan string, 1)
-	errCh := make(chan error, 1)
 	wantErr := errors.New("boom")
-	errCh <- wantErr
 
 	mock := &mockCloud{
-		downloadDataChan: dataCh,
-		downloadErrChan:  errCh,
+		downloadData: "",
+		downloadErr:  wantErr,
 	}
 
 	config := &config.BootConfig{SslBucket: "my-bucket"}
@@ -84,13 +77,9 @@ func TestSslCloudCache_Put_NoBucketEnv(t *testing.T) {
 }
 
 func TestSslCloudCache_Put_Success(t *testing.T) {
-	resCh := make(chan string, 1)
-	errCh := make(chan error, 1)
-	resCh <- "https://random/file/url" // signal success
-
 	mock := &mockCloud{
-		uploadResChan: resCh,
-		uploadErrChan: errCh,
+		uploadRes: "https://random/file/url",
+		uploadErr: nil,
 	}
 
 	config := &config.BootConfig{SslBucket: "my-bucket"}
@@ -102,14 +91,11 @@ func TestSslCloudCache_Put_Success(t *testing.T) {
 }
 
 func TestSslCloudCache_Put_Error(t *testing.T) {
-	resCh := make(chan string, 1)
-	errCh := make(chan error, 1)
 	wantErr := errors.New("upload failed")
-	errCh <- wantErr
 
 	mock := &mockCloud{
-		uploadResChan: resCh,
-		uploadErrChan: errCh,
+		uploadRes: "",
+		uploadErr: wantErr,
 	}
 
 	config := &config.BootConfig{SslBucket: "my-bucket"}
@@ -121,25 +107,25 @@ func TestSslCloudCache_Put_Error(t *testing.T) {
 }
 
 type mockCloud struct {
-	downloadDataChan chan string
-	downloadErrChan  chan error
-	uploadResChan    chan string
-	uploadErrChan    chan error
+	downloadData string
+	downloadErr  error
+	uploadRes    string
+	uploadErr    error
 }
 
-func (m *mockCloud) DownloadFile(config *config.BootConfig, bucketName, path string) (chan string, chan error) {
-	return m.downloadDataChan, m.downloadErrChan
+func (m *mockCloud) DownloadFile(ctx context.Context, bucketName, path string) (string, error) {
+	return m.downloadData, m.downloadErr
 }
 
-func (m *mockCloud) UploadStream(config *config.BootConfig, bucket, name string, data []byte) (chan string, chan error) {
-	return m.uploadResChan, m.uploadErrChan
+func (m *mockCloud) UploadStream(ctx context.Context, bucket, name string, data []byte) (string, error) {
+	return m.uploadRes, m.uploadErr
 }
 
-func (m *mockCloud) LoadSecretsIntoEnv() {
+func (m *mockCloud) LoadSecretsIntoEnv(ctx context.Context) {
 	// No-op for testing
 }
 
-func (m *mockCloud) GetPresignedUrl(config *config.BootConfig, bucketName, path, contentType string, expiry time.Duration) (string, string) {
+func (m *mockCloud) GetPresignedUrl(ctx context.Context, bucketName, path, contentType string, expiry time.Duration) (string, string) {
 	// No-op for testing
 	return "", ""
 }

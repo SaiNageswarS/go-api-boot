@@ -13,17 +13,24 @@ import (
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"cloud.google.com/go/storage"
+	"github.com/SaiNageswarS/go-api-boot/config"
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	"go.uber.org/zap"
 	"google.golang.org/api/iterator"
 )
 
-type GCP struct{}
+type GCP struct {
+	ccfgg *config.BootConfig
+}
+
+// ProvideGCP returns a GCP cloud client.
+func ProvideGCP(ccfgg *config.BootConfig) Cloud {
+	return &GCP{ccfgg: ccfgg}
+}
 
 // listSecrets lists all secrets in the given project.
-func (c *GCP) LoadSecretsIntoEnv() {
+func (c *GCP) LoadSecretsIntoEnv(ctx context.Context) {
 	// Create the client.
-	ctx := context.Background()
 	client, err := secretmanager.NewClient(ctx)
 	if err != nil {
 		logger.Error("Failed to create client: ", zap.Error(err))
@@ -74,100 +81,75 @@ func (c *GCP) LoadSecretsIntoEnv() {
 	logger.Info("Successfully loaded GCP Keyvault secrets into environment variables.", zap.Any("secrets", secretList))
 }
 
-func (c *GCP) UploadStream(bucketName, path string, fileData []byte) (chan string, chan error) {
-	resultChan := make(chan string)
-	errChan := make(chan error)
+func (c *GCP) UploadStream(ctx context.Context, bucketName, path string, fileData []byte) (string, error) {
+	// Set up the Google Cloud Storage client
+	client, err := storage.NewClient(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer client.Close()
 
-	go func() {
+	bucket := client.Bucket(bucketName)
+	obj := bucket.Object(path)
+	wc := obj.NewWriter(ctx)
 
-		// Set up the Google Cloud Storage client
-		client, err := storage.NewClient(context.Background())
-		if err != nil {
-			errChan <- fmt.Errorf("storage.NewClient: %v", err)
-			return
-		}
-		defer client.Close()
+	// Copy the contents of the buffer to the object in Cloud Storage.
+	fileReader := bytes.NewReader(fileData)
+	if _, err := io.Copy(wc, fileReader); err != nil {
+		wc.Close()
+		return "", err
+	}
 
-		bucket := client.Bucket(bucketName)
-		obj := bucket.Object(path)
-		wc := obj.NewWriter(context.Background())
+	// Close the Writer, finalizing the upload.
+	if err := wc.Close(); err != nil {
+		return "", err
+	}
 
-		// Copy the contents of the buffer to the object in Cloud Storage.
-		fileReader := bytes.NewReader(fileData)
-		if _, err := io.Copy(wc, fileReader); err != nil {
-			wc.Close()
-			errChan <- fmt.Errorf("io.Copy: %v", err)
-			return
-		}
-
-		// Close the Writer, finalizing the upload.
-		if err := wc.Close(); err != nil {
-			errChan <- fmt.Errorf("Writer.Close: %v", err)
-			return
-		}
-
-		// Get the public URL for the object.
-		objectURL := fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucketName, path)
-
-		resultChan <- objectURL
-	}()
-
-	// The function returns immediately, and the actual upload happens in the goroutine.
-	return resultChan, errChan
+	// Get the public URL for the object.
+	objectURL := fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucketName, path)
+	return objectURL, nil
 }
 
 // DownloadFile downloads a file from GCP bucket and returns the path to the temp file.
-func (c *GCP) DownloadFile(bucketName, blobPath string) (chan string, chan error) {
-	resultChan := make(chan string)
-	errorChan := make(chan error)
+func (c *GCP) DownloadFile(ctx context.Context, bucketName, blobPath string) (string, error) {
+	client, err := storage.NewClient(context.Background())
+	if err != nil {
+		return "", fmt.Errorf("storage.NewClient: %v", err)
+	}
+	defer client.Close()
 
-	go func() {
-		client, err := storage.NewClient(context.Background())
-		if err != nil {
-			errorChan <- fmt.Errorf("storage.NewClient: %v", err)
-			return
-		}
-		defer client.Close()
+	bucket := client.Bucket(bucketName)
+	obj := bucket.Object(blobPath)
 
-		bucket := client.Bucket(bucketName)
-		obj := bucket.Object(blobPath)
+	r, err := obj.NewReader(ctx)
+	if err != nil {
+		return "", fmt.Errorf("obj.NewReader: %v", err)
+	}
+	defer r.Close()
 
-		r, err := obj.NewReader(context.Background())
-		if err != nil {
-			errorChan <- fmt.Errorf("Object.NewReader: %v", err)
-			return
-		}
-		defer r.Close()
+	// Get file name from blob path (e.g., "folder/image.png" → "image.png")
+	fileName := path.Base(blobPath)
 
-		// Get file name from blob path (e.g., "folder/image.png" → "image.png")
-		fileName := path.Base(blobPath)
+	// Create temp file in the system temp dir
+	tmpDir := os.TempDir()
+	tmpFilePath := path.Join(tmpDir, fileName)
+	tempFile, err := os.Create(tmpFilePath)
+	if err != nil {
+		return "", fmt.Errorf("os.Create: %v", err)
+	}
+	defer tempFile.Close()
 
-		// Create temp file in the system temp dir
-		tmpDir := os.TempDir()
-		tmpFilePath := path.Join(tmpDir, fileName)
-		tempFile, err := os.Create(tmpFilePath)
-		if err != nil {
-			errorChan <- fmt.Errorf("os.CreateTemp: %v", err)
-			return
-		}
-		defer tempFile.Close()
+	if _, err := io.Copy(tempFile, r); err != nil {
+		return "", fmt.Errorf("io.Copy: %v", err)
+	}
 
-		if _, err := io.Copy(tempFile, r); err != nil {
-			errorChan <- fmt.Errorf("io.Copy: %v", err)
-			return
-		}
-
-		resultChan <- tempFile.Name()
-	}()
-
-	return resultChan, errorChan
+	return tmpFilePath, nil
 }
 
-func (c *GCP) GetPresignedUrl(bucketName, path, contentType string, expiry time.Duration) (string, string) {
+func (c *GCP) GetPresignedUrl(ctx context.Context, bucketName, path, contentType string, expiry time.Duration) (string, string) {
 	// bucketName := "bucket-name"
 	// path := "object-name"
 
-	ctx := context.Background()
 	client, err := storage.NewClient(ctx)
 	if err != nil {
 		logger.Error("Failed to create client: ", zap.Error(err))

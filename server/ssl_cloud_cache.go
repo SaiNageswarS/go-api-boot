@@ -8,7 +8,6 @@ import (
 
 	"github.com/SaiNageswarS/go-api-boot/cloud"
 	"github.com/SaiNageswarS/go-api-boot/config"
-	"golang.org/x/crypto/acme/autocert"
 )
 
 type SslCloudCache struct {
@@ -27,15 +26,12 @@ func (cc *SslCloudCache) Get(ctx context.Context, name string) ([]byte, error) {
 	if bkt == "" {
 		return nil, fmt.Errorf("SslBucket not set")
 	}
-	dC, eC := cc.cloud.DownloadFile(cc.cfg, bkt, name)
-	select {
-	case p := <-dC:
-		return os.ReadFile(p)
-	case err := <-eC:
-		return nil, err
-	case <-time.After(cc.ttl):
-		return nil, autocert.ErrCacheMiss
+	certFile, err := cc.cloud.DownloadFile(ctx, bkt, name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download file %s from bucket %s: %w", name, bkt, err)
 	}
+
+	return os.ReadFile(certFile)
 }
 
 func (cc *SslCloudCache) Put(ctx context.Context, name string, data []byte) error {
@@ -43,15 +39,11 @@ func (cc *SslCloudCache) Put(ctx context.Context, name string, data []byte) erro
 	if bkt == "" {
 		return fmt.Errorf("SslBucket not set")
 	}
-	rC, eC := cc.cloud.UploadStream(cc.cfg, bkt, name, data)
-	select {
-	case <-rC:
-		return nil
-	case err := <-eC:
-		return err
-	case <-time.After(cc.ttl):
-		return fmt.Errorf("upload timed out")
+	_, err := cc.cloud.UploadStream(ctx, bkt, name, data)
+	if err != nil {
+		return fmt.Errorf("failed to upload file %s to bucket %s: %w", name, bkt, err)
 	}
+	return nil
 }
 
 func (cc *SslCloudCache) Delete(ctx context.Context, name string) error {

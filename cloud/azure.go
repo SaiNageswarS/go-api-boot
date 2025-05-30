@@ -2,9 +2,11 @@ package cloud
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
+	"sync"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
@@ -12,54 +14,54 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/SaiNageswarS/go-api-boot/config"
-	"github.com/SaiNageswarS/go-api-boot/dotenv"
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	"go.uber.org/zap"
 )
 
 type Azure struct {
-	// unexported fields only used in test
-	overrideVaultClient func() (KeyVaultClient, error)
-	overrideBlobClient  func(string) (BlobClient, error)
-	overrideSetEnv      func(string, string) error
+	ccfgg *config.BootConfig
+
+	kvOnce   sync.Once
+	kvErr    error
+	kvClient keyVaultClient
+
+	blobOnce   sync.Once
+	blobErr    error
+	blobClient blobClient
 }
 
-func (a *Azure) LoadSecretsIntoEnv() {
+func ProvideAzure(c *config.BootConfig) Cloud {
+	return &Azure{
+		ccfgg:      c,
+		kvClient:   nil,
+		blobClient: nil,
+	}
+}
+
+func (a *Azure) LoadSecretsIntoEnv(ctx context.Context) {
 	logger.Info("Loading Azure Keyvault secrets into environment variables.")
 
-	var client KeyVaultClient
-	var err error
-	if a.overrideVaultClient != nil {
-		client, err = a.overrideVaultClient()
-	} else {
-		client, err = getKeyvaultClient()
-	}
-	if err != nil {
-		logger.Error("Failed to initialize Keyvault client", zap.Error(err))
+	if err := a.ensureKV(ctx); err != nil {
+		logger.Error("Failed to ensure Keyvault client", zap.Error(err))
 		return
 	}
 
-	setEnv := os.Setenv
-	if a.overrideSetEnv != nil {
-		setEnv = a.overrideSetEnv
-	}
-
-	pager := client.NewListSecretPropertiesPager(nil)
+	pager := a.kvClient.NewListSecretPropertiesPager(nil)
 	var secretList []string
 
 	for pager.More() {
-		page, err := pager.NextPage(context.TODO())
+		page, err := pager.NextPage(ctx)
 		if err != nil {
 			logger.Error("Failed to get next page of secrets", zap.Error(err))
 			return
 		}
 		for _, secret := range page.Value {
-			resp, err := client.GetSecret(context.TODO(), secret.ID.Name(), secret.ID.Version(), nil)
+			resp, err := a.kvClient.GetSecret(ctx, secret.ID.Name(), secret.ID.Version(), nil)
 			if err != nil {
 				logger.Error("Failed to get secret", zap.Error(err))
 				continue
 			}
-			_ = setEnv(secret.ID.Name(), *resp.Value)
+			_ = os.Setenv(secret.ID.Name(), *resp.Value)
 			secretList = append(secretList, secret.ID.Name())
 		}
 	}
@@ -70,109 +72,92 @@ func (a *Azure) LoadSecretsIntoEnv() {
 // Uploads a stream to Azure storage.
 // containerName - Azure Container Name.
 // blobName - Azure path for the object like profile-photos/photo.jpg
-func (a *Azure) UploadStream(config *config.BootConfig, containerName, blobName string, fileData []byte) (chan string, chan error) {
-	resultChan := make(chan string, 1)
-	errorChan := make(chan error, 1)
+func (a *Azure) UploadStream(ctx context.Context, containerName, blobName string, fileData []byte) (string, error) {
+	if err := a.ensureBlob(ctx); err != nil {
+		logger.Error("failed to ensure blob client", zap.Error(err))
+		return "", err
+	}
 
-	go func() {
-		accountName := config.AzureStorageAccount
-		if accountName == "" {
-			errorChan <- fmt.Errorf("AzureStorageAccount config not set")
-			return
-		}
+	_, err := a.blobClient.UploadBuffer(ctx, containerName, blobName, fileData, nil)
+	if err != nil {
+		logger.Error("failed to upload blob", zap.Error(err))
+		return "", err
+	}
 
-		var client BlobClient
-		var err error
-		if a.overrideBlobClient != nil {
-			client, err = a.overrideBlobClient(accountName)
-		} else {
-			client, err = getServiceClientTokenCredential(accountName)
-		}
-
-		if err != nil || client == nil {
-			errorChan <- fmt.Errorf("failed to create blob client: %v", err)
-			return
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-
-		_, err = client.UploadBuffer(ctx, containerName, blobName, fileData, nil)
-		if err != nil {
-			logger.Error("failed to upload blob", zap.Error(err))
-			errorChan <- err
-			return
-		}
-
-		url := fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s", accountName, containerName, blobName)
-		resultChan <- url
-	}()
-
-	return resultChan, errorChan
+	url := fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s", a.ccfgg.AzureStorageAccount, containerName, blobName)
+	return url, nil
 }
 
-func (a *Azure) DownloadFile(config *config.BootConfig, containerName, blobName string) (chan string, chan error) {
-	dotenv.LoadEnv()
-	resultChan := make(chan string, 1)
-	errorChan := make(chan error, 1)
+func (a *Azure) DownloadFile(ctx context.Context, containerName, blobName string) (string, error) {
+	if err := a.ensureBlob(ctx); err != nil {
+		logger.Error("failed to ensure blob client", zap.Error(err))
+		return "", err
+	}
 
-	go func() {
-		accountName := config.AzureStorageAccount
-		if accountName == "" {
-			errorChan <- fmt.Errorf("AzureStorageAccount config not set")
-			return
-		}
+	// Get file name from blob path (e.g., "folder/image.png" → "image.png")
+	fileName := path.Base(blobName)
 
-		var client BlobClient
-		var err error
-		if a.overrideBlobClient != nil {
-			client, err = a.overrideBlobClient(accountName)
-		} else {
-			client, err = getServiceClientTokenCredential(accountName)
-		}
+	// Create temp file in the system temp dir
+	tmpDir := os.TempDir()
+	tmpFilePath := path.Join(tmpDir, fileName)
+	tmpFile, err := os.Create(tmpFilePath)
+	if err != nil {
+		logger.Error("failed to create temp file", zap.Error(err))
+		return "", err
+	}
+	defer tmpFile.Close()
 
-		if err != nil || client == nil {
-			errorChan <- fmt.Errorf("failed to create blob client: %v", err)
-			return
-		}
+	_, err = a.blobClient.DownloadFile(ctx, containerName, blobName, tmpFile, nil)
+	if err != nil {
+		logger.Error("failed to download blob to file", zap.Error(err))
+		return "", err
+	}
 
-		// Get file name from blob path (e.g., "folder/image.png" → "image.png")
-		fileName := path.Base(blobName)
-
-		// Create temp file in the system temp dir
-		tmpDir := os.TempDir()
-		tmpFilePath := path.Join(tmpDir, fileName)
-		tmpFile, err := os.Create(tmpFilePath)
-		if err != nil {
-			errorChan <- fmt.Errorf("failed to create temp file: %v", err)
-			return
-		}
-		defer tmpFile.Close()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-
-		_, err = client.DownloadFile(ctx, containerName, blobName, tmpFile, nil)
-		if err != nil {
-			logger.Error("failed to download blob to file", zap.Error(err))
-			errorChan <- err
-			return
-		}
-
-		resultChan <- tmpFilePath
-	}()
-
-	return resultChan, errorChan
+	logger.Info("File downloaded successfully", zap.String("filePath", tmpFilePath))
+	return tmpFilePath, nil
 }
 
-func (c *Azure) GetPresignedUrl(config *config.BootConfig, bucketName, path, contentType string, expiry time.Duration) (string, string) {
+func (c *Azure) GetPresignedUrl(ctx context.Context, bucketName, path, contentType string, expiry time.Duration) (string, string) {
 	//TODO: Get presigned upload url and download url
 	return "", ""
 }
 
 // azure clients
-func getKeyvaultClient() (KeyVaultClient, error) {
+
+func (a *Azure) ensureKV(ctx context.Context) error {
+	if a.kvClient != nil {
+		return nil
+	}
+
+	a.kvOnce.Do(func() {
+		a.kvClient, a.kvErr = getKeyvaultClient(ctx)
+	})
+	return a.kvErr
+}
+
+func (a *Azure) ensureBlob(ctx context.Context) error {
+	if a.blobClient != nil {
+		return nil
+	}
+
+	a.blobOnce.Do(func() {
+		if a.ccfgg.AzureStorageAccount == "" {
+			a.blobErr = errors.New("AzureStorageAccount config not set")
+			return
+		}
+
+		a.blobClient, a.blobErr = getServiceClientTokenCredential(ctx, a.ccfgg.AzureStorageAccount)
+	})
+	return a.blobErr
+}
+
+func getKeyvaultClient(ctx context.Context) (keyVaultClient, error) {
+	// loading from env since config will be initialized after getting secrets from keyvault
 	keyVaultName := os.Getenv("AZURE-KEYVAULT-NAME")
+	if keyVaultName == "" {
+		return nil, errors.New("AZURE-KEYVAULT-NAME environment variable not set")
+	}
+
 	keyVaultUrl := fmt.Sprintf("https://%s.vault.azure.net/", keyVaultName)
 
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
@@ -187,7 +172,7 @@ func getKeyvaultClient() (KeyVaultClient, error) {
 	return client, nil
 }
 
-func getServiceClientTokenCredential(accountName string) (BlobClient, error) {
+func getServiceClientTokenCredential(ctx context.Context, accountName string) (blobClient, error) {
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get credential: %w", err)
@@ -202,12 +187,12 @@ func getServiceClientTokenCredential(accountName string) (BlobClient, error) {
 	return client, nil
 }
 
-type KeyVaultClient interface {
+type keyVaultClient interface {
 	NewListSecretPropertiesPager(*azsecrets.ListSecretPropertiesOptions) *runtime.Pager[azsecrets.ListSecretPropertiesResponse]
 	GetSecret(context.Context, string, string, *azsecrets.GetSecretOptions) (azsecrets.GetSecretResponse, error)
 }
 
-type BlobClient interface {
+type blobClient interface {
 	UploadBuffer(context.Context, string, string, []byte, *azblob.UploadBufferOptions) (azblob.UploadBufferResponse, error)
 	DownloadFile(ctx context.Context, containerName string, blobName string, file *os.File, o *azblob.DownloadFileOptions) (int64, error)
 }

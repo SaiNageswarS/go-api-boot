@@ -19,146 +19,88 @@ func TestAzure_LoadSecretsIntoEnv(t *testing.T) {
 		"FOO": "bar",
 		"BAZ": "qux",
 	}
-	collectedEnv := map[string]string{}
+	os.Clearenv() // Clear existing environment variables
 
 	a := &Azure{
-		overrideVaultClient: func() (KeyVaultClient, error) {
-			return &mockVaultClient{secrets: mockSecrets}, nil
-		},
-		overrideSetEnv: func(key, value string) error {
-			collectedEnv[key] = value
-			return nil
+		kvClient: &mockVaultClient{
+			secrets: mockSecrets,
 		},
 	}
 
-	a.LoadSecretsIntoEnv()
+	a.LoadSecretsIntoEnv(context.Background())
 
-	assert.Equal(t, "bar", collectedEnv["FOO"])
-	assert.Equal(t, "qux", collectedEnv["BAZ"])
+	assert.Equal(t, "bar", os.Getenv("FOO"))
+	assert.Equal(t, "qux", os.Getenv("BAZ"))
 }
 
 func TestAzure_UploadStream_Success(t *testing.T) {
-	a := &Azure{
-		overrideBlobClient: func(account string) (BlobClient, error) {
-			return &mockBlobClient{}, nil
-		},
-	}
-
 	config := &config.BootConfig{
 		AzureStorageAccount: "mystorage",
 	}
-	resultChan, errChan := a.UploadStream(config, "container", "myblob.txt", []byte("test content"))
 
-	select {
-	case err := <-errChan:
-		t.Fatalf("Unexpected error: %v", err)
-	case url := <-resultChan:
-		assert.Contains(t, url, "https://mystorage.blob.core.windows.net/container/myblob.txt")
+	a := &Azure{
+		ccfgg:      config,
+		blobClient: &mockBlobClient{},
 	}
+
+	url, err := a.UploadStream(context.Background(), "container", "myblob.txt", []byte("test content"))
+
+	assert.NoError(t, err)
+	assert.Contains(t, url, "https://mystorage.blob.core.windows.net/container/myblob.txt")
 }
 
 func TestAzure_UploadStream_Failure(t *testing.T) {
-	a := &Azure{
-		overrideBlobClient: func(account string) (BlobClient, error) {
-			return &mockBlobClient{ShouldFail: true}, nil
-		},
-	}
-
 	config := &config.BootConfig{
 		AzureStorageAccount: "mystorage",
 	}
-	resultChan, errChan := a.UploadStream(config, "container", "myblob.txt", []byte("test content"))
 
-	select {
-	case res := <-resultChan:
-		t.Fatalf("Expected error but got result: %v", res)
-	case err := <-errChan:
-		assert.EqualError(t, err, "upload failed")
-	}
-}
-
-func TestAzure_UploadStream_BlobClientNil(t *testing.T) {
 	a := &Azure{
-		overrideBlobClient: func(account string) (BlobClient, error) {
-			return nil, errors.New("simulated init failure")
-		},
+		ccfgg:      config,
+		blobClient: &mockBlobClient{ShouldFail: true},
 	}
 
-	config := &config.BootConfig{
-		AzureStorageAccount: "mystorage",
-	}
-	resultChan, errChan := a.UploadStream(config, "container", "myblob.txt", []byte("data"))
+	url, err := a.UploadStream(context.Background(), "container", "myblob.txt", []byte("test content"))
 
-	select {
-	case <-resultChan:
-		t.Fatal("Expected error, got success")
-	case err := <-errChan:
-		assert.ErrorContains(t, err, "simulated init failure")
-	}
+	assert.Error(t, err)
+	assert.EqualError(t, err, "upload failed")
+	assert.Empty(t, url)
 }
 
 func TestAzure_DownloadFile_Success(t *testing.T) {
-	a := &Azure{
-		overrideBlobClient: func(account string) (BlobClient, error) {
-			return &mockBlobClient{}, nil
-		},
-	}
-
 	config := &config.BootConfig{
 		AzureStorageAccount: "mystorage",
 	}
-	resultChan, errChan := a.DownloadFile(config, "container", "path/to/blob.txt")
 
-	select {
-	case err := <-errChan:
-		t.Fatalf("Unexpected error: %v", err)
-	case filePath := <-resultChan:
-		assert.Contains(t, filePath, "blob.txt")
-		content, err := os.ReadFile(filePath)
-		assert.NoError(t, err)
-		assert.Equal(t, "mock blob content", string(content))
-		_ = os.Remove(filePath) // cleanup
+	a := &Azure{
+		ccfgg:      config,
+		blobClient: &mockBlobClient{},
 	}
+
+	filePath, err := a.DownloadFile(context.Background(), "container", "path/to/blob.txt")
+
+	assert.NoError(t, err)
+	assert.Contains(t, filePath, "blob.txt")
+	content, err := os.ReadFile(filePath)
+	assert.NoError(t, err)
+	assert.Equal(t, "mock blob content", string(content))
+	_ = os.Remove(filePath) // cleanup
 }
 
 func TestAzure_DownloadFile_Failure(t *testing.T) {
-	a := &Azure{
-		overrideBlobClient: func(account string) (BlobClient, error) {
-			return &mockBlobClient{ShouldFail: true}, nil
-		},
-	}
-
 	config := &config.BootConfig{
 		AzureStorageAccount: "mystorage",
 	}
-	resultChan, errChan := a.DownloadFile(config, "container", "blob.txt")
 
-	select {
-	case <-resultChan:
-		t.Fatal("Expected error, got success")
-	case err := <-errChan:
-		assert.EqualError(t, err, "download failed")
-	}
-}
-
-func TestAzure_DownloadFile_BlobClientNil(t *testing.T) {
 	a := &Azure{
-		overrideBlobClient: func(account string) (BlobClient, error) {
-			return nil, errors.New("client init failed")
-		},
+		ccfgg:      config,
+		blobClient: &mockBlobClient{ShouldFail: true},
 	}
 
-	config := &config.BootConfig{
-		AzureStorageAccount: "mystorage",
-	}
-	resultChan, errChan := a.DownloadFile(config, "container", "blob.txt")
+	filePath, err := a.DownloadFile(context.Background(), "container", "blob.txt")
 
-	select {
-	case <-resultChan:
-		t.Fatal("Expected error, got success")
-	case err := <-errChan:
-		assert.ErrorContains(t, err, "client init failed")
-	}
+	assert.Error(t, err)
+	assert.EqualError(t, err, "download failed")
+	assert.Empty(t, filePath)
 }
 
 type mockVaultClient struct {

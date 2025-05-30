@@ -1,11 +1,12 @@
 package cloud
 
 import (
-	"bytes"
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/SaiNageswarS/go-api-boot/bootUtils"
+	"github.com/SaiNageswarS/go-api-boot/config"
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -13,24 +14,33 @@ import (
 	"go.uber.org/zap"
 )
 
-type AWS struct{}
+type AWS struct {
+	ccfgg *config.BootConfig
+}
 
-func (c *AWS) LoadSecretsIntoEnv() {
+// ProvideAWS returns an AWS cloud client.
+func ProvideAWS(ccfgg *config.BootConfig) Cloud {
+	return &AWS{
+		ccfgg: ccfgg,
+	}
+}
+
+func (c *AWS) LoadSecretsIntoEnv(ctx context.Context) {
 	//TODO: Load secrets from aws secrets manager
 }
 
-func (c *AWS) UploadStream(bucketName, path string, imageData bytes.Buffer) (chan string, chan error) {
+func (c *AWS) UploadStream(ctx context.Context, bucketName, path string, fileData []byte) (string, error) {
 	//TODO: Upload stream to aws bucket
-	return nil, nil
+	return "", nil
 }
 
-func (c *AWS) DownloadFile(bucketName, path string) (chan string, chan error) {
+func (c *AWS) DownloadFile(ctx context.Context, bucketName, path string) (string, error) {
 	//TODO: Download file from aws bucket
-	return nil, nil
+	return "", nil
 }
 
 // Returns pre-signed upload Url and download URL.
-func (c *AWS) GetPresignedUrl(bucketName, path, contentType string, expiry time.Duration) (string, string) {
+func (c *AWS) GetPresignedUrl(ctx context.Context, bucketName, path, contentType string, expiry time.Duration) (string, string) {
 	awsRegion := bootUtils.GetEnvOrDefault("AWS_REGION", "ap-south-1")
 
 	sess, err := session.NewSession(&aws.Config{

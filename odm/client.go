@@ -6,7 +6,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/SaiNageswarS/go-api-boot/config"
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -24,15 +23,15 @@ var mongoConnect = func(ctx context.Context, uri string) (MongoClient, error) {
 }
 
 // GetClient returns a singleton Mongo client, initialized once.
-func GetClient(config *config.BootConfig) (MongoClient, error) {
-	if config.MongoUri == "" {
+func GetClient(mongoUri string) (MongoClient, error) {
+	if mongoUri == "" {
 		return nil, errors.New("MongoUri config is not set")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	client, err := mongoConnect(ctx, config.MongoUri)
+	client, err := mongoConnect(ctx, mongoUri)
 	if err != nil {
 		logger.Error("Mongo connection failed", zap.Error(err))
 		return nil, err

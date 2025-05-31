@@ -38,7 +38,7 @@ func main() {
 		ProvideAs(cloudFns, (*cloud.Cloud)(nil)).
 		ProvideAs(mongoClient, (*odm.MongoClient)(nil)).
 		// Register gRPC service impls
-		Register(server.Adapt(pb.RegisterLoginServer), ProvideLoginService).
+		RegisterService(server.Adapt(pb.RegisterLoginServer), ProvideLoginService).
 		Build()
 
 	if err != nil {

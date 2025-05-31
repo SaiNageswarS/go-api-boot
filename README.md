@@ -25,6 +25,7 @@
    * [Cloud Abstractions](#cloud-abstractions)
    * [Zero‑Config SSL/TLS](#zero-config-ssltls)
    * [Temporal Workers](#temporal-workers)
+   * [LLM Clients](#llm-clients)
 7. [CLI Reference](#cli-reference)
 8. [Examples](#examples)
 9. [Contributing](#contributing)
@@ -143,7 +144,7 @@ boot, _ := server.New().
     Provide(cfg).
     ProvideAs(cloudFns, (*cloud.Cloud)(nil)).
     // Register gRPC service impls
-    Register(server.Adapt(pb.RegisterLoginServer), ProvideLoginService).
+    RegisterService(server.Adapt(pb.RegisterLoginServer), ProvideLoginService).
     Build()
 
 ctx, cancel := context.WithCancel(context.Background())
@@ -233,13 +234,35 @@ boot, _ := server.New().
     WithTemporal("MY_TASK_QUEUE", &client.Options{
         HostPort: "temporal:7233", // or "localhost:7233" if running locally
     }).
-    RegisterTemporalWorker(func(c client.Client, w worker.Worker) {
-        w.RegisterWorkflow(MyWorkflow)
-        w.RegisterActivity(MyActivity)
-    }).
+    // ProvideIndexerActivities is a function whose dependencies will be injected
+    RegisterTemporalActivity(ProvideIndexerActivities).  
+    RegisterTemporalWorkflow(IndexPdfFileWorkflow).
     Build()
 
 boot.Serve(context.Background())
+```
+
+### LLM Clients
+
+go-api-boot offers lightweight clients to interact with LLM APIs like Anthropic Claude, enabling seamless integration of intelligent completions into your services without external SDKs or complexity.
+
+```go
+import "github.com/SaiNageswarS/go-api-boot/prompts"
+
+client, err := prompts.ProvideAnthropicClient()
+if err != nil {
+    logger.Fatal("Failed getting LLM client:", zap.Error(err))
+}
+
+resp, err := client.GenerateInference(&prompts.AnthropicRequest{
+    Model:     "claude-2",
+    MaxTokens: 100,
+    System:    "You are a helpful assistant.",
+    Temperature: 0.7,
+    Messages: []prompts.Message{
+        {Role: "user", Content: "Summarize this document"},
+    },
+})
 ```
 
 ---

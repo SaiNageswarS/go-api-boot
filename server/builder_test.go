@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/worker"
 	"google.golang.org/grpc"
 )
 
@@ -61,7 +60,7 @@ func TestBuilder_Provide_RegistersService(t *testing.T) {
 		GRPCPort(":0").
 		HTTPPort(":0").
 		Provide(d).
-		Register(spy.fn, func(dd *dep) *svc {
+		RegisterService(spy.fn, func(dd *dep) *svc {
 			return &svc{d: dd}
 		})
 
@@ -95,8 +94,8 @@ func TestBuilder_ProvideFunc_Memoised(t *testing.T) {
 		GRPCPort(":0").
 		HTTPPort(":0").
 		ProvideFunc(p.provide).
-		Register(spy1.fn, func(d *dep) *svc { return &svc{d: d} }).
-		Register(spy2.fn, func(d *dep) *svc { return &svc{d: d} })
+		RegisterService(spy1.fn, func(d *dep) *svc { return &svc{d: d} }).
+		RegisterService(spy2.fn, func(d *dep) *svc { return &svc{d: d} })
 
 	// act
 	if _, err := b.Build(); err != nil {
@@ -151,7 +150,7 @@ func TestBuilder_ProvideAs_BindsInterface(t *testing.T) {
 		GRPCPort(":0").
 		HTTPPort(":0").
 		ProvideAs(impl, (*iface)(nil)). // <- use ProvideAs here
-		Register(spy.fn, func(i iface) *svc {
+		RegisterService(spy.fn, func(i iface) *svc {
 			return &svc{d: &dep{id: i.GetID()}} // embed id into dep for validation
 		})
 
@@ -182,26 +181,57 @@ func TestBuilder_WithTemporal_StoresConfig(t *testing.T) {
 	}
 }
 
-func TestBuilder_RegisterTemporalWorker_Appends(t *testing.T) {
+func TestRegisterTemporalWorkflow_Appends(t *testing.T) {
 	b := New()
-	called1, called2 := false, false
 
-	b.RegisterTemporalWorker(func(client.Client, worker.Worker) {
-		called1 = true
-	}).RegisterTemporalWorker(func(client.Client, worker.Worker) {
-		called2 = true
-	})
-
-	if len(b.temporalWorkerFuncs) != 2 {
-		t.Errorf("expected 2 worker funcs, got %d", len(b.temporalWorkerFuncs))
+	// 1 → slice empty
+	if ln := len(b.workflowRegs); ln != 0 {
+		t.Fatalf("expected 0 workflows initially, got %d", ln)
 	}
 
-	// Simulate calling
-	for _, f := range b.temporalWorkerFuncs {
-		f(nil, nil)
-	}
+	b.RegisterTemporalWorkflow(workflow)
 
-	if !called1 || !called2 {
-		t.Error("expected both temporal worker functions to be called")
+	// 2 → slice grew
+	if ln := len(b.workflowRegs); ln != 1 {
+		t.Fatalf("expected 1 workflow after registration, got %d", ln)
+	}
+	if reflect.ValueOf(b.workflowRegs[0]).Pointer() != reflect.ValueOf(workflow).Pointer() {
+		t.Errorf("workflow not stored correctly")
 	}
 }
+
+func TestRegisterTemporalActivity_Appends(t *testing.T) {
+	b := New()
+
+	// 1 → empty
+	if ln := len(b.activityRegs); ln != 0 {
+		t.Fatalf("expected 0 activities initially, got %d", ln)
+	}
+
+	b.RegisterTemporalActivity(activityFactory)
+
+	// 2 → grew & contains reflect.Value of factory
+	if ln := len(b.activityRegs); ln != 1 {
+		t.Fatalf("expected 1 activity after registration, got %d", ln)
+	}
+	if b.activityRegs[0] != reflect.ValueOf(activityFactory) {
+		t.Errorf("activity factory not stored correctly")
+	}
+}
+
+func TestBuild_WithoutTemporal_Succeeds(t *testing.T) {
+	// allocate random high ports so tests can run in parallel; ":0" lets OS choose.
+	b := New().GRPCPort(":0").HTTPPort(":0")
+
+	srv, err := b.Build()
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+	if srv.temporalWorker != nil {
+		t.Errorf("expected no temporal worker when opts unset")
+	}
+}
+
+func activityFactory() *struct{} { return &struct{}{} }
+
+func workflow() error { return nil }

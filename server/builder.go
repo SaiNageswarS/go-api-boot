@@ -38,9 +38,10 @@ type Builder struct {
 	reg        []registration
 
 	// temporary worker for DI
-	taskQueue           string
-	temporalWorkerFuncs []func(client.Client, worker.Worker)
-	temporalClientOpts  *client.Options
+	taskQueue          string
+	activityRegs       []reflect.Value
+	workflowRegs       []interface{}
+	temporalClientOpts *client.Options
 }
 
 type registration struct {
@@ -98,8 +99,20 @@ func (b *Builder) WithTemporal(taskQueue string, opts *client.Options) *Builder 
 	return b
 }
 
-func (b *Builder) RegisterTemporalWorker(register func(client.Client, worker.Worker)) *Builder {
-	b.temporalWorkerFuncs = append(b.temporalWorkerFuncs, register)
+func (b *Builder) RegisterTemporalWorkflow(w interface{}) *Builder {
+	if w == nil {
+		logger.Fatal("temporal workflow factory must not be nil")
+	}
+	b.workflowRegs = append(b.workflowRegs, w)
+	return b
+}
+
+func (b *Builder) RegisterTemporalActivity(factory any) *Builder {
+	v := reflect.ValueOf(factory)
+	if v.Kind() != reflect.Func {
+		logger.Fatal("activity receiver factory must be a func", zap.Any("received", factory))
+	}
+	b.activityRegs = append(b.activityRegs, v)
 	return b
 }
 
@@ -136,8 +149,8 @@ func (b *Builder) ProvideFunc(fn any) *Builder {
 	return b
 }
 
-// Register ties a generated pb.Register…Server with your factory func.
-func (b *Builder) Register(
+// RegisterService ties a generated pb.RegisterService…Server with your factory func.
+func (b *Builder) RegisterService(
 	register func(grpc.ServiceRegistrar, any),
 	factory any,
 ) *Builder {
@@ -223,8 +236,18 @@ func (b *Builder) Build() (*BootServer, error) {
 			return nil, fmt.Errorf("failed to create temporal client: %w", err)
 		}
 		tw = worker.New(tc, b.taskQueue, worker.Options{})
-		for _, f := range b.temporalWorkerFuncs {
-			f(tc, tw)
+
+		for _, f := range b.activityRegs {
+			receiver, err := invokeFactory(ctn, f) // same util used for gRPC
+			if err != nil {
+				return nil, fmt.Errorf("activity DI failed: %w", err)
+			}
+			tw.RegisterActivity(receiver.Interface())
+		}
+
+		for _, wf := range b.workflowRegs {
+			// Register workflows as-is, they are not factory funcs.
+			tw.RegisterWorkflow(wf)
 		}
 	}
 

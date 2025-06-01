@@ -41,7 +41,7 @@ func ProvideAzure(c *config.BootConfig) Cloud {
 func (a *Azure) LoadSecretsIntoEnv(ctx context.Context) {
 	logger.Info("Loading Azure Keyvault secrets into environment variables.")
 
-	if err := a.ensureKV(ctx); err != nil {
+	if err := a.EnsureKV(ctx); err != nil {
 		logger.Error("Failed to ensure Keyvault client", zap.Error(err))
 		return
 	}
@@ -73,7 +73,7 @@ func (a *Azure) LoadSecretsIntoEnv(ctx context.Context) {
 // containerName - Azure Container Name.
 // blobName - Azure path for the object like profile-photos/photo.jpg
 func (a *Azure) UploadStream(ctx context.Context, containerName, blobName string, fileData []byte) (string, error) {
-	if err := a.ensureBlob(ctx); err != nil {
+	if err := a.EnsureBlob(ctx); err != nil {
 		logger.Error("failed to ensure blob client", zap.Error(err))
 		return "", err
 	}
@@ -89,7 +89,7 @@ func (a *Azure) UploadStream(ctx context.Context, containerName, blobName string
 }
 
 func (a *Azure) DownloadFile(ctx context.Context, containerName, blobName string) (string, error) {
-	if err := a.ensureBlob(ctx); err != nil {
+	if err := a.EnsureBlob(ctx); err != nil {
 		logger.Error("failed to ensure blob client", zap.Error(err))
 		return "", err
 	}
@@ -124,7 +124,7 @@ func (c *Azure) GetPresignedUrl(ctx context.Context, bucketName, path, contentTy
 
 // azure clients
 
-func (a *Azure) ensureKV(ctx context.Context) error {
+func (a *Azure) EnsureKV(ctx context.Context) error {
 	if a.kvClient != nil {
 		return nil
 	}
@@ -135,7 +135,7 @@ func (a *Azure) ensureKV(ctx context.Context) error {
 	return a.kvErr
 }
 
-func (a *Azure) ensureBlob(ctx context.Context) error {
+func (a *Azure) EnsureBlob(ctx context.Context) error {
 	if a.blobClient != nil {
 		return nil
 	}

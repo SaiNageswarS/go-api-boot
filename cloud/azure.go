@@ -23,18 +23,18 @@ type Azure struct {
 
 	kvOnce   sync.Once
 	kvErr    error
-	kvClient keyVaultClient
+	KvClient keyVaultClient
 
 	blobOnce   sync.Once
 	blobErr    error
-	blobClient blobClient
+	BlobClient blobClient
 }
 
 func ProvideAzure(c *config.BootConfig) Cloud {
 	return &Azure{
 		ccfgg:      c,
-		kvClient:   nil,
-		blobClient: nil,
+		KvClient:   nil,
+		BlobClient: nil,
 	}
 }
 
@@ -46,7 +46,7 @@ func (a *Azure) LoadSecretsIntoEnv(ctx context.Context) {
 		return
 	}
 
-	pager := a.kvClient.NewListSecretPropertiesPager(nil)
+	pager := a.KvClient.NewListSecretPropertiesPager(nil)
 	var secretList []string
 
 	for pager.More() {
@@ -56,7 +56,7 @@ func (a *Azure) LoadSecretsIntoEnv(ctx context.Context) {
 			return
 		}
 		for _, secret := range page.Value {
-			resp, err := a.kvClient.GetSecret(ctx, secret.ID.Name(), secret.ID.Version(), nil)
+			resp, err := a.KvClient.GetSecret(ctx, secret.ID.Name(), secret.ID.Version(), nil)
 			if err != nil {
 				logger.Error("Failed to get secret", zap.Error(err))
 				continue
@@ -78,7 +78,7 @@ func (a *Azure) UploadStream(ctx context.Context, containerName, blobName string
 		return "", err
 	}
 
-	_, err := a.blobClient.UploadBuffer(ctx, containerName, blobName, fileData, nil)
+	_, err := a.BlobClient.UploadBuffer(ctx, containerName, blobName, fileData, nil)
 	if err != nil {
 		logger.Error("failed to upload blob", zap.Error(err))
 		return "", err
@@ -107,7 +107,7 @@ func (a *Azure) DownloadFile(ctx context.Context, containerName, blobName string
 	}
 	defer tmpFile.Close()
 
-	_, err = a.blobClient.DownloadFile(ctx, containerName, blobName, tmpFile, nil)
+	_, err = a.BlobClient.DownloadFile(ctx, containerName, blobName, tmpFile, nil)
 	if err != nil {
 		logger.Error("failed to download blob to file", zap.Error(err))
 		return "", err
@@ -125,18 +125,18 @@ func (c *Azure) GetPresignedUrl(ctx context.Context, bucketName, path, contentTy
 // azure clients
 
 func (a *Azure) EnsureKV(ctx context.Context) error {
-	if a.kvClient != nil {
+	if a.KvClient != nil {
 		return nil
 	}
 
 	a.kvOnce.Do(func() {
-		a.kvClient, a.kvErr = getKeyvaultClient(ctx)
+		a.KvClient, a.kvErr = getKeyvaultClient(ctx)
 	})
 	return a.kvErr
 }
 
 func (a *Azure) EnsureBlob(ctx context.Context) error {
-	if a.blobClient != nil {
+	if a.BlobClient != nil {
 		return nil
 	}
 
@@ -146,7 +146,7 @@ func (a *Azure) EnsureBlob(ctx context.Context) error {
 			return
 		}
 
-		a.blobClient, a.blobErr = getServiceClientTokenCredential(ctx, a.ccfgg.AzureStorageAccount)
+		a.BlobClient, a.blobErr = getServiceClientTokenCredential(ctx, a.ccfgg.AzureStorageAccount)
 	})
 	return a.blobErr
 }

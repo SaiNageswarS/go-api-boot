@@ -22,7 +22,7 @@ func TestAzure_LoadSecretsIntoEnv(t *testing.T) {
 	os.Clearenv() // Clear existing environment variables
 
 	a := &Azure{
-		kvClient: &mockVaultClient{
+		KvClient: &mockVaultClient{
 			secrets: mockSecrets,
 		},
 	}
@@ -40,7 +40,7 @@ func TestAzure_UploadStream_Success(t *testing.T) {
 
 	a := &Azure{
 		ccfgg:      config,
-		blobClient: &mockBlobClient{},
+		BlobClient: &mockBlobClient{},
 	}
 
 	url, err := a.UploadStream(context.Background(), "container", "myblob.txt", []byte("test content"))
@@ -56,7 +56,7 @@ func TestAzure_UploadStream_Failure(t *testing.T) {
 
 	a := &Azure{
 		ccfgg:      config,
-		blobClient: &mockBlobClient{ShouldFail: true},
+		BlobClient: &mockBlobClient{ShouldFail: true},
 	}
 
 	url, err := a.UploadStream(context.Background(), "container", "myblob.txt", []byte("test content"))
@@ -73,7 +73,7 @@ func TestAzure_DownloadFile_Success(t *testing.T) {
 
 	a := &Azure{
 		ccfgg:      config,
-		blobClient: &mockBlobClient{},
+		BlobClient: &mockBlobClient{},
 	}
 
 	filePath, err := a.DownloadFile(context.Background(), "container", "path/to/blob.txt")
@@ -93,7 +93,7 @@ func TestAzure_DownloadFile_Failure(t *testing.T) {
 
 	a := &Azure{
 		ccfgg:      config,
-		blobClient: &mockBlobClient{ShouldFail: true},
+		BlobClient: &mockBlobClient{ShouldFail: true},
 	}
 
 	filePath, err := a.DownloadFile(context.Background(), "container", "blob.txt")

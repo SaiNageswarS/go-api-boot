@@ -1,5 +1,5 @@
 # go-api-boot
-![Coverage](https://img.shields.io/badge/Coverage-59.5%25-yellow)
+[![codecov](https://codecov.io/gh/SaiNageswarS/go-api-boot/branch/master/graph/badge.svg)](https://codecov.io/gh/SaiNageswarS/go-api-boot)
 [![Go Report Card](https://goreportcard.com/badge/github.com/SaiNageswarS/go-api-boot)](https://goreportcard.com/report/github.com/SaiNageswarS/go-api-boot) [![Go Reference](https://pkg.go.dev/badge/github.com/SaiNageswarS/go-api-boot.svg)](https://pkg.go.dev/github.com/SaiNageswarS/go-api-boot)
 
 
@@ -120,36 +120,61 @@ $ ./build/quizService
 ### Server
 
 ```go
+// main.go
+package main
+
+func main() {
+    // Load secrets and config
+    dotenv.LoadEnv()
+
+    // load config file
+    var ccfg *config.AppConfig 
+    config.LoadConfig("config.ini", ccfg) // loads [dev] or [prod] section based on env var - `ENV=dev` or `ENV=prod`
+
+    // Pick a cloud provider – all implement cloud.Cloud
+    cloudFns := cloud.ProvideAzure(ccfg) // or cloud.ProvideAWS(cfg), cloud.ProvideGCP(cfg)
+    // load secrets from Keyvault/SecretManader
+    cloudFns.LoadSecretsIntoEnv(context.Background())
+
+    boot, _ := server.New().
+        GRPCPort(":50051").        // or ":0" for dynamic
+        HTTPPort(":8080").
+        EnableSSL(server.CloudCacheProvider(cfg, cloudFns)).
+        // Dependency injection
+        Provide(cfg).
+        ProvideAs(cloudFns, (*cloud.Cloud)(nil)).
+        // Register gRPC service impls
+        RegisterService(server.Adapt(pb.RegisterLoginServer), ProvideLoginService).
+        Build()
+
+    ctx, cancel := context.WithCancel(context.Background())
+    // catch SIGINT ‑> cancel
+    _ = boot.Serve(ctx)
+}
+```
+
+```
+// AppConfig.go
+
+package config
+
 type AppConfig struct {
 	BootConfig  `ini:",extends"`
 	CustomField string `env:"CUSTOM-FIELD" ini:"custom_field"`
 }
 
-// Load secrets and config
-dotenv.LoadEnv()
-// Pick a cloud provider – all implement cloud.Cloud
-cloudFns := cloud.Azure{}
-// load secrets from Keyvault/SecretManader
-cloudFns.LoadSecretsIntoEnv()
+```
 
-// load config file
-var ccfg *config.AppConfig 
-config.LoadConfig("config.ini", ccfg)
+```ini
+;; config.ini
 
-boot, _ := server.New().
-    GRPCPort(":50051").        // or ":0" for dynamic
-    HTTPPort(":8080").
-    EnableSSL(server.CloudCacheProvider(cfg, cloudFns)).
-    // Dependency injection
-    Provide(cfg).
-    ProvideAs(cloudFns, (*cloud.Cloud)(nil)).
-    // Register gRPC service impls
-    RegisterService(server.Adapt(pb.RegisterLoginServer), ProvideLoginService).
-    Build()
+[dev]
+custom_field=3
+azure_storage_account=testaccount
 
-ctx, cancel := context.WithCancel(context.Background())
-// catch SIGINT ‑> cancel
-_ = boot.Serve(ctx)
+[prod]
+custom_field=5
+azure_storage_account=prodaccount
 ```
 
 * gRPC, gRPC‑Web, and optional REST gateway on the same port.
@@ -281,7 +306,7 @@ Run with `-h` for full flags.
 
 ## Examples
 
-* **Kotlang/authGo** – real‑world auth service built with go‑api‑boot → [https://github.com/Kotlang/authGo](https://github.com/Kotlang/authGo)
+* **Kotlang/authGo** – real‑world auth service built with go‑api‑boot → [https://github.com/Kotlang/authGo](https://github.com/Kotlang/authGo), [https://github.com/SaiNageswarS/agent-boot](https://github.com/SaiNageswarS/agent-boot)
 
 ---
 

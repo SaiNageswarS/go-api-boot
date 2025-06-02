@@ -2,9 +2,8 @@ package config
 
 import (
 	"errors"
+	"os"
 
-	"github.com/SaiNageswarS/go-api-boot/dotenv"
-	"github.com/caarlos0/env/v11"
 	"github.com/go-ini/ini"
 )
 
@@ -36,18 +35,10 @@ func LoadConfig[T any](path string, target *T) error {
 		return err
 	}
 
+	runMode := os.Getenv("ENV")
+
 	// Step 1: Load from INI
-	if err := file.Section("").MapTo(target); err != nil {
-		return err
-	}
-
-	// Step 2: Override from ENV
-	err = dotenv.LoadEnv()
-	if err != nil {
-		return err
-	}
-
-	if err := env.Parse(target); err != nil {
+	if err := file.Section(runMode).MapTo(target); err != nil {
 		return err
 	}
 

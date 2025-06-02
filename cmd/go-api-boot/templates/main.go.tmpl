@@ -15,10 +15,6 @@ func main() {
 
 	// Load secrets and config
 	dotenv.LoadEnv()
-	// Pick a cloud provider – all implement cloud.Cloud
-	cloudFns := cloud.Azure{}
-	// load secrets from Keyvault/SecretManader
-	cloudFns.LoadSecretsIntoEnv()
 
 	// load config file
 	ccfg := &AppConfig{} 

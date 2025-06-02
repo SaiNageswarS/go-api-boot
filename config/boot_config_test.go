@@ -60,6 +60,7 @@ custom_field = prod_ini
 	err := os.WriteFile(tmpFile, []byte(iniContent), 0644)
 	assert.NoError(t, err)
 
+	defer os.Clearenv() // clean up env after test
 	// Step 2: Set environment variable overrides
 	os.Setenv("ENV", "dev")
 

@@ -1,5 +1,5 @@
 # go-api-boot
-![Coverage](https://img.shields.io/badge/Coverage-59.5%25-yellow)
+[![codecov](https://codecov.io/gh/SaiNageswarS/go-api-boot/branch/master/graph/badge.svg)](https://codecov.io/gh/SaiNageswarS/go-api-boot)
 [![Go Report Card](https://goreportcard.com/badge/github.com/SaiNageswarS/go-api-boot)](https://goreportcard.com/report/github.com/SaiNageswarS/go-api-boot) [![Go Reference](https://pkg.go.dev/badge/github.com/SaiNageswarS/go-api-boot.svg)](https://pkg.go.dev/github.com/SaiNageswarS/go-api-boot)
 
 

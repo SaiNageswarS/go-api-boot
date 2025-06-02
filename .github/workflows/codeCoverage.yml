@@ -32,6 +32,11 @@ jobs:
         go test -v ./... -covermode=count -coverprofile=coverage.out
         go tool cover -func=coverage.out -o=coverage.out
 
+    - name: Check coverage.out file
+      run: |
+        ls -lah
+        cat coverage.out || echo "coverage.out not found or empty"
+
     - name: Generate coverage badge
       uses: tj-actions/coverage-badge-go@v2
       with:

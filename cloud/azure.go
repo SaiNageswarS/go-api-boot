@@ -72,7 +72,7 @@ func (a *Azure) LoadSecretsIntoEnv(ctx context.Context) {
 // Uploads a stream to Azure storage.
 // containerName - Azure Container Name.
 // blobName - Azure path for the object like profile-photos/photo.jpg
-func (a *Azure) UploadStream(ctx context.Context, containerName, blobName string, fileData []byte) (string, error) {
+func (a *Azure) UploadBuffer(ctx context.Context, containerName, blobName string, fileData []byte) (string, error) {
 	if err := a.EnsureBlob(ctx); err != nil {
 		logger.Error("failed to ensure blob client", zap.Error(err))
 		return "", err

@@ -33,7 +33,7 @@ func TestAzure_LoadSecretsIntoEnv(t *testing.T) {
 	assert.Equal(t, "qux", os.Getenv("BAZ"))
 }
 
-func TestAzure_UploadStream_Success(t *testing.T) {
+func TestAzure_UploadBuffer_Success(t *testing.T) {
 	config := &config.BootConfig{
 		AzureStorageAccount: "mystorage",
 	}
@@ -43,13 +43,13 @@ func TestAzure_UploadStream_Success(t *testing.T) {
 		BlobClient: &mockBlobClient{},
 	}
 
-	url, err := a.UploadStream(context.Background(), "container", "myblob.txt", []byte("test content"))
+	url, err := a.UploadBuffer(context.Background(), "container", "myblob.txt", []byte("test content"))
 
 	assert.NoError(t, err)
 	assert.Contains(t, url, "https://mystorage.blob.core.windows.net/container/myblob.txt")
 }
 
-func TestAzure_UploadStream_Failure(t *testing.T) {
+func TestAzure_UploadBuffer_Failure(t *testing.T) {
 	config := &config.BootConfig{
 		AzureStorageAccount: "mystorage",
 	}
@@ -59,7 +59,7 @@ func TestAzure_UploadStream_Failure(t *testing.T) {
 		BlobClient: &mockBlobClient{ShouldFail: true},
 	}
 
-	url, err := a.UploadStream(context.Background(), "container", "myblob.txt", []byte("test content"))
+	url, err := a.UploadBuffer(context.Background(), "container", "myblob.txt", []byte("test content"))
 
 	assert.Error(t, err)
 	assert.EqualError(t, err, "upload failed")

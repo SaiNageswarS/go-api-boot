@@ -117,7 +117,7 @@ func (m *mockCloud) DownloadFile(ctx context.Context, bucketName, path string) (
 	return m.downloadData, m.downloadErr
 }
 
-func (m *mockCloud) UploadStream(ctx context.Context, bucket, name string, data []byte) (string, error) {
+func (m *mockCloud) UploadBuffer(ctx context.Context, bucket, name string, data []byte) (string, error) {
 	return m.uploadRes, m.uploadErr
 }
 

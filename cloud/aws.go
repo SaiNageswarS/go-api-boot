@@ -29,7 +29,7 @@ func (c *AWS) LoadSecretsIntoEnv(ctx context.Context) {
 	//TODO: Load secrets from aws secrets manager
 }
 
-func (c *AWS) UploadStream(ctx context.Context, bucketName, path string, fileData []byte) (string, error) {
+func (c *AWS) UploadBuffer(ctx context.Context, bucketName, path string, fileData []byte) (string, error) {
 	//TODO: Upload stream to aws bucket
 	return "", nil
 }

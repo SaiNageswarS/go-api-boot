@@ -39,7 +39,7 @@ func (cc *SslCloudCache) Put(ctx context.Context, name string, data []byte) erro
 	if bkt == "" {
 		return fmt.Errorf("SslBucket not set")
 	}
-	_, err := cc.cloud.UploadStream(ctx, bkt, name, data)
+	_, err := cc.cloud.UploadBuffer(ctx, bkt, name, data)
 	if err != nil {
 		return fmt.Errorf("failed to upload file %s to bucket %s: %w", name, bkt, err)
 	}

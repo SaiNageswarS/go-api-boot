@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
@@ -15,12 +16,21 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/SaiNageswarS/go-api-boot/config"
 	"github.com/SaiNageswarS/go-api-boot/logger"
+	"github.com/googleapis/gax-go/v2"
 	"go.uber.org/zap"
 	"google.golang.org/api/iterator"
 )
 
 type GCP struct {
 	ccfgg *config.BootConfig
+
+	secretsOnce sync.Once
+	secretsErr  error
+	Secrets     SecretManagerClient
+
+	storageOnce sync.Once
+	storageErr  error
+	Storage     StorageClient
 }
 
 // ProvideGCP returns a GCP cloud client.
@@ -31,12 +41,10 @@ func ProvideGCP(ccfgg *config.BootConfig) Cloud {
 // listSecrets lists all secrets in the given project.
 func (c *GCP) LoadSecretsIntoEnv(ctx context.Context) {
 	// Create the client.
-	client, err := secretmanager.NewClient(ctx)
-	if err != nil {
-		logger.Error("Failed to create client: ", zap.Error(err))
+	if err := c.EnsureSecrets(ctx); err != nil {
+		logger.Error("Failed to ensure Secret Manager client", zap.Error(err))
 		return
 	}
-	defer client.Close()
 
 	// Build the request.
 	projectID := os.Getenv("GCP_PROJECT_ID")
@@ -49,7 +57,7 @@ func (c *GCP) LoadSecretsIntoEnv(ctx context.Context) {
 	}
 
 	// Call the API.
-	it := client.ListSecrets(ctx, req)
+	it := c.Secrets.ListSecrets(ctx, req)
 	var secretList []string
 	for {
 		secret, err := it.Next()
@@ -65,7 +73,7 @@ func (c *GCP) LoadSecretsIntoEnv(ctx context.Context) {
 		req := &secretmanagerpb.AccessSecretVersionRequest{
 			Name: fmt.Sprintf("%s/versions/latest", secret.Name),
 		}
-		result, err := client.AccessSecretVersion(ctx, req)
+		result, err := c.Secrets.AccessSecretVersion(ctx, req)
 		if err != nil {
 			logger.Error("Failed to access secret version for:", zap.Any("secret version", secret.Name), zap.Error(err))
 			continue
@@ -83,13 +91,12 @@ func (c *GCP) LoadSecretsIntoEnv(ctx context.Context) {
 
 func (c *GCP) UploadBuffer(ctx context.Context, bucketName, path string, fileData []byte) (string, error) {
 	// Set up the Google Cloud Storage client
-	client, err := storage.NewClient(ctx)
-	if err != nil {
+	if err := c.EnsureStorage(ctx); err != nil {
+		logger.Error("Failed to ensure Storage client", zap.Error(err))
 		return "", err
 	}
-	defer client.Close()
 
-	bucket := client.Bucket(bucketName)
+	bucket := c.Storage.Bucket(bucketName)
 	obj := bucket.Object(path)
 	wc := obj.NewWriter(ctx)
 
@@ -112,13 +119,12 @@ func (c *GCP) UploadBuffer(ctx context.Context, bucketName, path string, fileDat
 
 // DownloadFile downloads a file from GCP bucket and returns the path to the temp file.
 func (c *GCP) DownloadFile(ctx context.Context, bucketName, blobPath string) (string, error) {
-	client, err := storage.NewClient(context.Background())
-	if err != nil {
-		return "", fmt.Errorf("storage.NewClient: %v", err)
+	if err := c.EnsureStorage(ctx); err != nil {
+		logger.Error("Failed to ensure Storage client", zap.Error(err))
+		return "", err
 	}
-	defer client.Close()
 
-	bucket := client.Bucket(bucketName)
+	bucket := c.Storage.Bucket(bucketName)
 	obj := bucket.Object(blobPath)
 
 	r, err := obj.NewReader(ctx)
@@ -150,12 +156,10 @@ func (c *GCP) GetPresignedUrl(ctx context.Context, bucketName, path, contentType
 	// bucketName := "bucket-name"
 	// path := "object-name"
 
-	client, err := storage.NewClient(ctx)
-	if err != nil {
-		logger.Error("Failed to create client: ", zap.Error(err))
+	if err := c.EnsureStorage(ctx); err != nil {
+		logger.Error("Failed to ensure Storage client", zap.Error(err))
 		return "", ""
 	}
-	defer client.Close()
 
 	// Signing a URL requires credentials authorized to sign a URL. You can pass
 	// these in through SignedURLOptions with one of the following options:
@@ -172,11 +176,34 @@ func (c *GCP) GetPresignedUrl(ctx context.Context, bucketName, path, contentType
 		Expires: time.Now().Add(expiry),
 	}
 
-	uploadUrl, err := client.Bucket(bucketName).SignedURL(path, opts)
+	uploadUrl, err := c.Storage.Bucket(bucketName).SignedURL(path, opts)
 	if err != nil {
 		logger.Error("Failed to generate signed URL: ", zap.Error(err))
 		return "", ""
 	}
 	downloadUrl := fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucketName, path)
 	return uploadUrl, downloadUrl
+}
+
+func (c *GCP) EnsureSecrets(ctx context.Context) error {
+	c.secretsOnce.Do(func() {
+		c.Secrets, c.secretsErr = secretmanager.NewClient(ctx)
+	})
+	return c.secretsErr
+}
+
+func (c *GCP) EnsureStorage(ctx context.Context) error {
+	c.storageOnce.Do(func() {
+		c.Storage, c.storageErr = storage.NewClient(ctx)
+	})
+	return c.storageErr
+}
+
+type SecretManagerClient interface {
+	ListSecrets(ctx context.Context, req *secretmanagerpb.ListSecretsRequest, opts ...gax.CallOption) *secretmanager.SecretIterator
+	AccessSecretVersion(ctx context.Context, req *secretmanagerpb.AccessSecretVersionRequest, opts ...gax.CallOption) (*secretmanagerpb.AccessSecretVersionResponse, error)
+}
+
+type StorageClient interface {
+	Bucket(name string) *storage.BucketHandle
 }

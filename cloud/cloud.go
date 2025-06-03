@@ -7,7 +7,7 @@ import (
 
 type Cloud interface {
 	LoadSecretsIntoEnv(ctx context.Context)
-	UploadStream(ctx context.Context, bucketName, path string, fileData []byte) (string, error)
+	UploadBuffer(ctx context.Context, bucketName, path string, fileData []byte) (string, error)
 	GetPresignedUrl(ctx context.Context, bucketName, path, contentType string, expiry time.Duration) (string, string)
 	DownloadFile(ctx context.Context, bucketName, path string) (string, error)
 }

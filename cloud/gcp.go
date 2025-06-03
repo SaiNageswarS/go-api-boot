@@ -81,7 +81,7 @@ func (c *GCP) LoadSecretsIntoEnv(ctx context.Context) {
 	logger.Info("Successfully loaded GCP Keyvault secrets into environment variables.", zap.Any("secrets", secretList))
 }
 
-func (c *GCP) UploadStream(ctx context.Context, bucketName, path string, fileData []byte) (string, error) {
+func (c *GCP) UploadBuffer(ctx context.Context, bucketName, path string, fileData []byte) (string, error) {
 	// Set up the Google Cloud Storage client
 	client, err := storage.NewClient(ctx)
 	if err != nil {

@@ -11,7 +11,7 @@ import (
 // AppConfig is a test struct that embeds BaseConfig
 type AppConfig struct {
 	BootConfig  `ini:",extends"`
-	CustomField string `env:"CUSTOM-FIELD" ini:"custom_field"`
+	CustomField string `ini:"custom_field"`
 }
 
 func TestLoadConfig_LoadsFromIni(t *testing.T) {
@@ -85,4 +85,38 @@ custom_field = prod_ini
 	assert.Equal(t, "api.temporal.com", cfg.Domain)
 	assert.Equal(t, "mystorageaccount", cfg.AzureStorageAccount)
 	assert.Equal(t, "prod_ini", cfg.CustomField)
+}
+
+func TestLoadConfig_ConfigObjectIsNil(t *testing.T) {
+	// Step 1: Attempt to load config with nil target
+	var nilConfig *AppConfig = nil
+	err := LoadConfig("does_not_matter.ini", nilConfig)
+	assert.Error(t, err)
+	assert.Equal(t, "target cannot be nil", err.Error())
+}
+
+func TestLoadConfig_EmptyIniFile(t *testing.T) {
+	// Step 1: Create temporary empty .ini config file
+	tmpFile := filepath.Join(t.TempDir(), "empty.ini")
+	err := os.WriteFile(tmpFile, []byte(""), 0644)
+	assert.NoError(t, err)
+
+	// Step 2: Load config
+	var cfg AppConfig
+	err = LoadConfig(tmpFile, &cfg)
+	assert.NoError(t, err)
+
+	// Step 3: Validate default values
+	assert.Equal(t, "", cfg.SslBucket)
+	assert.Equal(t, "", cfg.Domain)
+	assert.Equal(t, "", cfg.AzureStorageAccount)
+	assert.Equal(t, "", cfg.CustomField)
+}
+
+func TestLoadConfig_FileNotFound(t *testing.T) {
+	// Step 1: Attempt to load config from a non-existent file
+	var cfg AppConfig
+	err := LoadConfig("non_existent.ini", &cfg)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no such file or directory")
 }

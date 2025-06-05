@@ -13,13 +13,15 @@ import (
 // Secrets should be exclusively read from environment variables.
 type BootConfig struct {
 	// ssl
-	SslBucket string `env:"SSL-BUCKET" ini:"ssl_bucket"`
-	Domain    string `env:"DOMAIN" ini:"domain"`
+	SslBucket string `ini:"ssl_bucket"`
+	Domain    string `ini:"domain"`
 
 	// Cloud
-	AzureStorageAccount string `env:"AZURE-STORAGE-ACCOUNT" ini:"azure_storage_account"`
+	AzureStorageAccount string `ini:"azure_storage_account"`
 
-	GcpProjectId string `env:"GCP-PROJECT-ID" ini:"gcp_project_id"`
+	GcpProjectId string `ini:"gcp_project_id"`
+
+	AwsRegion string `ini:"aws_region"`
 }
 
 // Loads config into the target struct from the given path - an INI file.

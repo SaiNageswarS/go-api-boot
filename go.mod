@@ -12,6 +12,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.6.1
 	github.com/aws/aws-sdk-go v1.34.28
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
+	github.com/googleapis/gax-go/v2 v2.12.4
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/jinzhu/copier v0.3.2
 	github.com/prometheus/client_golang v1.18.0
@@ -44,7 +45,6 @@ require (
 	github.com/golang/mock v1.6.0 // indirect
 	github.com/google/s2a-go v0.1.7 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
-	github.com/googleapis/gax-go/v2 v2.12.4 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.22.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect

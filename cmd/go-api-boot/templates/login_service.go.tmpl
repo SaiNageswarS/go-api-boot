@@ -4,6 +4,7 @@ import (
     "{{.ProjectPath}}/db"
     pb "{{.ProjectPath}}/generated/pb"
     "github.com/SaiNageswarS/go-api-boot/auth"
+    "github.com/SaiNageswarS/go-api-boot/async"
     "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -25,7 +26,7 @@ func (u *LoginService) AuthFuncOverride(ctx context.Context, fullMethodName stri
 }
 
 func (s *LoginService) Login(ctx context.Context, req *pb.LoginRequest) (*pb.StatusResponse, error) {
-    loginInfo, err := odm.Await(odm.CollectionOf[LoginModel](mongo, req.Tenant).FindOneByID(ctx, req.Id))
+    loginInfo, err := async.Await(odm.CollectionOf[LoginModel](mongo, req.Tenant).FindOneByID(ctx, req.Id))
     if err != nil || loginInfo == nil {
 		return nil, status.Error(codes.NotFound, "User not found")
 	}

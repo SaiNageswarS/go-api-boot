@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/SaiNageswarS/go-api-boot/bootUtils"
 	"github.com/SaiNageswarS/go-api-boot/config"
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	"github.com/aws/aws-sdk-go/aws"
@@ -41,7 +40,11 @@ func (c *AWS) DownloadFile(ctx context.Context, bucketName, path string) (string
 
 // Returns pre-signed upload Url and download URL.
 func (c *AWS) GetPresignedUrl(ctx context.Context, bucketName, path, contentType string, expiry time.Duration) (string, string) {
-	awsRegion := bootUtils.GetEnvOrDefault("AWS_REGION", "ap-south-1")
+	awsRegion := c.ccfgg.AwsRegion
+	if awsRegion == "" {
+		logger.Error("AWS region is not configured")
+		return "", ""
+	}
 
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String(awsRegion)},

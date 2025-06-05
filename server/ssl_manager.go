@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/SaiNageswarS/go-api-boot/bootUtils"
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/acme/autocert"
@@ -61,7 +60,7 @@ func (s *SSLManager) Run(ctx context.Context) error {
 	}()
 
 	// b) Prefetch/renew certificate with retry & back-off
-	err = bootUtils.RetryWithExponentialBackoff(ctx, 10, 2*time.Second, func() error {
+	err = RetryWithExponentialBackoff(ctx, 10, 2*time.Second, func() error {
 		_, e := s.certManager.GetCertificate(
 			&tls.ClientHelloInfo{ServerName: s.domain},
 		)

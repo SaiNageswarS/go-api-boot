@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SaiNageswarS/go-api-boot/async"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"
@@ -63,7 +64,7 @@ func TestSave_Insert(t *testing.T) {
 		On("CountDocuments", mock.Anything, bson.M{"_id": "rg"}, mock.Anything).
 		Return(int64(0), nil)
 
-	_, err := Await(repo.Save(ctx, testModel{Name: "Rick", PhotoUrl: "rick.png", Email: "rick@gmail.com"}))
+	_, err := async.Await(repo.Save(ctx, testModel{Name: "Rick", PhotoUrl: "rick.png", Email: "rick@gmail.com"}))
 	require.NoError(t, err)
 	collection.AssertExpectations(t)
 }
@@ -84,7 +85,7 @@ func TestSave_Err(t *testing.T) {
 		On("CountDocuments", mock.Anything, mock.Anything, mock.Anything).
 		Return(int64(0), nil)
 
-	_, err := Await(repo.Save(ctx, testModel{Name: "Rick"}))
+	_, err := async.Await(repo.Save(ctx, testModel{Name: "Rick"}))
 	require.ErrorIs(t, err, expectedErr)
 }
 
@@ -113,7 +114,7 @@ func TestSave_Update(t *testing.T) {
 		On("CountDocuments", mock.Anything, bson.M{"_id": "rg"}, mock.Anything).
 		Return(int64(1), nil)
 
-	_, err := Await(repo.Save(ctx, testModel{Name: "Rick", PhotoUrl: "rick.png", Email: "rick@gmail.com"}))
+	_, err := async.Await(repo.Save(ctx, testModel{Name: "Rick", PhotoUrl: "rick.png", Email: "rick@gmail.com"}))
 	require.NoError(t, err)
 	collection.AssertExpectations(t)
 }
@@ -132,7 +133,7 @@ func TestFindOneByID(t *testing.T) {
 	collection.On("FindOne", mock.Anything, expectedFilter, mock.Anything).
 		Return(findOneResult)
 
-	res, err := Await(repo.FindOneByID(ctx, "rg"))
+	res, err := async.Await(repo.FindOneByID(ctx, "rg"))
 	require.NoError(t, err)
 	require.Equal(t, expectedModel, res)
 }
@@ -154,7 +155,7 @@ func TestFind(t *testing.T) {
 	collection.On("Find", mock.Anything, filter, mock.Anything).
 		Return(cursor, nil)
 
-	res, err := Await(repo.Find(ctx, filter, sort, limit, skip))
+	res, err := async.Await(repo.Find(ctx, filter, sort, limit, skip))
 	require.NoError(t, err)
 	require.Equal(t, expected, res)
 }
@@ -180,7 +181,7 @@ func TestAggregate(t *testing.T) {
 	collection.On("Aggregate", mock.Anything, pipeline, mock.Anything).
 		Return(cursor, nil)
 
-	res, err := Await(repo.Aggregate(ctx, pipeline))
+	res, err := async.Await(repo.Aggregate(ctx, pipeline))
 	require.NoError(t, err)
 	require.Equal(t, expected, res)
 }
@@ -196,7 +197,7 @@ func TestDeleteByID(t *testing.T) {
 	collection.On("DeleteOne", mock.Anything, expectedFilter, mock.Anything).
 		Return(&mongo.DeleteResult{DeletedCount: 1}, nil)
 
-	_, err := Await(repo.DeleteByID(ctx, "rg"))
+	_, err := async.Await(repo.DeleteByID(ctx, "rg"))
 	require.NoError(t, err)
 }
 
@@ -211,7 +212,7 @@ func TestDeleteOne(t *testing.T) {
 	collection.On("DeleteOne", mock.Anything, filter, mock.Anything).
 		Return(&mongo.DeleteResult{DeletedCount: 1}, nil)
 
-	_, err := Await(repo.DeleteOne(ctx, filter))
+	_, err := async.Await(repo.DeleteOne(ctx, filter))
 	require.NoError(t, err)
 }
 
@@ -226,7 +227,7 @@ func TestCountDocuments(t *testing.T) {
 	collection.On("CountDocuments", mock.Anything, filter, mock.Anything).
 		Return(int64(5), nil)
 
-	count, err := Await(repo.Count(ctx, filter))
+	count, err := async.Await(repo.Count(ctx, filter))
 	require.NoError(t, err)
 	require.Equal(t, int64(5), count)
 }
@@ -245,7 +246,7 @@ func TestDistinct(t *testing.T) {
 	collection.On("Distinct", mock.Anything, field, filter, mock.Anything).
 		Return(expected, nil)
 
-	res, err := Await(repo.Distinct(ctx, field, filter, time.Second))
+	res, err := async.Await(repo.Distinct(ctx, field, filter, time.Second))
 	require.NoError(t, err)
 	require.Equal(t, expected, res)
 }
@@ -260,7 +261,7 @@ func TestExists(t *testing.T) {
 	collection.On("CountDocuments", mock.Anything, bson.M{"_id": "rg"}, mock.Anything).
 		Return(int64(1), nil)
 
-	exists, err := Await(repo.Exists(ctx, "rg"))
+	exists, err := async.Await(repo.Exists(ctx, "rg"))
 	require.NoError(t, err)
 	require.True(t, exists)
 }

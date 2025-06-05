@@ -1,11 +1,13 @@
 package llm
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
 
+	"github.com/SaiNageswarS/go-api-boot/async"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -70,7 +72,7 @@ func TestGenerateInference_Success(t *testing.T) {
 		},
 	}
 
-	respText, err := client.GenerateInference(req)
+	respText, err := async.Await(client.GenerateInference(context.Background(), req))
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -97,7 +99,7 @@ func TestGenerateInference_BadStatusCode(t *testing.T) {
 		Messages:  []Message{{Role: "user", Content: "Test"}},
 	}
 
-	_, err := client.GenerateInference(req)
+	_, err := async.Await(client.GenerateInference(context.Background(), req))
 	if err == nil {
 		t.Fatal("Expected error due to bad status code, got nil")
 	}
@@ -122,7 +124,7 @@ func TestGenerateInference_InvalidJSON(t *testing.T) {
 		Messages:  []Message{{Role: "user", Content: "Test"}},
 	}
 
-	_, err := client.GenerateInference(req)
+	_, err := async.Await(client.GenerateInference(context.Background(), req))
 	if err == nil {
 		t.Fatal("Expected JSON unmarshal error, got nil")
 	}
@@ -152,7 +154,7 @@ func TestGenerateInference_EmptyContent(t *testing.T) {
 		Messages:  []Message{{Role: "user", Content: "Test"}},
 	}
 
-	_, err := client.GenerateInference(req)
+	_, err := async.Await(client.GenerateInference(context.Background(), req))
 	if err == nil || err.Error() != "no content in response" {
 		t.Errorf("Expected 'no content in response' error, got: %v", err)
 	}

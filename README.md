@@ -193,7 +193,7 @@ func (p Profile) CollectionName() string { return "profile" }
 
 // Query
 client, err := odm.GetClient(ccfg)
-profile, err := odm.Await(odm.CollectionOf[Profile](client, tenant).FindOneById(context.Background(), id))
+profile, err := async.Await(odm.CollectionOf[Profile](client, tenant).FindOneById(context.Background(), id))
 ```
 
 Async helpers return `<-chan T` + `<-chan error` for fan‑out concurrency.

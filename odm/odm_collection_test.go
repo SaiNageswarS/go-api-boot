@@ -155,6 +155,22 @@ func TestFindOneByID(t *testing.T) {
 	assert.Equal(t, expectedModel, res)
 }
 
+func TestFindOneById_Err(t *testing.T) {
+	ctx := context.Background()
+
+	collection := &MockCollection{}
+	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
+	repo := &testOdmCollection{baseRepo}
+
+	findOneErrResult := mongo.NewSingleResultFromDocument(nil, fmt.Errorf("not found"), nil)
+	collection.On("FindOne", mock.Anything, mock.Anything, mock.Anything).
+		Return(findOneErrResult)
+
+	res, err := async.Await(repo.FindOneByID(ctx, "rg"))
+	assert.Error(t, err)
+	assert.Nil(t, res)
+}
+
 func TestFind(t *testing.T) {
 	ctx := context.Background()
 
@@ -175,6 +191,22 @@ func TestFind(t *testing.T) {
 	res, err := async.Await(repo.Find(ctx, filter, sort, limit, skip))
 	assert.NoError(t, err)
 	assert.Equal(t, expected, res)
+}
+
+func TestFind_Err(t *testing.T) {
+	ctx := context.Background()
+
+	collection := &MockCollection{}
+	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
+	repo := &testOdmCollection{baseRepo}
+
+	cursor, _ := mongo.NewCursorFromDocuments(toInterface([]testModel{}), nil, nil)
+	collection.On("Find", mock.Anything, mock.Anything, mock.Anything).
+		Return(cursor, fmt.Errorf("find error"))
+
+	_, err := async.Await(repo.Find(ctx, bson.M{"email": "rick@gmail.com"}, bson.D{{Key: "name", Value: 1}}, int64(10), int64(10)))
+	assert.Error(t, err)
+	assert.EqualError(t, err, "find error")
 }
 
 func TestAggregate(t *testing.T) {

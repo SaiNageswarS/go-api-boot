@@ -89,7 +89,7 @@ func GetUserType(ctx context.Context) string {
 }
 
 // returns userId, tenant, userType
-func decryptToken(token string) (string, string, string, error) {
+var decryptToken = func(token string) (string, string, string, error) {
 	accessSecret := os.Getenv("ACCESS-SECRET")
 	if accessSecret == "" {
 		return "", "", "", errors.New("ACCESS-SECRET is not set in environment")

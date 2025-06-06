@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/rs/cors"
+	"github.com/stretchr/testify/assert"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc"
 )
@@ -49,6 +51,30 @@ func TestBuilder_BuildValidation(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Build() succeeded with missing GRPCPort; want error")
 	}
+}
+
+func TestBuilder_RegisterValidation(t *testing.T) {
+	mockUnaryInterceptor := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
+		return handler(ctx, req) // just pass through
+	}
+
+	mockStreamInterceptor := func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		return handler(srv, ss) // just pass through
+	}
+
+	corsConfig := cors.New(
+		cors.Options{
+			AllowedHeaders: []string{"*"},
+		})
+
+	builder := New().
+		Unary(mockUnaryInterceptor).
+		Stream(mockStreamInterceptor).
+		CORS(corsConfig)
+
+	assert.Equal(t, len(builder.unary), 4)  // 3 default + 1 custom
+	assert.Equal(t, len(builder.stream), 4) // 3 default + 1 custom
+	assert.NotNil(t, builder.cors)
 }
 
 func TestBuilder_Provide_RegistersService(t *testing.T) {

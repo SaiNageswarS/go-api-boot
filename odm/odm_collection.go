@@ -150,7 +150,7 @@ func (c *odmCollection[T]) Exists(ctx context.Context, id string) <-chan async.R
 	})
 }
 
-func convertToBson(model DbModel) (bson.M, error) {
+var convertToBson = func(model DbModel) (bson.M, error) {
 	bsonBytes, err := bson.Marshal(model)
 	if err != nil {
 		return nil, err

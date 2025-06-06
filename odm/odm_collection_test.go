@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/SaiNageswarS/go-api-boot/async"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -65,7 +65,7 @@ func TestSave_Insert(t *testing.T) {
 		Return(int64(0), nil)
 
 	_, err := async.Await(repo.Save(ctx, testModel{Name: "Rick", PhotoUrl: "rick.png", Email: "rick@gmail.com"}))
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	collection.AssertExpectations(t)
 }
 
@@ -86,7 +86,7 @@ func TestSave_Err(t *testing.T) {
 		Return(int64(0), nil)
 
 	_, err := async.Await(repo.Save(ctx, testModel{Name: "Rick"}))
-	require.ErrorIs(t, err, expectedErr)
+	assert.ErrorIs(t, err, expectedErr)
 }
 
 func TestSave_Update(t *testing.T) {
@@ -115,8 +115,25 @@ func TestSave_Update(t *testing.T) {
 		Return(int64(1), nil)
 
 	_, err := async.Await(repo.Save(ctx, testModel{Name: "Rick", PhotoUrl: "rick.png", Email: "rick@gmail.com"}))
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	collection.AssertExpectations(t)
+}
+
+func TestSave_ErrBsonConvert(t *testing.T) {
+	restore := convertToBson
+	convertToBson = func(model DbModel) (bson.M, error) { return nil, fmt.Errorf("bson conversion error") }
+	t.Cleanup(func() { convertToBson = restore })
+
+	ctx := context.Background()
+
+	collection := &MockCollection{}
+	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
+	repo := &testOdmCollection{baseRepo}
+
+	_, err := async.Await(repo.Save(ctx, testModel{Name: "Rick"}))
+	assert.Error(t, err)
+	assert.EqualError(t, err, "bson conversion error")
+	collection.AssertNotCalled(t, "UpdateOne")
 }
 
 func TestFindOneByID(t *testing.T) {
@@ -134,8 +151,8 @@ func TestFindOneByID(t *testing.T) {
 		Return(findOneResult)
 
 	res, err := async.Await(repo.FindOneByID(ctx, "rg"))
-	require.NoError(t, err)
-	require.Equal(t, expectedModel, res)
+	assert.NoError(t, err)
+	assert.Equal(t, expectedModel, res)
 }
 
 func TestFind(t *testing.T) {
@@ -156,8 +173,8 @@ func TestFind(t *testing.T) {
 		Return(cursor, nil)
 
 	res, err := async.Await(repo.Find(ctx, filter, sort, limit, skip))
-	require.NoError(t, err)
-	require.Equal(t, expected, res)
+	assert.NoError(t, err)
+	assert.Equal(t, expected, res)
 }
 
 func TestAggregate(t *testing.T) {
@@ -182,8 +199,8 @@ func TestAggregate(t *testing.T) {
 		Return(cursor, nil)
 
 	res, err := async.Await(repo.Aggregate(ctx, pipeline))
-	require.NoError(t, err)
-	require.Equal(t, expected, res)
+	assert.NoError(t, err)
+	assert.Equal(t, expected, res)
 }
 
 func TestDeleteByID(t *testing.T) {
@@ -198,7 +215,7 @@ func TestDeleteByID(t *testing.T) {
 		Return(&mongo.DeleteResult{DeletedCount: 1}, nil)
 
 	_, err := async.Await(repo.DeleteByID(ctx, "rg"))
-	require.NoError(t, err)
+	assert.NoError(t, err)
 }
 
 func TestDeleteOne(t *testing.T) {
@@ -213,7 +230,7 @@ func TestDeleteOne(t *testing.T) {
 		Return(&mongo.DeleteResult{DeletedCount: 1}, nil)
 
 	_, err := async.Await(repo.DeleteOne(ctx, filter))
-	require.NoError(t, err)
+	assert.NoError(t, err)
 }
 
 func TestCountDocuments(t *testing.T) {
@@ -228,8 +245,8 @@ func TestCountDocuments(t *testing.T) {
 		Return(int64(5), nil)
 
 	count, err := async.Await(repo.Count(ctx, filter))
-	require.NoError(t, err)
-	require.Equal(t, int64(5), count)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(5), count)
 }
 
 func TestDistinct(t *testing.T) {
@@ -247,8 +264,8 @@ func TestDistinct(t *testing.T) {
 		Return(expected, nil)
 
 	res, err := async.Await(repo.Distinct(ctx, field, filter, time.Second))
-	require.NoError(t, err)
-	require.Equal(t, expected, res)
+	assert.NoError(t, err)
+	assert.Equal(t, expected, res)
 }
 
 func TestExists(t *testing.T) {
@@ -262,8 +279,8 @@ func TestExists(t *testing.T) {
 		Return(int64(1), nil)
 
 	exists, err := async.Await(repo.Exists(ctx, "rg"))
-	require.NoError(t, err)
-	require.True(t, exists)
+	assert.NoError(t, err)
+	assert.True(t, exists)
 }
 
 /* ─────────────────────────────

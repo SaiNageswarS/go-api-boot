@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"net/http"
 	"reflect"
 	"testing"
 
@@ -67,13 +68,20 @@ func TestBuilder_RegisterValidation(t *testing.T) {
 			AllowedHeaders: []string{"*"},
 		})
 
+	customHttpHandler := func(res http.ResponseWriter, req *http.Request) {
+		res.WriteHeader(http.StatusOK)
+		res.Write([]byte("Custom HTTP Handler"))
+	}
+
 	builder := New().
 		Unary(mockUnaryInterceptor).
 		Stream(mockStreamInterceptor).
-		CORS(corsConfig)
+		CORS(corsConfig).
+		Handle("/getTestApi", customHttpHandler)
 
 	assert.Equal(t, len(builder.unary), 4)  // 3 default + 1 custom
 	assert.Equal(t, len(builder.stream), 4) // 3 default + 1 custom
+	assert.Equal(t, len(builder.extra), 1)  // 1 custom HTTP handler
 	assert.NotNil(t, builder.cors)
 }
 

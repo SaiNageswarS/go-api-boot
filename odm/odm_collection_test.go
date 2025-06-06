@@ -315,6 +315,21 @@ func TestExists(t *testing.T) {
 	assert.True(t, exists)
 }
 
+func TestExists_Err(t *testing.T) {
+	ctx := context.Background()
+
+	collection := &MockCollection{}
+	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
+	repo := &testOdmCollection{baseRepo}
+
+	collection.On("CountDocuments", mock.Anything, bson.M{"_id": "rg"}, mock.Anything).
+		Return(int64(0), fmt.Errorf("count error"))
+
+	exists, err := async.Await(repo.Exists(ctx, "rg"))
+	assert.Error(t, err)
+	assert.False(t, exists)
+}
+
 /* ─────────────────────────────
    Helpers & mocks
    ───────────────────────────── */

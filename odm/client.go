@@ -25,7 +25,7 @@ var mongoConnect = func(ctx context.Context, uri string) (MongoClient, error) {
 // GetClient returns a singleton Mongo client, initialized once.
 func GetClient(mongoUri string) (MongoClient, error) {
 	if mongoUri == "" {
-		return nil, errors.New("MongoUri config is not set")
+		return nil, errors.New("empty MongoDB URI")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

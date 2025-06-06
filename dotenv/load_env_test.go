@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/assert"
 )
 
 type envPair struct {
@@ -25,20 +25,57 @@ var fixtures = []testFixture{
 }
 
 func TestLoadEnvFromString(t *testing.T) {
+	os.Clearenv()
+
+	t.Cleanup(func() { os.Clearenv() }) // Clear environment variables after test
+
 	cwd, _ := os.Getwd()
 	fmt.Println(cwd)
 
 	for _, fixture := range fixtures {
 		err := LoadEnv(fixture.filename)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 
 		for _, pair := range fixture.expectedOutput {
-			require.Equal(t, os.Getenv(pair.key), pair.value)
+			assert.Equal(t, os.Getenv(pair.key), pair.value)
 		}
 	}
 }
 
 func TestNoEnvFile(t *testing.T) {
 	err := LoadEnv()
-	require.NoError(t, err)
+	assert.NoError(t, err)
+}
+
+func TestLoadEnv_ShouldPickUpEnvFromCWD(t *testing.T) {
+	os.Clearenv()
+	tmp := t.TempDir()
+
+	// work inside an isolated dir so relative "db" / "services" paths are safe
+	orig, _ := os.Getwd()
+	t.Cleanup(func() {
+		_ = os.Chdir(orig)
+		os.Clearenv()
+	})
+	_ = os.Chdir(tmp)
+
+	envContent := `
+MONGO-URI=mongodb://username@password=dummy/test
+ACCESS_DEV=909-090
+`
+	envFile := ".env"
+	err := os.WriteFile(envFile, []byte(envContent), 0644)
+	assert.NoError(t, err)
+
+	err = LoadEnv(envFile)
+	assert.NoError(t, err)
+
+	expected := map[string]string{
+		"MONGO-URI":  "mongodb://username@password=dummy/test",
+		"ACCESS_DEV": "909-090",
+	}
+
+	for key, value := range expected {
+		assert.Equal(t, value, os.Getenv(key), "Environment variable %s should match", key)
+	}
 }

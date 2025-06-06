@@ -55,6 +55,12 @@ func TestGetClient_Success(t *testing.T) {
 	assert.NotNil(t, client)
 }
 
+func TestGetClient_EmptyURI(t *testing.T) {
+	client, err := GetClient("")
+	assert.Nil(t, client)
+	assert.EqualError(t, err, "empty MongoDB URI")
+}
+
 func TestGetClient_Failure(t *testing.T) {
 	originalMongoConnect := mongoConnect
 	mongoConnect = func(ctx context.Context, uri string) (MongoClient, error) {

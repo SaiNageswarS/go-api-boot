@@ -8,40 +8,60 @@ import (
 	"strings"
 )
 
-func Bootstrap(projectName, protoPath string) {
+func Bootstrap(projectName, protoPath string) error {
 	parts := strings.Split(projectName, "/")
 	if len(parts) == 0 {
-		CheckErr(errors.New("project name should be fully qualified git repo name"))
+		return errors.New("project name should be fully qualified git repo name")
 	}
 
 	fmt.Printf("Bootstrapping %s\n", projectName)
 
 	folderName, err := initializeGoProject(projectName)
-	CheckErr(err)
+	if err != nil {
+		return err
+	}
 
 	err = createProjectStructure(folderName)
-	CheckErr(err)
+	if err != nil {
+		return err
+	}
 
 	err = GenerateMain(projectName, folderName)
-	CheckErr(err)
+	if err != nil {
+		return err
+	}
 
 	err = GenerateBuildScripts(protoPath, folderName)
-	CheckErr(err)
+	if err != nil {
+		return err
+	}
 
 	err = CopyGitIgnore(folderName)
-	CheckErr(err)
+	if err != nil {
+		return err
+	}
 
 	err = CopyIniFile(folderName)
-	CheckErr(err)
+	if err != nil {
+		return err
+	}
 
 	err = GenerateDockerFile(folderName)
-	CheckErr(err)
+	if err != nil {
+		return err
+	}
 
 	err = GenerateLoginService(projectName, folderName)
-	CheckErr(err)
+	if err != nil {
+		return err
+	}
 
 	err = GenerateLoginRepository(projectName, folderName)
-	CheckErr(err)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func initializeGoProject(prjName string) (string, error) {
@@ -66,6 +86,43 @@ func createProjectStructure(folderName string) error {
 	}
 
 	err = os.Mkdir(filepath.Join(folderName, "services"), os.ModePerm)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Will run inside the project folder
+func AddRepository(modelName string) error {
+	if strings.Contains(modelName, "Model") || strings.Contains(modelName, "Repo") {
+		return errors.New("pass only root name of db model/repo")
+	}
+
+	fmt.Printf("Adding repository %s Repository\n", modelName)
+
+	err := GenerateRepo(modelName)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Will run inside the project folder
+func AddService(serviceName string) error {
+	if strings.Contains(serviceName, "Service") {
+		return errors.New("pass only root name of service")
+	}
+
+	fmt.Printf("Adding service %sService\n", serviceName)
+
+	projectName, err := getProjectName()
+	if err != nil {
+		return err
+	}
+
+	err = GenerateService(serviceName, projectName)
 	if err != nil {
 		return err
 	}

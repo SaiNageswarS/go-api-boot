@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // helper to switch into a temp dir and restore afterwards.
@@ -34,7 +36,7 @@ go 1.22
 		t.Fatalf("write go.mod: %v", err)
 	}
 
-	name, err := GetProjectName()
+	name, err := getProjectName()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -49,7 +51,7 @@ go 1.22
 func TestGetProjectName_NoFile(t *testing.T) {
 	defer inTempDir(t)() // empty dir, no go.mod
 
-	_, err := GetProjectName()
+	_, err := getProjectName()
 	if err == nil {
 		t.Fatalf("expected error for missing go.mod, got nil")
 	}
@@ -72,8 +74,42 @@ require example.com/foo v1.0.0
 		t.Fatalf("write go.mod: %v", err)
 	}
 
-	_, err := GetProjectName()
+	_, err := getProjectName()
 	if err == nil {
 		t.Fatalf("expected error for missing module directive, got nil")
 	}
+}
+
+func TestRunGoModInit_OK(t *testing.T) {
+	tmp := t.TempDir() // …/TestRunGoModInit_OK123456
+	oldWD, _ := os.Getwd()
+	defer os.Chdir(oldWD)
+
+	// go command runs inside tmp/project
+	projectDir := filepath.Join(tmp, "proj")
+	assert.NoError(t, os.Mkdir(projectDir, 0o755))
+
+	assert.NoError(t, os.Chdir(tmp)) // because runGoModInit joins "." + folder
+
+	err := runGoModInit("example.com/proj", "proj")
+	assert.NoError(t, err)
+
+	// go.mod must exist & contain the module path
+	data, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
+	assert.NoError(t, err)
+	assert.Contains(t, string(data), "module example.com/proj")
+}
+
+// -----------------------------------------------------------------------
+// ERROR: directory does not exist -> os/exec returns error.
+// -----------------------------------------------------------------------
+func TestRunGoModInit_DirMissing(t *testing.T) {
+	tmp := t.TempDir()
+	oldWD, _ := os.Getwd()
+	defer os.Chdir(oldWD)
+
+	assert.NoError(t, os.Chdir(tmp))
+
+	err := runGoModInit("mymod", "no_such_folder")
+	assert.Error(t, err)
 }

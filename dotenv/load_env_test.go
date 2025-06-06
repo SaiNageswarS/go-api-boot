@@ -67,7 +67,7 @@ ACCESS_DEV=909-090
 	err := os.WriteFile(envFile, []byte(envContent), 0644)
 	assert.NoError(t, err)
 
-	err = LoadEnv(envFile)
+	err = LoadEnv() // should load default ".env" file from current working directory
 	assert.NoError(t, err)
 
 	expected := map[string]string{

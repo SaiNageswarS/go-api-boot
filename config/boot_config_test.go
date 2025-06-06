@@ -20,6 +20,7 @@ func TestLoadConfig_LoadsFromIni(t *testing.T) {
 ssl_bucket = bucket_ini
 domain = example.com
 azure_storage_account = mystorageaccount
+azure_key_vault_name = mysecretvault
 custom_field = from_ini
 `
 	tmpFile := filepath.Join(t.TempDir(), "test.ini")
@@ -39,6 +40,7 @@ custom_field = from_ini
 	assert.Equal(t, "bucket_ini", cfg.SslBucket)
 	assert.Equal(t, "example.com", cfg.Domain)
 	assert.Equal(t, "mystorageaccount", cfg.AzureStorageAccount)
+	assert.Equal(t, "mysecretvault", cfg.AzureKeyVaultName)
 }
 
 func TestLoadConfig_LoadsBasedOnEnv(t *testing.T) {

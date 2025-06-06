@@ -18,6 +18,7 @@ type BootConfig struct {
 
 	// Cloud
 	AzureStorageAccount string `ini:"azure_storage_account"`
+	AzureKeyVaultName   string `ini:"azure_key_vault_name"`
 
 	GcpProjectId string `ini:"gcp_project_id"`
 

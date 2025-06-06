@@ -24,8 +24,9 @@ func ProvideAWS(ccfgg *config.BootConfig) Cloud {
 	}
 }
 
-func (c *AWS) LoadSecretsIntoEnv(ctx context.Context) {
+func (c *AWS) LoadSecretsIntoEnv(ctx context.Context) error {
 	//TODO: Load secrets from aws secrets manager
+	return nil
 }
 
 func (c *AWS) UploadBuffer(ctx context.Context, bucketName, path string, fileData []byte) (string, error) {

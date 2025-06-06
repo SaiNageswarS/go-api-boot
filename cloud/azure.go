@@ -38,12 +38,12 @@ func ProvideAzure(c *config.BootConfig) Cloud {
 	}
 }
 
-func (a *Azure) LoadSecretsIntoEnv(ctx context.Context) {
+func (a *Azure) LoadSecretsIntoEnv(ctx context.Context) error {
 	logger.Info("Loading Azure Keyvault secrets into environment variables.")
 
 	if err := a.EnsureKV(ctx); err != nil {
 		logger.Error("Failed to ensure Keyvault client", zap.Error(err))
-		return
+		return err
 	}
 
 	pager := a.KvClient.NewListSecretPropertiesPager(nil)
@@ -53,7 +53,7 @@ func (a *Azure) LoadSecretsIntoEnv(ctx context.Context) {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
 			logger.Error("Failed to get next page of secrets", zap.Error(err))
-			return
+			return err
 		}
 		for _, secret := range page.Value {
 			resp, err := a.KvClient.GetSecret(ctx, secret.ID.Name(), secret.ID.Version(), nil)
@@ -67,6 +67,7 @@ func (a *Azure) LoadSecretsIntoEnv(ctx context.Context) {
 	}
 
 	logger.Info("Successfully loaded Azure Keyvault secrets into environment variables.", zap.Any("secrets", secretList))
+	return nil
 }
 
 // Uploads a stream to Azure storage.
@@ -130,7 +131,7 @@ func (a *Azure) EnsureKV(ctx context.Context) error {
 	}
 
 	a.kvOnce.Do(func() {
-		a.KvClient, a.kvErr = getKeyvaultClient(ctx)
+		a.KvClient, a.kvErr = getKeyvaultClient(a.ccfgg)
 	})
 	return a.kvErr
 }
@@ -146,46 +147,59 @@ func (a *Azure) EnsureBlob(ctx context.Context) error {
 			return
 		}
 
-		a.BlobClient, a.blobErr = getServiceClientTokenCredential(ctx, a.ccfgg.AzureStorageAccount)
+		a.BlobClient, a.blobErr = getServiceClientTokenCredential(a.ccfgg.AzureStorageAccount)
 	})
 	return a.blobErr
 }
 
-func getKeyvaultClient(ctx context.Context) (keyVaultClient, error) {
+func getKeyvaultClient(ccfgg *config.BootConfig) (keyVaultClient, error) {
 	// loading from env since config will be initialized after getting secrets from keyvault
-	keyVaultName := os.Getenv("AZURE-KEYVAULT-NAME")
+	keyVaultName := ccfgg.AzureKeyVaultName
 	if keyVaultName == "" {
-		return nil, errors.New("AZURE-KEYVAULT-NAME environment variable not set")
+		return nil, errors.New("azure_key_vault_name config not set")
 	}
 
 	keyVaultUrl := fmt.Sprintf("https://%s.vault.azure.net/", keyVaultName)
 
-	cred, err := azidentity.NewDefaultAzureCredential(nil)
+	cred, err := newDefaultCred()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get default credential: %w", err)
+		return nil, err
 	}
 
-	client, err := azsecrets.NewClient(keyVaultUrl, cred, nil)
+	client, err := newKVClient(keyVaultUrl, cred)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create keyvault client: %w", err)
+		return nil, err
 	}
 	return client, nil
 }
 
-func getServiceClientTokenCredential(ctx context.Context, accountName string) (blobClient, error) {
-	cred, err := azidentity.NewDefaultAzureCredential(nil)
+func getServiceClientTokenCredential(accountName string) (blobClient, error) {
+	cred, err := newDefaultCred()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get credential: %w", err)
+		return nil, err
 	}
 
 	accountURL := fmt.Sprintf("https://%s.blob.core.windows.net/", accountName)
-	client, err := azblob.NewClient(accountURL, cred, nil)
+	client, err := newBlobClient(accountURL, cred)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create blob client: %w", err)
+		return nil, err
 	}
 
 	return client, nil
 }
+
+// factory variables – default to real SDK functions
+var (
+	newDefaultCred = func() (*azidentity.DefaultAzureCredential, error) {
+		return azidentity.NewDefaultAzureCredential(nil)
+	}
+	newKVClient = func(url string, cred *azidentity.DefaultAzureCredential) (keyVaultClient, error) {
+		return azsecrets.NewClient(url, cred, nil)
+	}
+	newBlobClient = func(url string, cred *azidentity.DefaultAzureCredential) (blobClient, error) {
+		return azblob.NewClient(url, cred, nil)
+	}
+)
 
 type keyVaultClient interface {
 	NewListSecretPropertiesPager(*azsecrets.ListSecretPropertiesOptions) *runtime.Pager[azsecrets.ListSecretPropertiesResponse]

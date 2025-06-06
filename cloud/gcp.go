@@ -26,11 +26,11 @@ type GCP struct {
 
 	secretsOnce sync.Once
 	secretsErr  error
-	Secrets     SecretManagerClient
+	Secrets     secretManagerClient
 
 	storageOnce sync.Once
 	storageErr  error
-	Storage     StorageClient
+	Storage     storageClient
 }
 
 // ProvideGCP returns a GCP cloud client.
@@ -39,18 +39,18 @@ func ProvideGCP(ccfgg *config.BootConfig) Cloud {
 }
 
 // listSecrets lists all secrets in the given project.
-func (c *GCP) LoadSecretsIntoEnv(ctx context.Context) {
+func (c *GCP) LoadSecretsIntoEnv(ctx context.Context) error {
 	// Create the client.
 	if err := c.EnsureSecrets(ctx); err != nil {
 		logger.Error("Failed to ensure Secret Manager client", zap.Error(err))
-		return
+		return err
 	}
 
 	// Build the request.
-	projectID := os.Getenv("GCP_PROJECT_ID")
+	projectID := c.ccfgg.GcpProjectId
 	if projectID == "" {
-		logger.Error("GCP_PROJECT_ID environment variable is not set.")
-		return
+		logger.Error("gcp_project_id config is not set")
+		return fmt.Errorf("gcp_project_id config is not set")
 	}
 	req := &secretmanagerpb.ListSecretsRequest{
 		Parent: fmt.Sprintf("projects/%s", projectID),
@@ -67,7 +67,7 @@ func (c *GCP) LoadSecretsIntoEnv(ctx context.Context) {
 
 		if err != nil {
 			logger.Error("failed to list secrets: ", zap.Error(err))
-			return
+			return err
 		}
 
 		req := &secretmanagerpb.AccessSecretVersionRequest{
@@ -86,7 +86,9 @@ func (c *GCP) LoadSecretsIntoEnv(ctx context.Context) {
 		os.Setenv(secretName, secretValue)
 		secretList = append(secretList, secretName)
 	}
+
 	logger.Info("Successfully loaded GCP Keyvault secrets into environment variables.", zap.Any("secrets", secretList))
+	return nil
 }
 
 func (c *GCP) UploadBuffer(ctx context.Context, bucketName, path string, fileData []byte) (string, error) {
@@ -187,23 +189,32 @@ func (c *GCP) GetPresignedUrl(ctx context.Context, bucketName, path, contentType
 
 func (c *GCP) EnsureSecrets(ctx context.Context) error {
 	c.secretsOnce.Do(func() {
-		c.Secrets, c.secretsErr = secretmanager.NewClient(ctx)
+		c.Secrets, c.secretsErr = newSecrets(ctx)
 	})
 	return c.secretsErr
 }
 
 func (c *GCP) EnsureStorage(ctx context.Context) error {
 	c.storageOnce.Do(func() {
-		c.Storage, c.storageErr = storage.NewClient(ctx)
+		c.Storage, c.storageErr = newStorage(ctx)
 	})
 	return c.storageErr
 }
 
-type SecretManagerClient interface {
+var (
+	newStorage = func(ctx context.Context) (storageClient, error) {
+		return storage.NewClient(ctx)
+	}
+	newSecrets = func(ctx context.Context) (secretManagerClient, error) {
+		return secretmanager.NewClient(ctx)
+	}
+)
+
+type secretManagerClient interface {
 	ListSecrets(ctx context.Context, req *secretmanagerpb.ListSecretsRequest, opts ...gax.CallOption) *secretmanager.SecretIterator
 	AccessSecretVersion(ctx context.Context, req *secretmanagerpb.AccessSecretVersionRequest, opts ...gax.CallOption) (*secretmanagerpb.AccessSecretVersionResponse, error)
 }
 
-type StorageClient interface {
+type storageClient interface {
 	Bucket(name string) *storage.BucketHandle
 }

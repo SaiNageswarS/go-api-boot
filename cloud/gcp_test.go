@@ -2,6 +2,7 @@ package cloud
 
 import (
 	"context"
+	"errors"
 	"os"
 	"reflect"
 	"strings"
@@ -10,7 +11,9 @@ import (
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
+	"github.com/SaiNageswarS/go-api-boot/config"
 	"github.com/googleapis/gax-go/v2"
+	"github.com/stretchr/testify/assert"
 	"google.golang.org/api/iterator"
 )
 
@@ -83,8 +86,8 @@ func (s *stubSecrets) AccessSecretVersion(_ context.Context,
 	 sync.Once already marked “done” so EnsureSecrets() is a no-op.
 	────────────────────────────────────────────────────────────────────────────
 */
-func newGCPWithStubSecrets(stub SecretManagerClient) *GCP {
-	g := &GCP{Secrets: stub}
+func newGCPWithStubSecrets(ccfgg *config.BootConfig, stub secretManagerClient) *GCP {
+	g := &GCP{ccfgg: ccfgg, Secrets: stub}
 	g.secretsOnce.Do(func() {}) // mark Once as executed
 	return g
 }
@@ -96,8 +99,7 @@ func newGCPWithStubSecrets(stub SecretManagerClient) *GCP {
 func TestLoadSecretsIntoEnv_HappyPath(t *testing.T) {
 	ctx := context.Background()
 	const projectID = "unit-proj"
-	os.Setenv("GCP_PROJECT_ID", projectID)
-	defer os.Unsetenv("GCP_PROJECT_ID")
+	ccfgg := &config.BootConfig{GcpProjectId: projectID}
 
 	fullA := "projects/" + projectID + "/secrets/API_KEY"
 	fullB := "projects/" + projectID + "/secrets/DB_URL"
@@ -109,22 +111,17 @@ func TestLoadSecretsIntoEnv_HappyPath(t *testing.T) {
 		},
 	}
 
-	g := newGCPWithStubSecrets(stub)
+	g := newGCPWithStubSecrets(ccfgg, stub)
 	g.LoadSecretsIntoEnv(ctx)
 
-	if got := os.Getenv("API_KEY"); got != "value-A" {
-		t.Fatalf("API_KEY = %q, want %q", got, "value-A")
-	}
-	if got := os.Getenv("DB_URL"); got != "value-B" {
-		t.Fatalf("DB_URL = %q, want %q", got, "value-B")
-	}
+	assert.Equal(t, os.Getenv("API_KEY"), "value-A", "API_KEY should be set to value-A")
+	assert.Equal(t, os.Getenv("DB_URL"), "value-B", "DB_URL should be set to value-B")
 }
 
 func TestLoadSecretsIntoEnv_AccessErrorIsIgnored(t *testing.T) {
 	ctx := context.Background()
 	const projectID = "unit-proj"
-	os.Setenv("GCP_PROJECT_ID", projectID)
-	defer os.Unsetenv("GCP_PROJECT_ID")
+	ccfgg := &config.BootConfig{GcpProjectId: projectID}
 
 	fullGood := "projects/" + projectID + "/secrets/GOOD"
 	fullBad := "projects/" + projectID + "/secrets/BAD"
@@ -134,27 +131,54 @@ func TestLoadSecretsIntoEnv_AccessErrorIsIgnored(t *testing.T) {
 		failOn:  fullBad,
 	}
 
-	g := newGCPWithStubSecrets(stub)
+	g := newGCPWithStubSecrets(ccfgg, stub)
 	g.LoadSecretsIntoEnv(ctx)
-
-	if got := os.Getenv("GOOD"); got != "good" {
-		t.Fatalf("GOOD = %q, want %q", got, "good")
-	}
-	if got := os.Getenv("BAD"); got != "" {
-		t.Fatalf("BAD should be unset on failure, got %q", got)
-	}
+	assert.Equal(t, os.Getenv("GOOD"), "good", "GOOD should be set to 'good'")
+	// BAD should not be set due to the error.
+	assert.Empty(t, os.Getenv("BAD"), "BAD should not be set due to access error")
 }
 
 func TestLoadSecretsIntoEnv_NoProjectID(t *testing.T) {
 	ctx := context.Background()
-	os.Unsetenv("GCP_PROJECT_ID") // ensure absent
+	ccfgg := &config.BootConfig{GcpProjectId: ""} // ensure absent
 
 	stub := &stubSecrets{} // never reached
-	g := newGCPWithStubSecrets(stub)
-	g.LoadSecretsIntoEnv(ctx)
+	g := newGCPWithStubSecrets(ccfgg, stub)
+	err := g.LoadSecretsIntoEnv(ctx)
+	assert.Error(t, err, "should return error when GCP project ID is not set")
+	assert.EqualError(t, err, "gcp_project_id config is not set", "error message should indicate missing project ID")
+}
 
-	// quick sanity check: a bogus key is still absent
-	if got := os.Getenv("SHOULD_NOT_EXIST"); got != "" {
-		t.Fatalf("unexpected env leakage: %q", got)
+func TestProvideGCP(t *testing.T) {
+	ccfgg := &config.BootConfig{GcpProjectId: "test-project"}
+	gcp := ProvideGCP(ccfgg)
+
+	assert.NotNil(t, gcp, "ProvideGCP should return a non-nil GCP instance")
+	assert.IsType(t, &GCP{}, gcp, "ProvideGCP should return an instance of GCP")
+	assert.Equal(t, ccfgg, gcp.(*GCP).ccfgg, "GCP instance should have the provided config")
+}
+
+// ---------- EnsureStorage / EnsureSecrets error propagation -------------
+func TestEnsureStorage_Error(t *testing.T) {
+	restore := newStorage
+	defer func() { newStorage = restore }()
+
+	newStorage = func(ctx context.Context) (storageClient, error) {
+		return nil, errors.New("boom")
 	}
+	gcp := &GCP{}
+	err := gcp.EnsureStorage(context.Background())
+	assert.EqualError(t, err, "boom")
+}
+
+func TestEnsureSecrets_Error(t *testing.T) {
+	restore := newSecrets
+	defer func() { newSecrets = restore }()
+
+	newSecrets = func(ctx context.Context) (secretManagerClient, error) {
+		return nil, errors.New("no-secret")
+	}
+	gcp := &GCP{}
+	err := gcp.EnsureSecrets(context.Background())
+	assert.EqualError(t, err, "no-secret")
 }

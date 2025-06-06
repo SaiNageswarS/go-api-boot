@@ -121,8 +121,9 @@ func (m *mockCloud) UploadBuffer(ctx context.Context, bucket, name string, data 
 	return m.uploadRes, m.uploadErr
 }
 
-func (m *mockCloud) LoadSecretsIntoEnv(ctx context.Context) {
+func (m *mockCloud) LoadSecretsIntoEnv(ctx context.Context) error {
 	// No-op for testing
+	return nil
 }
 
 func (m *mockCloud) GetPresignedUrl(ctx context.Context, bucketName, path, contentType string, expiry time.Duration) (string, string) {

@@ -21,8 +21,6 @@ type BootConfig struct {
 	AzureKeyVaultName   string `ini:"azure_key_vault_name"`
 
 	GcpProjectId string `ini:"gcp_project_id"`
-
-	AwsRegion string `ini:"aws_region"`
 }
 
 // Loads config into the target struct from the given path - an INI file.

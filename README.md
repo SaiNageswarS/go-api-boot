@@ -40,7 +40,7 @@
 * A fully wired **gRPC** server that also serves **gRPC‑Web** and **REST** gateways – no Envoy sidecars or extra proxies.
 * MongoDB repositories implemented with **Go 1.22 generics**.
 * Opinionated middlewares (JWT auth, logging, panic recovery) that you can opt out of per‑method.
-* A relocatable **cloud toolkit** (AWS / Azure / GCP) for signed URLs, blob storage, secret resolution, etc.  
+* A relocatable **cloud toolkit** (Azure / GCP) for signed URLs, blob storage, secret resolution, etc.  
 * **Zero-configuration HTTPS** – serve valid TLS certificates on day 0. 
 * Built-In Dependency injection wiring customized for gRpc services. 
 
@@ -65,7 +65,7 @@ The result: you write business logic, not boilerplate.
 * **First‑class gRPC & gRPC‑Web** – serve browsers natively without Envoy.
 * **Generic ODM for MongoDB** – type‑safe generic multi-tenant Object Model - (`CollectionOf[T](client, tenant).FindOneById(id)`) with async helpers.
 * **JWT Auth & Middleware Stack** – observability, logging, panic recovery pre‑wired.
-* **Cloud Providers** – interchangeable AWS / Azure / GCP helpers for storage & secrets.
+* **Cloud Providers** – interchangeable Azure / GCP helpers for storage & secrets.
 * **Zero‑Config SSL** – automatic Let’s Encrypt certificates with exponential back‑off and optional cloud-backed cache (SslCloudCache) for stateless containers.
 * **Built-in Dependency Injection** – no Google Wire or codegen, with lifecycle-aware gRPC registration.
 * **Bootstrap CLI** – scaffold full service, models, repos, services, Dockerfile, build scripts.
@@ -132,7 +132,7 @@ func main() {
     config.LoadConfig("config.ini", ccfg) // loads [dev] or [prod] section based on env var - `ENV=dev` or `ENV=prod`
 
     // Pick a cloud provider – all implement cloud.Cloud
-    cloudFns := cloud.ProvideAzure(ccfg) // or cloud.ProvideAWS(cfg), cloud.ProvideGCP(cfg)
+    cloudFns := cloud.ProvideAzure(ccfg) // or cloud.ProvideGCP(cfg)
     // load secrets from Keyvault/SecretManader
     cloudFns.LoadSecretsIntoEnv(context.Background())
 
@@ -212,11 +212,14 @@ func (s *LoginService) AuthFuncOverride(ctx context.Context, method string) (con
 ### Cloud Abstractions
 
 ```go
-var cloudFns cloud.Cloud = cloud.NewAWS()
-url, download := cloudFns.GetPresignedUrl(ccfg, bucket, key, 15*time.Minute)
+var cloudFns cloud.Cloud = cloud.ProvideAzure(ccfg)
+filePath, err := cloudFns.DownloadFile(context, bucket, key)
 ```
 
-Switch provider with one line – signatures stay identical.
+Switch provider with one line – signatures stay identical. Cloud access Secrets such as ClientId, TenantId, ClientSecret for Azure or ServiceAccount.json for GCP are loaded from environment variables.
+
+Other configs like azure stoage account name, keyvault name or GCP projectId are loaded from the config file (ini) lazily as and when the resources are used.
+
 
 ### Zero‑Config SSL/TLS
 

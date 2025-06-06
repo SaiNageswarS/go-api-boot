@@ -4,17 +4,12 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
-func CheckErr(err error) {
-	if err != nil {
-		fmt.Println("Error:", err)
-		os.Exit(1)
-	}
-}
-
-func GetProjectName() (string, error) {
+var getProjectName = func() (string, error) {
 	f, err := os.Open("go.mod")
 	if err != nil {
 		return "", fmt.Errorf("open %s: %w", "go.mod", err)
@@ -36,4 +31,12 @@ func GetProjectName() (string, error) {
 		return "", err
 	}
 	return "", fmt.Errorf("no module directive found in %s", "go.mod")
+}
+
+func runGoModInit(projectName, folderName string) error {
+	cmd := exec.Command("go", "mod", "init", projectName)
+	cmd.Dir = filepath.Join(".", folderName) // Set the directory for the command
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestInitializeGoProject(t *testing.T) {
@@ -75,4 +77,68 @@ func TestBootstrap_Success(t *testing.T) {
 	if _, err := os.Stat(loginServicePath); os.IsNotExist(err) {
 		t.Errorf("Expected loginService.go to be created")
 	}
+}
+
+func TestAddRepository_ErrorName(t *testing.T) {
+	// Test with an invalid model name
+	err := AddRepository("loginModel")
+	assert.Error(t, err, "Expected error for invalid model name")
+	assert.EqualError(t, err, "pass only root name of db model/repo")
+}
+
+func TestAddRepository_Success(t *testing.T) {
+	tmp := t.TempDir()
+
+	// work inside an isolated dir so relative "db" / "services" paths are safe
+	orig, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+	_ = os.Chdir(tmp)
+
+	if err := os.Mkdir("db", os.ModePerm); err != nil {
+		t.Fatalf("make db: %v", err)
+	}
+
+	err := AddRepository("Profile")
+	assert.NoError(t, err, "Expected no error when adding repository")
+}
+
+func TestAddService_ErrorName(t *testing.T) {
+	// Test with an invalid model name
+	err := AddService("loginService")
+	assert.Error(t, err, "Expected error for invalid model name")
+	assert.EqualError(t, err, "pass only root name of service")
+}
+
+func TestAddService_getProjectName_Error(t *testing.T) {
+	restore := getProjectName
+	defer func() { getProjectName = restore }()
+	getProjectName = func() (string, error) {
+		return "", os.ErrNotExist // simulate missing go.mod
+	}
+
+	err := AddService("Profile")
+	assert.Error(t, err, "Expected error when project name cannot be determined")
+	assert.EqualError(t, err, "file does not exist")
+}
+
+func TestAddService_Success(t *testing.T) {
+	tmp := t.TempDir()
+
+	// work inside an isolated dir so relative "services" path is safe
+	orig, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+	_ = os.Chdir(tmp)
+
+	if err := os.Mkdir("services", os.ModePerm); err != nil {
+		t.Fatalf("make services: %v", err)
+	}
+
+	restore := getProjectName
+	defer func() { getProjectName = restore }()
+	getProjectName = func() (string, error) {
+		return "github.com/example/testproject", nil
+	}
+
+	err := AddService("Profile")
+	assert.NoError(t, err, "Expected no error when adding service")
 }

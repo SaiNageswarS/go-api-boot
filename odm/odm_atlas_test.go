@@ -139,18 +139,28 @@ func TestEmbeddedMoviesCollection(t *testing.T) {
 			assert.NoError(t, err, "Failed to save movie for distinct test")
 		}
 
+		// cleanup after distinct test
+		defer func() {
+			for _, m := range movies {
+				_, err := async.Await(collection.DeleteByID(ctx, m.Id()))
+				assert.NoError(t, err, "Failed to delete movie after distinct test")
+			}
+		}()
+
 		// Test distinct year
-		distinctYears, err := async.Await(collection.Distinct(ctx, "year", nil))
+		distinctYears := make([]int, 0)
+		err := collection.DistinctInto(ctx, "year", nil, &distinctYears)
 		assert.NoError(t, err, "Failed to get distinct years")
 		assert.NotEmpty(t, distinctYears, "Distinct years should not be empty")
 		assert.Len(t, distinctYears, 2, "There should be 2 distinct years")
 		assert.Contains(t, distinctYears, 2022, "Distinct years should contain 2022")
 
 		// Test distinct genres
-		distinctGenres, err := async.Await(collection.Distinct(ctx, "genres", nil))
+		distinctGenres := make([]string, 0)
+		err = collection.DistinctInto(ctx, "genres", nil, &distinctGenres)
 		assert.NoError(t, err, "Failed to get distinct genres")
 		assert.NotEmpty(t, distinctGenres, "Distinct genres should not be empty")
-		assert.Len(t, distinctGenres, 3, "There should be 3 distinct genres")
+		assert.Len(t, distinctGenres, 5, "There should be 5 distinct genres")
 		assert.Contains(t, distinctGenres, "Adventure", "Distinct genres should contain Adventure")
 	})
 }

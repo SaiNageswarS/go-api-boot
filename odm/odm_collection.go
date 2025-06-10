@@ -20,7 +20,7 @@ type OdmCollectionInterface[T DbModel] interface {
 	DeleteByID(ctx context.Context, id string) <-chan async.Result[struct{}]
 	DeleteOne(ctx context.Context, filters bson.M) <-chan async.Result[struct{}]
 	Count(ctx context.Context, filters bson.M) <-chan async.Result[int64]
-	Distinct(ctx context.Context, field string, filters bson.D) <-chan async.Result[[]interface{}]
+	DistinctInto(ctx context.Context, field string, filters bson.D, out any) error
 	Aggregate(ctx context.Context, pipeline mongo.Pipeline) <-chan async.Result[[]T]
 	Exists(ctx context.Context, id string) <-chan async.Result[bool]
 	VectorSearch(ctx context.Context, embedding []float32, opts VectorQuery) <-chan async.Result[[]SearchHit[T]]
@@ -132,24 +132,25 @@ func (c *odmCollection[T]) Count(ctx context.Context, filters bson.M) <-chan asy
 	})
 }
 
-func (c *odmCollection[T]) Distinct(ctx context.Context, field string, filters bson.D) <-chan async.Result[[]interface{}] {
-	return async.Go(func() ([]interface{}, error) {
-		if filters == nil {
-			filters = bson.D{}
-		}
+// Non-async method, since golang doesn't allow a separate type parameter for the function.
+// Having out parameter and return async.Result can lead to confusion.
+// This method is used to populate a slice with distinct values for a given field.
+func (c *odmCollection[T]) DistinctInto(ctx context.Context, field string, filters bson.D, out any) error {
+	if out == nil {
+		return errors.New("output slice cannot be nil")
+	}
 
-		res := c.col.Distinct(ctx, field, filters)
+	if filters == nil {
+		filters = bson.D{} // Default to empty filter if none provided
+	}
 
-		if err := res.Err(); err != nil {
-			return nil, err
-		}
+	res := c.col.Distinct(ctx, field, filters)
 
-		var values []interface{}
-		if err := res.Decode(&values); err != nil {
-			return nil, err
-		}
-		return values, nil
-	})
+	if err := res.Err(); err != nil {
+		return err
+	}
+
+	return res.Decode(out)
 }
 
 func (c *odmCollection[T]) Aggregate(ctx context.Context, pipeline mongo.Pipeline) <-chan async.Result[[]T] {

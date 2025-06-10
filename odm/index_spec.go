@@ -7,8 +7,8 @@ import (
 )
 
 type VectorIndexSpec struct {
-	Name          string `bson:"-"` //index name
-	Type          string `bson:"type"`
+	Name          string `bson:"-"`    //index name
+	Type          string `bson:"type"` // field type, e.g. "vector"
 	Path          string `bson:"path"` // e.g. field name in the struct/json that holds the embedding.
 	NumDimensions int    `bson:"numDimensions"`
 	Similarity    string `bson:"similarity,omitempty"` // e.g. "cosine", "dotProduct", "euclidean"

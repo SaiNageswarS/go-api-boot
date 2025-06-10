@@ -192,7 +192,7 @@ func (c *odmCollection[T]) VectorSearch(ctx context.Context, embedding []float32
 				Key: "$vectorSearch", Value: bson.D{
 					{Key: "index", Value: q.IndexName},
 					{Key: "path", Value: q.Path},
-					{Key: "queryVector", Value: float32SliceToBsonArray(embedding)},
+					{Key: "queryVector", Value: bson.NewVector(embedding).Binary()},
 					{Key: "numCandidates", Value: q.NumCandidates},
 					{Key: "limit", Value: q.K},
 					{Key: "filter", Value: q.Filter},
@@ -225,12 +225,4 @@ var convertToBson = func(model DbModel) (bson.M, error) {
 	var doc bson.M
 	err = bson.Unmarshal(bsonBytes, &doc)
 	return doc, err
-}
-
-func float32SliceToBsonArray(vec []float32) bson.A {
-	out := make(bson.A, len(vec))
-	for i, v := range vec {
-		out[i] = v
-	}
-	return out
 }

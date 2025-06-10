@@ -22,7 +22,7 @@ type VectorIndexed interface {
 // EnsureIndexes creates every index the model advertises.
 func EnsureIndexes[T DbModel](
 	ctx context.Context,
-	client *mongo.Client,
+	client MongoClient,
 	tenant string,
 ) error {
 

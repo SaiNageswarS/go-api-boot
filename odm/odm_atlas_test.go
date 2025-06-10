@@ -4,7 +4,10 @@ package odm
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/hex"
+	"io"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,21 +15,21 @@ import (
 	"github.com/SaiNageswarS/go-api-boot/async"
 	"github.com/SaiNageswarS/go-api-boot/dotenv"
 	"github.com/stretchr/testify/assert"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"golang.org/x/crypto/blake2s"
 )
 
 type EmbeddedMovies struct {
-	ID            string    `bson:"_id"`
-	Plot          string    `bson:"plot"`
-	FullPlot      string    `bson:"fullPlot"`
-	Year          int       `bson:"year"`
-	Cast          []string  `bson:"cast"`
-	Languages     []string  `bson:"languages"`
-	Directors     []string  `bson:"directors"`
-	Genres        []string  `bson:"genres"`
-	IMDB          IMDB      `bson:"imdb"`
-	PlotEmbedding []float64 `bson:"plotEmbedding"`
-	Title         string    `bson:"title"`
+	ID            string      `bson:"_id"`
+	Plot          string      `bson:"plot"`
+	Year          int         `bson:"year"`
+	Cast          []string    `bson:"cast"`
+	Languages     []string    `bson:"languages"`
+	Directors     []string    `bson:"directors"`
+	Genres        []string    `bson:"genres"`
+	IMDB          IMDB        `bson:"imdb"`
+	PlotEmbedding bson.Vector `bson:"plotEmbedding"`
+	Title         string      `bson:"title"`
 }
 
 type IMDB struct {
@@ -47,6 +50,19 @@ func (m EmbeddedMovies) CollectionName() string {
 	return "embedded_movies"
 }
 
+func (m EmbeddedMovies) VectorIndexSpecs() []VectorIndexSpec {
+	return []VectorIndexSpec{
+		{
+			Name:          "plotEmbeddingIndex",
+			Path:          "plotEmbedding",
+			Type:          "vector",
+			NumDimensions: 1024,
+			Similarity:    "cosine",
+			Quantization:  "scalar",
+		},
+	}
+}
+
 func TestEmbeddedMoviesCollection(t *testing.T) {
 	dotenv.LoadEnv("../.env")
 
@@ -58,20 +74,19 @@ func TestEmbeddedMoviesCollection(t *testing.T) {
 	collection := CollectionOf[EmbeddedMovies](mongo, "apiboot_test")
 	assert.NotNil(t, collection, "Failed to get collection for EmbeddedMovies")
 
-	t.Run("Save,Find,Delete", func(t *testing.T) {
+	t.Run("TestSaveFindDelete", func(t *testing.T) {
 		ctx := context.Background()
 
 		// Save a movie
 		movie := EmbeddedMovies{
 			Plot:          "A thrilling adventure",
-			FullPlot:      "A thrilling adventure with unexpected twists",
 			Year:          2023,
 			Cast:          []string{"Actor A", "Actor B"},
 			Languages:     []string{"English"},
 			Directors:     []string{"Director X"},
 			Genres:        []string{"Adventure", "Thriller"},
 			IMDB:          IMDB{Rating: 8.5, Votes: 1000, Id: "tt1234567"},
-			PlotEmbedding: []float64{0.1, 0.2, 0.3},
+			PlotEmbedding: bson.NewVector([]float32{0.1, 0.2, 0.3}),
 		}
 
 		_, err := async.Await(collection.Save(ctx, movie))
@@ -98,38 +113,35 @@ func TestEmbeddedMoviesCollection(t *testing.T) {
 		movies := []EmbeddedMovies{
 			{
 				Plot:          "A thrilling adventure",
-				FullPlot:      "A thrilling adventure with unexpected twists",
 				Year:          2023,
 				Cast:          []string{"Actor A", "Actor B"},
 				Languages:     []string{"English"},
 				Directors:     []string{"Director X"},
 				Genres:        []string{"Adventure", "Thriller"},
 				IMDB:          IMDB{Rating: 8.5, Votes: 1000, Id: "tt1234567"},
-				PlotEmbedding: []float64{0.1, 0.2, 0.3},
+				PlotEmbedding: bson.NewVector([]float32{0.1, 0.2, 0.3}),
 				Title:         "Adventure Movie",
 			},
 			{
 				Plot:          "A romantic comedy",
-				FullPlot:      "A romantic comedy with a twist",
 				Year:          2022,
 				Cast:          []string{"Actor C", "Actor D"},
 				Languages:     []string{"English"},
 				Directors:     []string{"Director Y"},
 				Genres:        []string{"Romance", "Comedy"},
 				IMDB:          IMDB{Rating: 7.5, Votes: 500, Id: "tt7654321"},
-				PlotEmbedding: []float64{0.4, 0.5, 0.6},
+				PlotEmbedding: bson.NewVector([]float32{0.4, 0.5, 0.6}),
 				Title:         "Romantic Comedy",
 			},
 			{
 				Plot:          "Action-packed thriller",
-				FullPlot:      "An action-packed thriller with high stakes",
 				Year:          2023,
 				Cast:          []string{"Actor A", "Actor B"},
 				Languages:     []string{"English"},
 				Directors:     []string{"Director X"},
 				Genres:        []string{"Action", "Thriller"},
 				IMDB:          IMDB{Rating: 8.5, Votes: 1000, Id: "tt1234567"},
-				PlotEmbedding: []float64{0.1, 0.2, 0.3},
+				PlotEmbedding: bson.NewVector([]float32{0.1, 0.2, 0.3}),
 				Title:         "Action Thriller",
 			},
 		}
@@ -163,10 +175,73 @@ func TestEmbeddedMoviesCollection(t *testing.T) {
 		assert.Len(t, distinctGenres, 5, "There should be 5 distinct genres")
 		assert.Contains(t, distinctGenres, "Adventure", "Distinct genres should contain Adventure")
 	})
+
+	t.Run("TestVectorIndex", func(t *testing.T) {
+		// Create Vector Index for plot embeddings
+		err := EnsureIndexes[EmbeddedMovies](context.Background(), mongo, "apiboot_test")
+		assert.NoError(t, err, "Failed to ensure vector index for EmbeddedMovies")
+	})
 }
 
 func hash(s string) string {
 	h, _ := blake2s.New256(nil)
 	h.Write([]byte(s))
 	return hex.EncodeToString(h.Sum(nil))[:10]
+}
+
+func parseTestFixture(fixturePath string) ([]EmbeddedMovies, error) {
+	fixture, err := os.Open(fixturePath)
+	if err != nil {
+		return nil, err
+	}
+	defer fixture.Close()
+
+	reader := csv.NewReader(fixture)
+	reader.Comma = '\t'
+	reader.FieldsPerRecord = -1
+
+	// Read first line - header
+	_, err = reader.Read()
+	if err != nil {
+		return nil, err
+	}
+
+	var out []EmbeddedMovies
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			return nil, err
+		}
+
+		if len(record) < 14 {
+			continue // Skip records with insufficient fields
+		}
+
+		year, _ := strconv.Atoi(record[13])
+
+		movie := EmbeddedMovies{
+			Title:     record[3],
+			Plot:      record[4],
+			Year:      year,
+			Genres:    collectNonEmpty(record[0:3]),
+			Languages: collectNonEmpty(record[5:9]),
+			Cast:      collectNonEmpty(record[9:13]),
+		}
+
+		out = append(out, movie)
+	}
+
+	return out, nil
+}
+
+func collectNonEmpty(fields []string) []string {
+	var result []string
+	for _, field := range fields {
+		if strings.TrimSpace(field) != "" {
+			result = append(result, field)
+		}
+	}
+	return result
 }

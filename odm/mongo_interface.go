@@ -17,14 +17,12 @@ type CollectionInterface interface {
 	Aggregate(ctx context.Context, pipeline interface{}, opts ...options.Lister[options.AggregateOptions]) (*mongo.Cursor, error)
 	CountDocuments(ctx context.Context, filter interface{}, opts ...options.Lister[options.CountOptions]) (int64, error)
 	Distinct(ctx context.Context, field string, filter any, opts ...options.Lister[options.DistinctOptions]) *mongo.DistinctResult
-
-	// indexes
-	// SearchIndexes() mongo.SearchIndexView
 }
 
 type MongoClient interface {
 	Ping(context.Context, *readpref.ReadPref) error
 	Database(name string, opts ...options.Lister[options.DatabaseOptions]) *mongo.Database
+	Disconnect(ctx context.Context) error
 }
 
 type Timer interface {

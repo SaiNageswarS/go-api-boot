@@ -103,3 +103,8 @@ func (m *MockMongoClient) Database(name string, opts ...options.Lister[options.D
 	args := m.Called(name, opts)
 	return args.Get(0).(*mongo.Database)
 }
+
+func (m *MockMongoClient) Disconnect(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}

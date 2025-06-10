@@ -2,6 +2,7 @@ package odm
 
 import (
 	"context"
+	"errors"
 
 	"github.com/SaiNageswarS/go-api-boot/async"
 	"github.com/SaiNageswarS/go-api-boot/logger"
@@ -19,6 +20,7 @@ type OdmCollectionInterface[T DbModel] interface {
 	DeleteByID(ctx context.Context, id string) <-chan async.Result[struct{}]
 	DeleteOne(ctx context.Context, filters bson.M) <-chan async.Result[struct{}]
 	Count(ctx context.Context, filters bson.M) <-chan async.Result[int64]
+	Distinct(ctx context.Context, field string, filters bson.D) <-chan async.Result[[]interface{}]
 	Aggregate(ctx context.Context, pipeline mongo.Pipeline) <-chan async.Result[[]T]
 	Exists(ctx context.Context, id string) <-chan async.Result[bool]
 	VectorSearch(ctx context.Context, embedding []float32, opts VectorQuery) <-chan async.Result[[]SearchHit[T]]
@@ -75,6 +77,10 @@ func (c *odmCollection[T]) FindOneByID(ctx context.Context, id string) <-chan as
 
 func (c *odmCollection[T]) FindOne(ctx context.Context, filters bson.M) <-chan async.Result[*T] {
 	return async.Go(func() (*T, error) {
+		if filters == nil {
+			return nil, errors.New("filters cannot be nil for FindOne")
+		}
+
 		doc := c.col.FindOne(ctx, filters)
 		if err := doc.Err(); err != nil {
 			return nil, err
@@ -87,6 +93,10 @@ func (c *odmCollection[T]) FindOne(ctx context.Context, filters bson.M) <-chan a
 
 func (c *odmCollection[T]) Find(ctx context.Context, filters bson.M, sort bson.D, limit, skip int64) <-chan async.Result[[]T] {
 	return async.Go(func() ([]T, error) {
+		if filters == nil {
+			filters = bson.M{} // Default to empty filter if none provided
+		}
+
 		findOpts := options.Find().SetLimit(limit).SetSkip(skip)
 		if sort != nil {
 			findOpts.SetSort(sort)
@@ -107,6 +117,10 @@ func (c *odmCollection[T]) DeleteByID(ctx context.Context, id string) <-chan asy
 
 func (c *odmCollection[T]) DeleteOne(ctx context.Context, filters bson.M) <-chan async.Result[struct{}] {
 	return async.Go(func() (struct{}, error) {
+		if filters == nil {
+			return struct{}{}, errors.New("filters cannot be nil for DeleteOne")
+		}
+
 		_, err := c.col.DeleteOne(ctx, filters)
 		return struct{}{}, err
 	})
@@ -120,6 +134,10 @@ func (c *odmCollection[T]) Count(ctx context.Context, filters bson.M) <-chan asy
 
 func (c *odmCollection[T]) Distinct(ctx context.Context, field string, filters bson.D) <-chan async.Result[[]interface{}] {
 	return async.Go(func() ([]interface{}, error) {
+		if filters == nil {
+			filters = bson.D{}
+		}
+
 		res := c.col.Distinct(ctx, field, filters)
 
 		if err := res.Err(); err != nil {

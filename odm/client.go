@@ -2,7 +2,6 @@ package odm
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"os"
 	"time"
@@ -14,12 +13,7 @@ import (
 )
 
 var mongoConnect = func(uri string) (MongoClient, error) {
-	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS12,
-	}
-
-	opts := options.Client().ApplyURI(uri).SetTLSConfig(tlsConfig)
-
+	opts := options.Client().ApplyURI(uri)
 	return mongo.Connect(opts)
 }
 

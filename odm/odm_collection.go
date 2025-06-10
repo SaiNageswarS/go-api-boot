@@ -1,15 +1,13 @@
-// odm/async.Result.go
 package odm
 
 import (
 	"context"
-	"time"
 
 	"github.com/SaiNageswarS/go-api-boot/async"
 	"github.com/SaiNageswarS/go-api-boot/logger"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.uber.org/zap"
 )
 
@@ -21,9 +19,9 @@ type OdmCollectionInterface[T DbModel] interface {
 	DeleteByID(ctx context.Context, id string) <-chan async.Result[struct{}]
 	DeleteOne(ctx context.Context, filters bson.M) <-chan async.Result[struct{}]
 	Count(ctx context.Context, filters bson.M) <-chan async.Result[int64]
-	Distinct(ctx context.Context, field string, filters bson.D, serverMaxTime time.Duration) <-chan async.Result[[]interface{}]
 	Aggregate(ctx context.Context, pipeline mongo.Pipeline) <-chan async.Result[[]T]
 	Exists(ctx context.Context, id string) <-chan async.Result[bool]
+	VectorSearch(ctx context.Context, embedding []float32, opts VectorQuery) <-chan async.Result[[]SearchHit[T]]
 }
 
 type odmCollection[T DbModel] struct {
@@ -65,7 +63,7 @@ func (c *odmCollection[T]) Save(ctx context.Context, model T) <-chan async.Resul
 			ctx,
 			bson.M{"_id": model.Id()},
 			bson.M{"$set": doc},
-			options.Update().SetUpsert(true),
+			options.UpdateOne().SetUpsert(true),
 		)
 		return struct{}{}, err
 	})
@@ -120,10 +118,19 @@ func (c *odmCollection[T]) Count(ctx context.Context, filters bson.M) <-chan asy
 	})
 }
 
-func (c *odmCollection[T]) Distinct(ctx context.Context, field string, filters bson.D, serverMaxTime time.Duration) <-chan async.Result[[]interface{}] {
+func (c *odmCollection[T]) Distinct(ctx context.Context, field string, filters bson.D) <-chan async.Result[[]interface{}] {
 	return async.Go(func() ([]interface{}, error) {
-		opts := options.Distinct().SetMaxTime(serverMaxTime)
-		return c.col.Distinct(ctx, field, filters, opts)
+		res := c.col.Distinct(ctx, field, filters)
+
+		if err := res.Err(); err != nil {
+			return nil, err
+		}
+
+		var values []interface{}
+		if err := res.Decode(&values); err != nil {
+			return nil, err
+		}
+		return values, nil
 	})
 }
 
@@ -150,6 +157,47 @@ func (c *odmCollection[T]) Exists(ctx context.Context, id string) <-chan async.R
 	})
 }
 
+// VectorSearch performs a vector search using the specified embedding and options.
+func (c *odmCollection[T]) VectorSearch(ctx context.Context, embedding []float32, q VectorQuery) <-chan async.Result[[]SearchHit[T]] {
+	return async.Go(func() ([]SearchHit[T], error) {
+		if q.IndexName == "" || q.Path == "" || q.K <= 0 {
+			return nil, nil // Invalid query parameters
+		}
+
+		if q.Filter == nil {
+			q.Filter = bson.M{} // Default to no filter if none provided
+		}
+
+		pipeline := mongo.Pipeline{
+			bson.D{{
+				Key: "$vectorSearch", Value: bson.D{
+					{Key: "index", Value: q.IndexName},
+					{Key: "path", Value: q.Path},
+					{Key: "queryVector", Value: float32SliceToBsonArray(embedding)},
+					{Key: "numCandidates", Value: q.NumCandidates},
+					{Key: "limit", Value: q.K},
+					{Key: "filter", Value: q.Filter},
+				}}},
+			bson.D{{
+				Key: "$project", Value: bson.D{
+					{Key: "score", Value: bson.D{{Key: "$meta", Value: "vectorSearchScore"}}},
+					{Key: "doc", Value: "$$ROOT"},
+				}}},
+		}
+
+		cursor, err := c.col.Aggregate(ctx, pipeline)
+		if err != nil {
+			return nil, err
+		}
+
+		var hits []SearchHit[T]
+		if err = cursor.All(ctx, &hits); err != nil {
+			return nil, err
+		}
+		return hits, nil
+	})
+}
+
 var convertToBson = func(model DbModel) (bson.M, error) {
 	bsonBytes, err := bson.Marshal(model)
 	if err != nil {
@@ -158,4 +206,12 @@ var convertToBson = func(model DbModel) (bson.M, error) {
 	var doc bson.M
 	err = bson.Unmarshal(bsonBytes, &doc)
 	return doc, err
+}
+
+func float32SliceToBsonArray(vec []float32) bson.A {
+	out := make(bson.A, len(vec))
+	for i, v := range vec {
+		out[i] = v
+	}
+	return out
 }

@@ -338,7 +338,7 @@ func TestVectorSearch_Success(t *testing.T) {
 	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
 	repo := &testOdmCollection{baseRepo}
 
-	query := VectorQuery{
+	query := VectorSearchParams{
 		IndexName:     "test_vector_index",
 		Path:          "embedding",
 		K:             5,
@@ -360,7 +360,7 @@ func TestVectorSearch_Err(t *testing.T) {
 	collection := &MockCollection{}
 	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
 	repo := &testOdmCollection{baseRepo}
-	query := VectorQuery{
+	query := VectorSearchParams{
 		IndexName:     "test_vector_index",
 		Path:          "embedding",
 		K:             5,

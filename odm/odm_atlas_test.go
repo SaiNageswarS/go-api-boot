@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
-	"math/rand"
 	"os"
 	"strconv"
 	"strings"
@@ -30,15 +29,8 @@ type EmbeddedMovies struct {
 	Languages     []string    `bson:"languages"`
 	Directors     []string    `bson:"directors"`
 	Genres        []string    `bson:"genres"`
-	IMDB          IMDB        `bson:"imdb"`
 	PlotEmbedding bson.Vector `bson:"plotEmbedding"`
 	Title         string      `bson:"title"`
-}
-
-type IMDB struct {
-	Rating float64 `bson:"rating"`
-	Votes  int     `bson:"votes"`
-	Id     string  `bson:"id"`
 }
 
 func (m EmbeddedMovies) Id() string {
@@ -53,6 +45,7 @@ func (m EmbeddedMovies) CollectionName() string {
 	return "embedded_movies"
 }
 
+// Specify Vector Index for plot embeddings
 func (m EmbeddedMovies) VectorIndexSpecs() []VectorIndexSpec {
 	return []VectorIndexSpec{
 		{
@@ -66,162 +59,127 @@ func (m EmbeddedMovies) VectorIndexSpecs() []VectorIndexSpec {
 	}
 }
 
+// Specify Term Search Index for plot text
+func (m EmbeddedMovies) TermSearchIndexSpecs() []TermSearchIndexSpec {
+	return []TermSearchIndexSpec{
+		{
+			Name: "plotIndex",
+			Path: "plot",
+		},
+	}
+}
+
 func TestEmbeddedMoviesCollection(t *testing.T) {
 	dotenv.LoadEnv("../.env")
+	ctx := context.Background()
 
 	mongo, err := GetClient()
 	assert.NoError(t, err, "Failed to connect to MongoDB")
 
-	defer func() { mongo.Disconnect(context.Background()) }()
+	defer func() { mongo.Disconnect(ctx) }()
 
 	tenant := "apiboot_test"
 	collection := CollectionOf[EmbeddedMovies](mongo, tenant)
 	assert.NotNil(t, collection, "Failed to get collection for EmbeddedMovies")
 
-	// Create Vector Index for plot embeddings
-	err = EnsureIndexes[EmbeddedMovies](context.Background(), mongo, tenant)
+	// Create Vector Index for plot embeddings and term index for plot text.
+	err = EnsureIndexes[EmbeddedMovies](ctx, mongo, tenant)
 	assert.NoError(t, err, "Failed to ensure vector index for EmbeddedMovies")
 
 	// create embedder
 	embedder, err := llm.ProvideJinaAIEmbeddingClient()
 	assert.NoError(t, err, "Failed to create JinaAIEmbeddingClient")
 
-	t.Run("TestSaveFindDelete", func(t *testing.T) {
-		ctx := context.Background()
+	// Save fixtures
+	fixtures, err := parseTestFixture("../fixtures/odm/embedded_movies_data.tsv", embedder)
+	assert.NoError(t, err, "Failed to parse test fixture")
 
-		// Save a movie
-		movie := EmbeddedMovies{
-			Plot:          "A thrilling adventure",
-			Year:          2023,
-			Cast:          []string{"Actor A", "Actor B"},
-			Languages:     []string{"English"},
-			Directors:     []string{"Director X"},
-			Genres:        []string{"Adventure", "Thriller"},
-			IMDB:          IMDB{Rating: 8.5, Votes: 1000, Id: "tt1234567"},
-			PlotEmbedding: bson.NewVector(getRandomEmbedding(1024)),
-		}
-
+	for _, movie := range fixtures {
 		_, err := async.Await(collection.Save(ctx, movie))
-		assert.NoError(t, err, "Failed to save movie")
+		assert.NoError(t, err, "Failed to save movie from fixture")
+	}
 
+	// cleanup after vector index test
+	defer func() {
+		for _, movie := range fixtures {
+			_, err := async.Await(collection.DeleteByID(ctx, movie.Id()))
+			assert.NoError(t, err, "Failed to delete movie after vector index test")
+		}
+	}()
+
+	t.Run("TestFind", func(t *testing.T) {
 		// Find the movie by ID
-		movieById, err := async.Await(collection.FindOneByID(ctx, movie.Id()))
+		movieById, err := async.Await(collection.FindOneByID(ctx, fixtures[0].Id()))
 		assert.NoError(t, err, "Failed to find movie by ID")
 		assert.NotNil(t, movieById, "Movie should not be nil")
-		assert.Equal(t, movie.Plot, movieById.Plot, "Plot should match")
+		assert.Equal(t, fixtures[0].Plot, movieById.Plot, "Plot should match")
 
-		// Delete the movie
-		_, err = async.Await(collection.DeleteByID(ctx, movie.Id()))
-		assert.NoError(t, err, "Failed to delete movie")
-		// Verify deletion
-		deletedMovie, err := async.Await(collection.FindOneByID(ctx, movie.Id()))
-		assert.Error(t, err, "Expected error when finding deleted movie")
-		assert.Nil(t, deletedMovie, "Deleted movie should be nil")
+		// Find movies of 1982
+		movies1982, err := async.Await(collection.Find(ctx, bson.M{"year": 1982}, nil, 0, 0))
+		assert.NoError(t, err, "Failed to find movies of 1982")
+		assert.NotEmpty(t, movies1982, "Movies of 1982 should not be empty")
+		assert.Len(t, movies1982, 2, "There should be 2 movies from 1982")
+		assert.Equal(t, "The Shaolin Temple", movies1982[0].Title, "First movie should be The Shaolin Temple")
+		assert.Equal(t, "Death Wish II", movies1982[1].Title, "Second movie should be Death Wish II")
 	})
 
 	t.Run("TestDistinct", func(t *testing.T) {
-		ctx := context.Background()
-		// Save multiple movies for distinct test
-		movies := []EmbeddedMovies{
-			{
-				Plot:          "A thrilling adventure",
-				Year:          2023,
-				Cast:          []string{"Actor A", "Actor B"},
-				Languages:     []string{"English"},
-				Directors:     []string{"Director X"},
-				Genres:        []string{"Adventure", "Thriller"},
-				IMDB:          IMDB{Rating: 8.5, Votes: 1000, Id: "tt1234567"},
-				PlotEmbedding: bson.NewVector(getRandomEmbedding(1024)),
-				Title:         "Adventure Movie",
-			},
-			{
-				Plot:          "A romantic comedy",
-				Year:          2022,
-				Cast:          []string{"Actor C", "Actor D"},
-				Languages:     []string{"English"},
-				Directors:     []string{"Director Y"},
-				Genres:        []string{"Romance", "Comedy"},
-				IMDB:          IMDB{Rating: 7.5, Votes: 500, Id: "tt7654321"},
-				PlotEmbedding: bson.NewVector(getRandomEmbedding(1024)),
-				Title:         "Romantic Comedy",
-			},
-			{
-				Plot:          "Action-packed thriller",
-				Year:          2023,
-				Cast:          []string{"Actor A", "Actor B"},
-				Languages:     []string{"English"},
-				Directors:     []string{"Director X"},
-				Genres:        []string{"Action", "Thriller"},
-				IMDB:          IMDB{Rating: 8.5, Votes: 1000, Id: "tt1234567"},
-				PlotEmbedding: bson.NewVector(getRandomEmbedding(1024)),
-				Title:         "Action Thriller",
-			},
-		}
-
-		for _, m := range movies {
-			_, err := async.Await(collection.Save(ctx, m))
-			assert.NoError(t, err, "Failed to save movie for distinct test")
-		}
-
-		// cleanup after distinct test
-		defer func() {
-			for _, m := range movies {
-				_, err := async.Await(collection.DeleteByID(ctx, m.Id()))
-				assert.NoError(t, err, "Failed to delete movie after distinct test")
-			}
-		}()
-
 		// Test distinct year
 		distinctYears := make([]int, 0)
 		err := collection.DistinctInto(ctx, "year", nil, &distinctYears)
 		assert.NoError(t, err, "Failed to get distinct years")
 		assert.NotEmpty(t, distinctYears, "Distinct years should not be empty")
 		assert.Len(t, distinctYears, 2, "There should be 2 distinct years")
-		assert.Contains(t, distinctYears, 2022, "Distinct years should contain 2022")
+		assert.Contains(t, distinctYears, 1981, "Distinct years should contain 1981")
+		assert.Contains(t, distinctYears, 1982, "Distinct years should contain 1982")
 
 		// Test distinct genres
 		distinctGenres := make([]string, 0)
 		err = collection.DistinctInto(ctx, "genres", nil, &distinctGenres)
 		assert.NoError(t, err, "Failed to get distinct genres")
 		assert.NotEmpty(t, distinctGenres, "Distinct genres should not be empty")
-		assert.Len(t, distinctGenres, 5, "There should be 5 distinct genres")
+		assert.Len(t, distinctGenres, 9, "There should be 9 distinct genres")
 		assert.Contains(t, distinctGenres, "Adventure", "Distinct genres should contain Adventure")
 	})
 
 	t.Run("TestVectorIndex", func(t *testing.T) {
-		fixtures, err := parseTestFixture("../fixtures/odm/embedded_movies_data.tsv", embedder)
-		assert.NoError(t, err, "Failed to parse test fixture")
-		ctx := context.Background()
-
-		for _, movie := range fixtures {
-			_, err := async.Await(collection.Save(ctx, movie))
-			assert.NoError(t, err, "Failed to save movie from fixture")
-		}
-
-		// cleanup after vector index test
-		defer func() {
-			for _, movie := range fixtures {
-				_, err := async.Await(collection.DeleteByID(ctx, movie.Id()))
-				assert.NoError(t, err, "Failed to delete movie after vector index test")
-			}
-		}()
-
 		// Perform vector search
 		query := "shaolin medieval kings war"
 		embedding, err := getEmbedding(embedder, query, "retrieval.query")
 		assert.NoError(t, err, "Failed to get embedding for query")
 		assert.NotEmpty(t, embedding, "Embedding should not be empty")
 
-		searchQuery := VectorQuery{
+		searchParams := VectorSearchParams{
 			IndexName:     "plotEmbeddingIndex",
 			Path:          "plotEmbedding",
 			K:             2,
 			NumCandidates: 5,
 		}
 
-		results, err := async.Await(collection.VectorSearch(ctx, embedding, searchQuery))
+		results, err := async.Await(collection.VectorSearch(ctx, embedding, searchParams))
 		assert.NoError(t, err, "Failed to perform vector search")
 		assert.NotEmpty(t, results, "Vector search results should not be empty")
+
+		assert.Len(t, results, 2, "Expected 2 nearest neighbours")
+		assert.Equal(t, results[0].Doc.Title, "The Shaolin Temple", "First result should be The Shaolin Temple")
+		assert.Equal(t, results[1].Doc.Title, "Dragonslayer", "Second result should be The Dragonslayer")
+	})
+
+	t.Run("TestTextSearch", func(t *testing.T) {
+		query := "shaolin medieval kings war"
+		searchParams := TermSearchParams{
+			IndexName: "plotIndex",
+			Path:      "plot",
+			Limit:     2,
+		}
+
+		results, err := async.Await(collection.TermSearch(ctx, query, searchParams))
+		assert.NoError(t, err, "Failed to perform text search")
+		assert.NotEmpty(t, results, "Text search results should not be empty")
+
+		assert.Len(t, results, 2, "Expected 2 search results")
+		assert.Equal(t, results[0].Doc.Title, "The Shaolin Temple", "First result should be The Shaolin Temple")
+		assert.Equal(t, results[1].Doc.Title, "Dragonslayer", "Second result should be The Dragonslayer")
 	})
 }
 
@@ -315,12 +273,4 @@ func getEmbedding(em *llm.JinaAIEmbeddingClient, text, task string) ([]float32, 
 	}
 
 	return result, nil
-}
-
-func getRandomEmbedding(dim int) []float32 {
-	embedding := make([]float32, dim)
-	for i := 0; i < dim; i++ {
-		embedding[i] = rand.Float32()
-	}
-	return embedding
 }

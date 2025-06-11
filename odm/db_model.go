@@ -18,13 +18,20 @@ func NewModelFrom[T any](proto interface{}) *T {
 
 type SearchHit[T DbModel] struct {
 	Score float64 `bson:"score"`
-	Doc   T       `bson:"doc,inline"`
+	Doc   T       `bson:"doc"`
 }
 
-type VectorQuery struct {
+type VectorSearchParams struct {
 	IndexName     string // Atlas Vector Search index name
 	Path          string // field in the collection that holds the embedding (e.g. "embedding")
 	K             int    // number of nearest neighbours
 	NumCandidates int    // count of initial candidates to be considered for nearest search. These are approximate neighbours..
 	Filter        bson.M // optional pre-filter; nil for none
+}
+
+type TermSearchParams struct {
+	IndexName string // required
+	Path      string // field to search
+	Filter    bson.M // optional filter
+	Limit     int    // number of results to return
 }

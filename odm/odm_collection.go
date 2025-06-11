@@ -23,7 +23,8 @@ type OdmCollectionInterface[T DbModel] interface {
 	DistinctInto(ctx context.Context, field string, filters bson.D, out any) error
 	Aggregate(ctx context.Context, pipeline mongo.Pipeline) <-chan async.Result[[]T]
 	Exists(ctx context.Context, id string) <-chan async.Result[bool]
-	VectorSearch(ctx context.Context, embedding []float32, opts VectorQuery) <-chan async.Result[[]SearchHit[T]]
+	VectorSearch(ctx context.Context, embedding []float32, opts VectorSearchParams) <-chan async.Result[[]SearchHit[T]]
+	TermSearch(ctx context.Context, query string, params TermSearchParams) <-chan async.Result[[]SearchHit[T]]
 }
 
 type odmCollection[T DbModel] struct {
@@ -177,25 +178,25 @@ func (c *odmCollection[T]) Exists(ctx context.Context, id string) <-chan async.R
 }
 
 // VectorSearch performs a vector search using the specified embedding and options.
-func (c *odmCollection[T]) VectorSearch(ctx context.Context, embedding []float32, q VectorQuery) <-chan async.Result[[]SearchHit[T]] {
+func (c *odmCollection[T]) VectorSearch(ctx context.Context, embedding []float32, params VectorSearchParams) <-chan async.Result[[]SearchHit[T]] {
 	return async.Go(func() ([]SearchHit[T], error) {
-		if q.IndexName == "" || q.Path == "" || q.K <= 0 {
+		if len(embedding) == 0 || params.IndexName == "" || params.Path == "" || params.K <= 0 {
 			return nil, nil // Invalid query parameters
 		}
 
-		if q.Filter == nil {
-			q.Filter = bson.M{} // Default to no filter if none provided
+		if params.Filter == nil {
+			params.Filter = bson.M{} // Default to no filter if none provided
 		}
 
 		pipeline := mongo.Pipeline{
 			bson.D{{
 				Key: "$vectorSearch", Value: bson.D{
-					{Key: "index", Value: q.IndexName},
-					{Key: "path", Value: q.Path},
+					{Key: "index", Value: params.IndexName},
+					{Key: "path", Value: params.Path},
 					{Key: "queryVector", Value: bson.NewVector(embedding).Binary()},
-					{Key: "numCandidates", Value: q.NumCandidates},
-					{Key: "limit", Value: q.K},
-					{Key: "filter", Value: q.Filter},
+					{Key: "numCandidates", Value: params.NumCandidates},
+					{Key: "limit", Value: params.K},
+					{Key: "filter", Value: params.Filter},
 				}}},
 			bson.D{{
 				Key: "$project", Value: bson.D{
@@ -213,6 +214,50 @@ func (c *odmCollection[T]) VectorSearch(ctx context.Context, embedding []float32
 		if err = cursor.All(ctx, &hits); err != nil {
 			return nil, err
 		}
+		return hits, nil
+	})
+}
+
+func (c *odmCollection[T]) TermSearch(ctx context.Context, query string, params TermSearchParams) <-chan async.Result[[]SearchHit[T]] {
+	return async.Go(func() ([]SearchHit[T], error) {
+		if query == "" || params.IndexName == "" || params.Path == "" || params.Limit <= 0 {
+			return nil, nil // Invalid query
+		}
+
+		if params.Filter == nil {
+			params.Filter = bson.M{}
+		}
+
+		pipeline := mongo.Pipeline{
+			bson.D{{
+				Key: "$search", Value: bson.D{
+					{Key: "index", Value: params.IndexName},
+					{Key: "text", Value: bson.D{
+						{Key: "query", Value: query},
+						{Key: "path", Value: params.Path},
+					}},
+				},
+			}},
+			bson.D{{Key: "$match", Value: params.Filter}},
+			bson.D{{
+				Key: "$project", Value: bson.D{
+					{Key: "score", Value: bson.D{{Key: "$meta", Value: "searchScore"}}},
+					{Key: "doc", Value: "$$ROOT"},
+				},
+			}},
+			bson.D{{Key: "$limit", Value: params.Limit}},
+		}
+
+		cursor, err := c.col.Aggregate(ctx, pipeline)
+		if err != nil {
+			return nil, err
+		}
+
+		var hits []SearchHit[T]
+		if err := cursor.All(ctx, &hits); err != nil {
+			return nil, err
+		}
+
 		return hits, nil
 	})
 }

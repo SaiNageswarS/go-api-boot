@@ -5,7 +5,6 @@ package odm
 import (
 	"context"
 	"encoding/csv"
-	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -18,7 +17,6 @@ import (
 	"github.com/SaiNageswarS/go-api-boot/llm"
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/v2/bson"
-	"golang.org/x/crypto/blake2s"
 )
 
 type EmbeddedMovies struct {
@@ -35,7 +33,7 @@ type EmbeddedMovies struct {
 
 func (m EmbeddedMovies) Id() string {
 	if len(m.ID) == 0 {
-		m.ID = hash(strings.Join([]string{m.Title, strconv.Itoa(m.Year)}, ">"))
+		m.ID, _ = HashedKey(m.Title, strconv.Itoa(m.Year))
 	}
 
 	return m.ID
@@ -181,12 +179,6 @@ func TestEmbeddedMoviesCollection(t *testing.T) {
 		assert.Equal(t, results[0].Doc.Title, "The Shaolin Temple", "First result should be The Shaolin Temple")
 		assert.Equal(t, results[1].Doc.Title, "Dragonslayer", "Second result should be The Dragonslayer")
 	})
-}
-
-func hash(s string) string {
-	h, _ := blake2s.New256(nil)
-	h.Write([]byte(s))
-	return hex.EncodeToString(h.Sum(nil))[:10]
 }
 
 func parseTestFixture(fixturePath string, embedder *llm.JinaAIEmbeddingClient) ([]EmbeddedMovies, error) {

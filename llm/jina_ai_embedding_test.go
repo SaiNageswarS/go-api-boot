@@ -67,7 +67,7 @@ func TestGetEmbedding_Success(t *testing.T) {
 	result, err := async.Await(client.GetEmbedding(ctx, req))
 
 	assert.NoError(t, err)
-	assert.Equal(t, []float64{0.1, 0.2, 0.3}, result)
+	assert.Equal(t, []float32{0.1, 0.2, 0.3}, result)
 }
 
 func TestGetEmbedding_HTTPError(t *testing.T) {

@@ -6,10 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/SaiNageswarS/go-api-boot/logger"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"go.uber.org/zap"
 )
 
 var mongoConnect = func(uri string) (MongoClient, error) {
@@ -28,12 +26,10 @@ func GetClient() (MongoClient, error) {
 
 	client, err := mongoConnect(mongoUri)
 	if err != nil {
-		logger.Error("Mongo connection failed", zap.Error(err))
 		return nil, err
 	}
 
 	if err := client.Ping(ctx, nil); err != nil {
-		logger.Error("Mongo ping failed", zap.Error(err))
 		return nil, err
 	}
 

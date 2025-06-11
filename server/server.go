@@ -57,12 +57,7 @@ func (s *BootServer) Serve(ctx context.Context) error {
 		grp.Go(func() error {
 			logger.Info("Starting Temporal worker...")
 			return RetryWithExponentialBackoff(ctx, 5, 10*time.Second, func() error {
-				err := s.temporalWorker.Run(worker.InterruptCh())
-				if err != nil {
-					logger.Error("Temporal worker failed to start", zap.Error(err))
-				}
-
-				return err
+				return s.temporalWorker.Run(worker.InterruptCh())
 			})
 		})
 	}

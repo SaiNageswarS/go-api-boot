@@ -25,14 +25,13 @@ func RetryWithExponentialBackoff(ctx context.Context, maxRetries int, baseDelay 
 			return err
 		}
 
+		logger.Info("Attempting operation", zap.Int("attempt", retries+1), zap.Int("maxRetries", maxRetries))
 		// Attempt the operation
 		if err := fn(); err != nil {
-			logger.Error("Failed attempt. ", zap.Int("Try", retries+1), zap.Error(err))
 			retries++
 			// Increase delay exponentially
 			limiter.SetLimit(rate.Every(baseDelay * time.Duration(1<<retries)))
 		} else {
-			logger.Info("Succeeded")
 			return nil
 		}
 	}

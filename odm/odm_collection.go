@@ -5,11 +5,9 @@ import (
 	"errors"
 
 	"github.com/SaiNageswarS/go-api-boot/async"
-	"github.com/SaiNageswarS/go-api-boot/logger"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"go.uber.org/zap"
 )
 
 type OdmCollectionInterface[T DbModel] interface {
@@ -170,7 +168,6 @@ func (c *odmCollection[T]) Exists(ctx context.Context, id string) <-chan async.R
 	return async.Go(func() (bool, error) {
 		count, err := c.col.CountDocuments(ctx, bson.M{"_id": id})
 		if err != nil {
-			logger.Error("Exists check failed", zap.Error(err))
 			return false, err
 		}
 		return count > 0, nil

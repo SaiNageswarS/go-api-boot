@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/hex"
+	"errors"
 	"io"
+	"math/rand"
 	"os"
 	"strconv"
 	"strings"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/SaiNageswarS/go-api-boot/async"
 	"github.com/SaiNageswarS/go-api-boot/dotenv"
+	"github.com/SaiNageswarS/go-api-boot/llm"
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"golang.org/x/crypto/blake2s"
@@ -71,8 +74,17 @@ func TestEmbeddedMoviesCollection(t *testing.T) {
 
 	defer func() { mongo.Disconnect(context.Background()) }()
 
-	collection := CollectionOf[EmbeddedMovies](mongo, "apiboot_test")
+	tenant := "apiboot_test"
+	collection := CollectionOf[EmbeddedMovies](mongo, tenant)
 	assert.NotNil(t, collection, "Failed to get collection for EmbeddedMovies")
+
+	// Create Vector Index for plot embeddings
+	err = EnsureIndexes[EmbeddedMovies](context.Background(), mongo, tenant)
+	assert.NoError(t, err, "Failed to ensure vector index for EmbeddedMovies")
+
+	// create embedder
+	embedder, err := llm.ProvideJinaAIEmbeddingClient()
+	assert.NoError(t, err, "Failed to create JinaAIEmbeddingClient")
 
 	t.Run("TestSaveFindDelete", func(t *testing.T) {
 		ctx := context.Background()
@@ -86,7 +98,7 @@ func TestEmbeddedMoviesCollection(t *testing.T) {
 			Directors:     []string{"Director X"},
 			Genres:        []string{"Adventure", "Thriller"},
 			IMDB:          IMDB{Rating: 8.5, Votes: 1000, Id: "tt1234567"},
-			PlotEmbedding: bson.NewVector([]float32{0.1, 0.2, 0.3}),
+			PlotEmbedding: bson.NewVector(getRandomEmbedding(1024)),
 		}
 
 		_, err := async.Await(collection.Save(ctx, movie))
@@ -119,7 +131,7 @@ func TestEmbeddedMoviesCollection(t *testing.T) {
 				Directors:     []string{"Director X"},
 				Genres:        []string{"Adventure", "Thriller"},
 				IMDB:          IMDB{Rating: 8.5, Votes: 1000, Id: "tt1234567"},
-				PlotEmbedding: bson.NewVector([]float32{0.1, 0.2, 0.3}),
+				PlotEmbedding: bson.NewVector(getRandomEmbedding(1024)),
 				Title:         "Adventure Movie",
 			},
 			{
@@ -130,7 +142,7 @@ func TestEmbeddedMoviesCollection(t *testing.T) {
 				Directors:     []string{"Director Y"},
 				Genres:        []string{"Romance", "Comedy"},
 				IMDB:          IMDB{Rating: 7.5, Votes: 500, Id: "tt7654321"},
-				PlotEmbedding: bson.NewVector([]float32{0.4, 0.5, 0.6}),
+				PlotEmbedding: bson.NewVector(getRandomEmbedding(1024)),
 				Title:         "Romantic Comedy",
 			},
 			{
@@ -141,7 +153,7 @@ func TestEmbeddedMoviesCollection(t *testing.T) {
 				Directors:     []string{"Director X"},
 				Genres:        []string{"Action", "Thriller"},
 				IMDB:          IMDB{Rating: 8.5, Votes: 1000, Id: "tt1234567"},
-				PlotEmbedding: bson.NewVector([]float32{0.1, 0.2, 0.3}),
+				PlotEmbedding: bson.NewVector(getRandomEmbedding(1024)),
 				Title:         "Action Thriller",
 			},
 		}
@@ -177,9 +189,39 @@ func TestEmbeddedMoviesCollection(t *testing.T) {
 	})
 
 	t.Run("TestVectorIndex", func(t *testing.T) {
-		// Create Vector Index for plot embeddings
-		err := EnsureIndexes[EmbeddedMovies](context.Background(), mongo, "apiboot_test")
-		assert.NoError(t, err, "Failed to ensure vector index for EmbeddedMovies")
+		fixtures, err := parseTestFixture("../fixtures/odm/embedded_movies_data.tsv", embedder)
+		assert.NoError(t, err, "Failed to parse test fixture")
+		ctx := context.Background()
+
+		for _, movie := range fixtures {
+			_, err := async.Await(collection.Save(ctx, movie))
+			assert.NoError(t, err, "Failed to save movie from fixture")
+		}
+
+		// cleanup after vector index test
+		defer func() {
+			for _, movie := range fixtures {
+				_, err := async.Await(collection.DeleteByID(ctx, movie.Id()))
+				assert.NoError(t, err, "Failed to delete movie after vector index test")
+			}
+		}()
+
+		// Perform vector search
+		query := "shaolin medieval kings war"
+		embedding, err := getEmbedding(embedder, query, "retrieval.query")
+		assert.NoError(t, err, "Failed to get embedding for query")
+		assert.NotEmpty(t, embedding, "Embedding should not be empty")
+
+		searchQuery := VectorQuery{
+			IndexName:     "plotEmbeddingIndex",
+			Path:          "plotEmbedding",
+			K:             2,
+			NumCandidates: 5,
+		}
+
+		results, err := async.Await(collection.VectorSearch(ctx, embedding, searchQuery))
+		assert.NoError(t, err, "Failed to perform vector search")
+		assert.NotEmpty(t, results, "Vector search results should not be empty")
 	})
 }
 
@@ -189,7 +231,7 @@ func hash(s string) string {
 	return hex.EncodeToString(h.Sum(nil))[:10]
 }
 
-func parseTestFixture(fixturePath string) ([]EmbeddedMovies, error) {
+func parseTestFixture(fixturePath string, embedder *llm.JinaAIEmbeddingClient) ([]EmbeddedMovies, error) {
 	fixture, err := os.Open(fixturePath)
 	if err != nil {
 		return nil, err
@@ -230,6 +272,12 @@ func parseTestFixture(fixturePath string) ([]EmbeddedMovies, error) {
 			Cast:      collectNonEmpty(record[9:13]),
 		}
 
+		embedding, err := getEmbedding(embedder, movie.Plot, "retrieval.passage")
+		if err != nil {
+			return nil, err
+		}
+
+		movie.PlotEmbedding = bson.NewVector(embedding)
 		out = append(out, movie)
 	}
 
@@ -244,4 +292,35 @@ func collectNonEmpty(fields []string) []string {
 		}
 	}
 	return result
+}
+
+func getEmbedding(em *llm.JinaAIEmbeddingClient, text, task string) ([]float32, error) {
+	if task == "" {
+		task = "retrieval.passage" // Default task if not specified
+	}
+
+	req := llm.JinaAIEmbeddingRequest{
+		Model: "jina-embeddings-v3",
+		Task:  task,
+		Input: []string{text},
+	}
+
+	result, err := async.Await(em.GetEmbedding(context.Background(), req))
+	if err != nil {
+		return nil, err
+	}
+
+	if len(result) == 0 {
+		return nil, errors.New("Embedding length is zero") // No embedding returned
+	}
+
+	return result, nil
+}
+
+func getRandomEmbedding(dim int) []float32 {
+	embedding := make([]float32, dim)
+	for i := 0; i < dim; i++ {
+		embedding[i] = rand.Float32()
+	}
+	return embedding
 }

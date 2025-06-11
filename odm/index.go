@@ -2,6 +2,7 @@ package odm
 
 import (
 	"context"
+	"errors"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
@@ -27,7 +28,19 @@ func EnsureIndexes[T DbModel](
 ) error {
 
 	var zero T
-	coll := client.Database(tenant).Collection(zero.CollectionName())
+	db := client.Database(tenant)
+	collName := zero.CollectionName()
+
+	// 1. Ensure the collection exists (safe to run more than once).
+	if err := db.CreateCollection(ctx, collName); err != nil {
+		var cmdErr mongo.CommandError
+		if !errors.As(err, &cmdErr) || cmdErr.Code != 48 { // 48 = NamespaceExists
+			return err // propagate any other failure
+		}
+		// Otherwise collection already exists – nothing to do.
+	}
+
+	coll := db.Collection(collName)
 
 	// --- Classic indexes ----------------------------------------------------
 	if ix, ok := any(zero).(Indexed); ok {

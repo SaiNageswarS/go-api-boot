@@ -37,8 +37,8 @@ func ProvideJinaAIEmbeddingClient() (*JinaAIEmbeddingClient, error) {
 	}, nil
 }
 
-func (c *JinaAIEmbeddingClient) GetEmbedding(ctx context.Context, req JinaAIEmbeddingRequest) <-chan async.Result[[]float64] {
-	return async.Go(func() ([]float64, error) {
+func (c *JinaAIEmbeddingClient) GetEmbedding(ctx context.Context, req JinaAIEmbeddingRequest) <-chan async.Result[[]float32] {
+	return async.Go(func() ([]float32, error) {
 		if req.Model == "" {
 			req.Model = "jina-embeddings-v3"
 		}
@@ -71,7 +71,7 @@ func (c *JinaAIEmbeddingClient) GetEmbedding(ctx context.Context, req JinaAIEmbe
 
 		var result struct {
 			Data []struct {
-				Embedding []float64 `json:"embedding"`
+				Embedding []float32 `json:"embedding"`
 			} `json:"data"`
 		}
 

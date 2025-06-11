@@ -12,6 +12,9 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    env:
+        MONGO_URI: ${{ secrets.MONGO_URI }}
+        JINA_AI_API_KEY: ${{ secrets.JINA_AI_API_KEY }}
     strategy:
       matrix:
         go: [1.23]
@@ -27,10 +30,10 @@ jobs:
     - name: Install dependencies
       run: go mod download
 
+    - name: Debug secrets
+      run: echo "MONGO_URI=${{ secrets.MONGO_URI != '' }}"
+
     - name: Run tests
-      env:
-        MONGO_URI: ${{ secrets.MONGO_URI }}
-        JINA_AI_API_KEY: ${{ secrets.JINA_AI_API_KEY }}
       run: |
         go test -v ./... -covermode=count -coverprofile=coverage.out
 

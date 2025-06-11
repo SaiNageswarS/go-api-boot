@@ -181,7 +181,7 @@ func (c *odmCollection[T]) Exists(ctx context.Context, id string) <-chan async.R
 func (c *odmCollection[T]) VectorSearch(ctx context.Context, embedding []float32, params VectorSearchParams) <-chan async.Result[[]SearchHit[T]] {
 	return async.Go(func() ([]SearchHit[T], error) {
 		if len(embedding) == 0 || params.IndexName == "" || params.Path == "" || params.K <= 0 {
-			return nil, nil // Invalid query parameters
+			return nil, errors.New("invalid input - embedding, index name, path, and K must be provided")
 		}
 
 		if params.Filter == nil {
@@ -221,7 +221,7 @@ func (c *odmCollection[T]) VectorSearch(ctx context.Context, embedding []float32
 func (c *odmCollection[T]) TermSearch(ctx context.Context, query string, params TermSearchParams) <-chan async.Result[[]SearchHit[T]] {
 	return async.Go(func() ([]SearchHit[T], error) {
 		if query == "" || params.IndexName == "" || params.Path == "" || params.Limit <= 0 {
-			return nil, nil // Invalid query
+			return nil, errors.New("invalid input - query, index name, path, and limit must be provided")
 		}
 
 		if params.Filter == nil {

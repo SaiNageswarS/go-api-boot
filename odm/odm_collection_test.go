@@ -360,7 +360,7 @@ func TestVectorSearch_Err(t *testing.T) {
 	collection := &MockCollection{}
 	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
 	repo := &testOdmCollection{baseRepo}
-	query := VectorSearchParams{
+	params := VectorSearchParams{
 		IndexName:     "test_vector_index",
 		Path:          "embedding",
 		K:             5,
@@ -371,9 +371,54 @@ func TestVectorSearch_Err(t *testing.T) {
 	collection.On("Aggregate", mock.Anything, mock.Anything, mock.Anything).
 		Return(cursor, fmt.Errorf("aggregation error"))
 
-	_, err := async.Await(repo.VectorSearch(ctx, []float32{0.1, 0.2, 0.3}, query))
+	_, err := async.Await(repo.VectorSearch(ctx, []float32{0.1, 0.2, 0.3}, params))
 	assert.Error(t, err)
 	assert.EqualError(t, err, "aggregation error")
+}
+
+func TestVectorSearch_InvalidQuery(t *testing.T) {
+	ctx := context.Background()
+	collection := &MockCollection{}
+	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
+	repo := &testOdmCollection{baseRepo}
+
+	result, err := async.Await(repo.VectorSearch(ctx, []float32{}, VectorSearchParams{}))
+	assert.Error(t, err, "Expected error for invalid query parameters")
+	assert.Nil(t, result, "Expected nil result for invalid query parameters")
+}
+
+func TestTextSearch_Err(t *testing.T) {
+	ctx := context.Background()
+
+	collection := &MockCollection{}
+	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
+	repo := &testOdmCollection{baseRepo}
+
+	params := TermSearchParams{
+		IndexName: "test_text_index",
+		Path:      "text_field",
+		Limit:     10,
+	}
+
+	cursor, _ := mongo.NewCursorFromDocuments(toInterface([]testModel{}), nil, nil)
+	collection.On("Aggregate", mock.Anything, mock.Anything, mock.Anything).
+		Return(cursor, fmt.Errorf("aggregation error"))
+
+	_, err := async.Await(repo.TermSearch(ctx, "test query", params))
+	assert.Error(t, err)
+	assert.EqualError(t, err, "aggregation error")
+}
+
+func TestTextSearch_InvalidInput(t *testing.T) {
+	ctx := context.Background()
+
+	collection := &MockCollection{}
+	baseRepo := odmCollection[testModel]{col: collection, timer: &MockTimer{}}
+	repo := &testOdmCollection{baseRepo}
+
+	result, err := async.Await(repo.TermSearch(ctx, "", TermSearchParams{}))
+	assert.Error(t, err, "Expected error for invalid input parameters")
+	assert.Nil(t, result, "Expected nil result for invalid input parameters")
 }
 
 /* ─────────────────────────────

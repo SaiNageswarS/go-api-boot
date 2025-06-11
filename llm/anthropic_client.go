@@ -11,7 +11,6 @@ import (
 	"os"
 
 	"github.com/SaiNageswarS/go-api-boot/async"
-	"github.com/SaiNageswarS/go-api-boot/logger"
 )
 
 type AnthropicRequest struct {
@@ -52,7 +51,6 @@ type AnthropicClient struct {
 func ProvideAnthropicClient() (*AnthropicClient, error) {
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
-		logger.Error("ANTHROPIC_API_KEY environment variable is not set")
 		return nil, errors.New("ANTHROPIC_API_KEY environment variable is not set")
 	}
 

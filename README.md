@@ -10,26 +10,27 @@
 ## 📑 Table of Contents
 
 1. [Overview](#overview)
-2. [Why go‑api‑boot?](#why-go-api-boot)
-3. [Key Features](#key-features)
-4. [Quick Start](#quick-start)
-
-   1. [Bootstrap a New Service](#bootstrap-a-new-service)
-   2. [Running Locally](#running-locally)
-5. [Project Structure](#project-structure)
-6. [Core Modules](#core-modules)
+2. [Key Features](#key-features)
+3. [Quick Start](#quick-start)
+4. [Project Structure](#project-structure)
+5. [Core Modules](#core-modules)
 
    * [Server](#server)
    * [ODM (MongoDB)](#odm-mongodb)
+
+        * [Generic CRUD](#generic-crud)
+        * [Creating & Ensuring Indexes](#creating--ensuring-indexes)
+        * [Vector Search](#vector-search)
+        * [Text Search](#text-search)
    * [Auth & JWT](#auth--jwt)
    * [Cloud Abstractions](#cloud-abstractions)
    * [Zero‑Config SSL/TLS](#zero-config-ssltls)
    * [Temporal Workers](#temporal-workers)
    * [LLM Clients](#llm-clients)
-7. [CLI Reference](#cli-reference)
-8. [Examples](#examples)
-9. [Contributing](#contributing)
-10. [License](#license)
+6. [CLI Reference](#cli-reference)
+7. [Examples](#examples)
+8. [Contributing](#contributing)
+9. [License](#license)
 
 ---
 
@@ -38,25 +39,14 @@
 **go‑api‑boot** eliminates the repetitive plumbing required to ship modern API services in Go.  With a single CLI command you get:
 
 * A fully wired **gRPC** server that also serves **gRPC‑Web** and **REST** gateways – no Envoy sidecars or extra proxies.
-* MongoDB repositories implemented with **Go 1.22 generics**.
+* **Temporal workflow support** for long-running background jobs.
+* **Generic ODM** for MongoDB with multi‑tenant support.
 * Opinionated middlewares (JWT auth, logging, panic recovery) that you can opt out of per‑method.
 * A relocatable **cloud toolkit** (Azure / GCP) for signed URLs, blob storage, secret resolution, etc.  
 * **Zero-configuration HTTPS** – serve valid TLS certificates on day 0. 
-* Built-In Dependency injection wiring customized for gRpc services. 
+* Built-In Dependency injection wiring customized for gRpc services, temporal workers, config, mongo client, and cloud abstractions. 
 
 The result: you write business logic, not boilerplate.
-
----
-
-## Why go‑api‑boot?
-
-| Challenge                                               | Typical Effort          | **With go‑api‑boot**                    |
-| ------------------------------------------------------- | ----------------------- | --------------------------------------- |
-| Spin up gRPC+gRPC‑Web server, CORS, healthz, Prometheus | Days                    | `go-api-boot bootstrap …` – seconds     |
-| MongoDB persistence with generics                | Days                    | One-liner via `CollectionOf[T]` |
-| Secure service with JWT, skip for selected methods      | Manual interceptors     | Built‑in interceptors and `AuthFuncOverride`           |
-| Signed S3 / Blob URLs                                   | SDK boilerplate         | One‑liner via `cloud.Cloud` interface   |
-| Automatic HTTPS certificates with a shared cloud cache                            | External infrastructure | `server.WithSSL(true)` + `SslCloudCache` – seconds                  |
 
 ---
 
@@ -64,12 +54,14 @@ The result: you write business logic, not boilerplate.
 
 * **First‑class gRPC & gRPC‑Web** – serve browsers natively without Envoy.
 * **Generic ODM for MongoDB** – type‑safe generic multi-tenant Object Model - (`CollectionOf[T](client, tenant).FindOneById(id)`) with async helpers.
+* **Vector & Text Search** – built‑in support for Atlas Vector Search and Atlas Search.
+* **Index Management** – auto‑create and ensure classic, search, and vector indexes via `EnsureIndexes[T]`.
 * **JWT Auth & Middleware Stack** – observability, logging, panic recovery pre‑wired.
 * **Cloud Providers** – interchangeable Azure / GCP helpers for storage & secrets.
 * **Zero‑Config SSL** – automatic Let’s Encrypt certificates with exponential back‑off and optional cloud-backed cache (SslCloudCache) for stateless containers.
-* **Built-in Dependency Injection** – no Google Wire or codegen, with lifecycle-aware gRPC registration.
-* **Bootstrap CLI** – scaffold full service, models, repos, services, Dockerfile, build scripts.
 * **Temporal Workflow Support** – run long-lived, fault-tolerant background jobs with native Temporal integration and DI-based worker registration.
+* **Fluent Dependency Injection** – chainable, lifecycle-aware registration for gRPC services, Temporal workflows/activities, SSL providers, cloud abstractions, and more, all via a single builder API.
+* **Bootstrap CLI** – scaffold full service, models, repos, services, Dockerfile, build scripts.
 ---
 
 ## Quick Start
@@ -131,6 +123,7 @@ func main() {
     var ccfg *config.AppConfig 
     config.LoadConfig("config.ini", ccfg) // loads [dev] or [prod] section based on env var - `ENV=dev` or `ENV=prod`
 
+    mongo, _ := odm.GetClient()
     // Pick a cloud provider – all implement cloud.Cloud
     cloudFns := cloud.ProvideAzure(ccfg) // or cloud.ProvideGCP(cfg)
     // load secrets from Keyvault/SecretManader
@@ -142,6 +135,7 @@ func main() {
         EnableSSL(server.CloudCacheProvider(cfg, cloudFns)).
         // Dependency injection
         Provide(cfg).
+        Provide(mongo).
         ProvideAs(cloudFns, (*cloud.Cloud)(nil)).
         // Register gRPC service impls
         RegisterService(server.Adapt(pb.RegisterLoginServer), ProvideLoginService).
@@ -182,6 +176,8 @@ azure_storage_account=prodaccount
 
 ### ODM (MongoDB)
 
+#### Generic CRUD
+
 ```go
 // Model
 type Profile struct {
@@ -195,8 +191,115 @@ func (p Profile) CollectionName() string { return "profile" }
 client, err := odm.GetClient(ccfg)
 profile, err := async.Await(odm.CollectionOf[Profile](client, tenant).FindOneById(context.Background(), id))
 ```
+* Additionally use helpers like `HashedKey` to generate _id, `NewModelFrom[T any](proto interface{})` to copy values from proto to the model.
+---
 
-Async helpers return `<-chan T` + `<-chan error` for fan‑out concurrency.
+#### Creating & Ensuring Indexes
+
+Use `EnsureIndexes[T]` at startup or in integration tests to:
+
+1. **Create the collection** if missing.
+2. **Apply classic MongoDB indexes** (B-tree, compound).
+3. **Apply Atlas Search** (text) and **Atlas Vector Search** indexes.
+
+```go
+// In your setup code
+if err := odm.EnsureIndexes[Profile](ctx, mongoClient, tenant); err != nil {
+  log.Fatalf("failed to ensure indexes: %v", err)
+}
+```
+
+This idempotent helper safely creates all indexes advertised by your models:
+
+* Implement `Indexed` for classic indexes.
+* Implement `SearchIndexed` for text search (TermSearchIndexSpec).
+* Implement `VectorIndexed` for vector search (VectorIndexSpec).
+* Refer [github.com/SaiNageswarS/go-api-boot/odm/odm_atlas_test.go](github.com/SaiNageswarS/go-api-boot/odm/odm_atlas_test.go) for examples.
+
+---
+
+#### Vector Search
+
+Built‑in support for **Atlas Vector Search**. Define vector index specs on your model:
+
+```go
+type Article struct {
+    ID        string      `bson:"_id"`
+    Title     string      `bson:"title"`
+    Content   string      `bson:"content"`
+    Embedding bson.Vector `bson:"embedding"` // 768-dim vector
+}
+
+func (a Article) Id() string { return a.ID }
+func (a Article) CollectionName() string { return "articles" }
+
+// Specify vector index on field "embedding"
+// odm.EnsureIndexes would create this index automatically.
+func (m Article) VectorIndexSpecs() []odm.VectorIndexSpec {
+  return []odm.VectorIndexSpec{{
+    Name: "contentVecIdx", Path: "embedding", Type: "vector", NumDimensions: 768,
+    Similarity: "cosine",
+  }}
+}
+```
+
+Perform vector search:
+
+```go
+embedding := getEmbedding(...) // []float32
+params := odm.VectorSearchParams{
+  IndexName:     "contentVecIdx",
+  Path:          "embedding",
+  K:             5,
+  NumCandidates: 20,
+}
+results, _ := async.Await(repo.VectorSearch(ctx, embedding, params))
+for _, hit := range results {
+  fmt.Println(hit.Doc, hit.Score)
+}
+```
+
+---
+
+#### Text Search
+
+Leverage **Atlas Search** for full‑text queries. Register term search specs:
+
+```go
+type Article struct {
+    ID        string      `bson:"_id"`
+    Title     string      `bson:"title"`
+    Content   string      `bson:"content"`
+    Embedding bson.Vector `bson:"embedding"` // 768-dim vector
+}
+
+func (a Article) Id() string { return a.ID }
+func (a Article) CollectionName() string { return "articles" }
+
+// Specify term index on field "content"
+// odm.EnsureIndexes would create this index automatically.
+func (m Article) TermSearchIndexSpecs() []odm.TermSearchIndexSpec {
+  return []odm.TermSearchIndexSpec{{
+    Name: "contentTextIdx", Path: "content",
+  }}
+}
+```
+
+Execute text search:
+
+```go
+params := odm.TermSearchParams{
+  IndexName: "contentTextIdx",
+  Path:      "content",
+  Limit:     10,
+}
+results, _ := async.Await(repo.TermSearch(ctx, "golang guides", params))
+for _, hit := range results {
+  fmt.Println(hit.Doc, hit.Score)
+}
+```
+
+---
 
 ### Auth & JWT
 
@@ -272,26 +375,7 @@ boot.Serve(context.Background())
 
 ### LLM Clients
 
-go-api-boot offers lightweight clients to interact with LLM APIs like Anthropic Claude, enabling seamless integration of intelligent completions into your services without external SDKs or complexity.
-
-```go
-import "github.com/SaiNageswarS/go-api-boot/prompts"
-
-client, err := prompts.ProvideAnthropicClient()
-if err != nil {
-    logger.Fatal("Failed getting LLM client:", zap.Error(err))
-}
-
-resp, err := client.GenerateInference(&prompts.AnthropicRequest{
-    Model:     "claude-2",
-    MaxTokens: 100,
-    System:    "You are a helpful assistant.",
-    Temperature: 0.7,
-    Messages: []prompts.Message{
-        {Role: "user", Content: "Summarize this document"},
-    },
-})
-```
+Lightweight clients for Anthropic, OpenAI, Jina AI, etc.
 
 ---
 
@@ -309,7 +393,8 @@ Run with `-h` for full flags.
 
 ## Examples
 
-* **Kotlang/authGo** – real‑world auth service built with go‑api‑boot → [https://github.com/Kotlang/authGo](https://github.com/Kotlang/authGo), [https://github.com/SaiNageswarS/agent-boot](https://github.com/SaiNageswarS/agent-boot)
+* **Agent Boot** – AI agent framework → [github.com/SaiNageswarS/agent-boot](https://github.com/SaiNageswarS/agent-boot)
+* **Kotlang/authGo** – real‑world auth service → [github.com/Kotlang/authGo](https://github.com/Kotlang/authGo)
 
 ---
 

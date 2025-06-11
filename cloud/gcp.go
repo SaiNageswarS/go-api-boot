@@ -42,14 +42,12 @@ func ProvideGCP(ccfgg *config.BootConfig) Cloud {
 func (c *GCP) LoadSecretsIntoEnv(ctx context.Context) error {
 	// Create the client.
 	if err := c.EnsureSecrets(ctx); err != nil {
-		logger.Error("Failed to ensure Secret Manager client", zap.Error(err))
 		return err
 	}
 
 	// Build the request.
 	projectID := c.ccfgg.GcpProjectId
 	if projectID == "" {
-		logger.Error("gcp_project_id config is not set")
 		return fmt.Errorf("gcp_project_id config is not set")
 	}
 	req := &secretmanagerpb.ListSecretsRequest{
@@ -66,7 +64,6 @@ func (c *GCP) LoadSecretsIntoEnv(ctx context.Context) error {
 		}
 
 		if err != nil {
-			logger.Error("failed to list secrets: ", zap.Error(err))
 			return err
 		}
 
@@ -122,7 +119,6 @@ func (c *GCP) UploadBuffer(ctx context.Context, bucketName, path string, fileDat
 // DownloadFile downloads a file from GCP bucket and returns the path to the temp file.
 func (c *GCP) DownloadFile(ctx context.Context, bucketName, blobPath string) (string, error) {
 	if err := c.EnsureStorage(ctx); err != nil {
-		logger.Error("Failed to ensure Storage client", zap.Error(err))
 		return "", err
 	}
 
@@ -159,7 +155,6 @@ func (c *GCP) GetPresignedUrl(ctx context.Context, bucketName, path, contentType
 	// path := "object-name"
 
 	if err := c.EnsureStorage(ctx); err != nil {
-		logger.Error("Failed to ensure Storage client", zap.Error(err))
 		return "", ""
 	}
 

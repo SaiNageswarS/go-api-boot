@@ -56,7 +56,9 @@ func (s *BootServer) Serve(ctx context.Context) error {
 	if s.temporalWorker != nil {
 		grp.Go(func() error {
 			logger.Info("Starting Temporal worker...")
-			return s.temporalWorker.Run(worker.InterruptCh())
+			return RetryWithExponentialBackoff(ctx, 5, 10*time.Second, func() error {
+				return s.temporalWorker.Run(worker.InterruptCh())
+			})
 		})
 	}
 

@@ -2,9 +2,16 @@ package server
 
 import (
 	"context"
+	"errors"
 	"runtime"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/nexus-rpc/sdk-go/nexus"
+	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/workflow"
 )
 
 // -----------------------------------------------------------------------------
@@ -73,6 +80,75 @@ func TestBootServer_Build_WithSSL(t *testing.T) {
 		Build()
 	if err != nil {
 		t.Fatalf("Build() with SSL failed: %v", err)
+	}
+}
+
+// fakeWorker implements the full worker.Worker interface but only Run is used
+type fakeWorker struct {
+	runs      int32 // atomically incremented
+	failUntil int32 // number of failing attempts before success
+}
+
+func (f *fakeWorker) Run(_ <-chan interface{}) error {
+	n := atomic.AddInt32(&f.runs, 1)
+	if n <= f.failUntil {
+		return errors.New("simulated start failure")
+	}
+	return nil
+}
+
+// --- everything below this line is just no-op plumbing to satisfy the interface
+func (f *fakeWorker) Start() error { return f.Run(nil) }
+func (f *fakeWorker) Stop()        {}
+
+func (f *fakeWorker) RegisterActivity(a interface{})                                              {}
+func (f *fakeWorker) RegisterNexusService(_ *nexus.Service)                                       {}
+func (f *fakeWorker) RegisterWorkflow(wf interface{})                                             {}
+func (f *fakeWorker) RegisterWorkflowWithOptions(w interface{}, options workflow.RegisterOptions) {}
+
+func (f *fakeWorker) RegisterActivityWithOptions(a interface{}, options activity.RegisterOptions) {}
+
+func TestBootServer_Serve_WithTemporalWorker(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("CI flakiness on Windows networking, skip")
+	}
+
+	// Build a normal BootServer (ports :0) …
+	bs := freshBootServer(t, false)
+
+	// …and inject a stub worker that *succeeds immediately* so we don’t wait 10 s
+	fw := &fakeWorker{}
+	bs.temporalWorker = fw
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = bs.Serve(ctx) // ignore returned error – cancelled below
+	}()
+
+	// Give Serve() & the worker a moment to start.
+	time.Sleep(100 * time.Millisecond)
+
+	if got := atomic.LoadInt32(&fw.runs); got != 1 {
+		t.Fatalf("expected worker.Run to be called once, got %d", got)
+	}
+
+	// Cancel everything; Serve should exit promptly.
+	cancel()
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Serve(ctx) did not return after context cancellation")
 	}
 }
 

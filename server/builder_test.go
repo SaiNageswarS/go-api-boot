@@ -223,13 +223,13 @@ func TestRegisterTemporalWorkflow_Appends(t *testing.T) {
 		t.Fatalf("expected 0 workflows initially, got %d", ln)
 	}
 
-	b.RegisterTemporalWorkflow(workflow)
+	b.RegisterTemporalWorkflow(testWorkflow)
 
 	// 2 → slice grew
 	if ln := len(b.workflowRegs); ln != 1 {
 		t.Fatalf("expected 1 workflow after registration, got %d", ln)
 	}
-	if reflect.ValueOf(b.workflowRegs[0]).Pointer() != reflect.ValueOf(workflow).Pointer() {
+	if reflect.ValueOf(b.workflowRegs[0]).Pointer() != reflect.ValueOf(testWorkflow).Pointer() {
 		t.Errorf("workflow not stored correctly")
 	}
 }
@@ -268,4 +268,4 @@ func TestBuild_WithoutTemporal_Succeeds(t *testing.T) {
 
 func activityFactory() *struct{} { return &struct{}{} }
 
-func workflow() error { return nil }
+func testWorkflow() error { return nil }

@@ -214,7 +214,7 @@ This idempotent helper safely creates all indexes advertised by your models:
 * Implement `Indexed` for classic indexes.
 * Implement `SearchIndexed` for text search (TermSearchIndexSpec).
 * Implement `VectorIndexed` for vector search (VectorIndexSpec).
-* Refer [github.com/SaiNageswarS/go-api-boot/odm/odm_atlas_test.go](github.com/SaiNageswarS/go-api-boot/odm/odm_atlas_test.go) for examples.
+* Refer [github.com/SaiNageswarS/go-api-boot/odm/odm_atlas_test.go](https://github.com/SaiNageswarS/go-api-boot/blob/master/odm/odm_atlas_test.go) for examples.
 
 ---
 

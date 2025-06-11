@@ -276,11 +276,12 @@ type Article struct {
 func (a Article) Id() string { return a.ID }
 func (a Article) CollectionName() string { return "articles" }
 
-// Specify term index on field "content"
+// Specify term index on field "content" and "title".
+// This allows full‑text search across "content" and "title" fields.
 // odm.EnsureIndexes would create this index automatically.
 func (m Article) TermSearchIndexSpecs() []odm.TermSearchIndexSpec {
   return []odm.TermSearchIndexSpec{{
-    Name: "contentTextIdx", Path: "content",
+    Name: "contentTextIdx", Paths: []string {"content", "title"},
   }}
 }
 ```

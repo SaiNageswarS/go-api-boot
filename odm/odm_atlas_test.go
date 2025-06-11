@@ -62,7 +62,9 @@ func (m EmbeddedMovies) TermSearchIndexSpecs() []TermSearchIndexSpec {
 	return []TermSearchIndexSpec{
 		{
 			Name: "plotIndex",
-			Path: "plot",
+			// building term index on both plot and title fields.
+			// This allows searching by title as well as plot text.
+			Paths: []string{"plot", "title"},
 		},
 	}
 }

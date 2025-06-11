@@ -28,6 +28,9 @@ jobs:
       run: go mod download
 
     - name: Run tests
+      env:
+        MONGO_URI: ${{ secrets.MONGO_URI }}
+        JINA_AI_API_KEY: ${{ secrets.JINA_AI_API_KEY }}
       run: |
         go test -v ./... -covermode=count -coverprofile=coverage.out
 

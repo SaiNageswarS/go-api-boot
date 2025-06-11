@@ -33,19 +33,20 @@ func (v VectorIndexSpec) Model() mongo.SearchIndexModel {
 }
 
 type TermSearchIndexSpec struct {
-	Name string // index name
-	Path string // e.g. field name in the struct/json that holds the text to be indexed.
+	Name  string   // index name
+	Paths []string // e.g. fields in the struct that holds the text to be indexed.
 }
 
 func (t TermSearchIndexSpec) Model() mongo.SearchIndexModel {
+	fields := bson.D{}
+	for _, path := range t.Paths {
+		fields = append(fields, bson.E{Key: path, Value: bson.D{{Key: "type", Value: "string"}}})
+	}
+
 	def := bson.D{
 		{Key: "mappings", Value: bson.D{
 			{Key: "dynamic", Value: false},
-			{Key: "fields", Value: bson.D{
-				{Key: t.Path, Value: bson.D{
-					{Key: "type", Value: "string"},
-				}},
-			}},
+			{Key: "fields", Value: fields},
 		}},
 	}
 

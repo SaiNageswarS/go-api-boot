@@ -14,8 +14,9 @@ import (
 )
 
 func TestProvideJinaAIEmbeddingClient_Success(t *testing.T) {
+	originalApiKey := os.Getenv("JINA_AI_API_KEY")
 	os.Setenv("JINA_AI_API_KEY", "dummy-key")
-	defer os.Unsetenv("JINA_AI_API_KEY")
+	defer os.Setenv("JINA_AI_API_KEY", originalApiKey)
 
 	client, err := ProvideJinaAIEmbeddingClient()
 	assert.NoError(t, err)
@@ -24,7 +25,10 @@ func TestProvideJinaAIEmbeddingClient_Success(t *testing.T) {
 }
 
 func TestProvideJinaAIEmbeddingClient_MissingAPIKey(t *testing.T) {
+	originalApiKey := os.Getenv("JINA_AI_API_KEY")
 	os.Unsetenv("JINA_AI_API_KEY")
+	defer os.Setenv("JINA_AI_API_KEY", originalApiKey)
+
 	client, err := ProvideJinaAIEmbeddingClient()
 	assert.Nil(t, client)
 	assert.EqualError(t, err, "JINA_AI_API_KEY environment variable is not set")

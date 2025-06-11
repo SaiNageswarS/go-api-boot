@@ -13,6 +13,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
+        # Environment variables for the integration tests.
         MONGO_URI: ${{ secrets.MONGO_URI }}
         JINA_AI_API_KEY: ${{ secrets.JINA_AI_API_KEY }}
     strategy:
@@ -29,9 +30,6 @@ jobs:
 
     - name: Install dependencies
       run: go mod download
-
-    - name: Debug secrets
-      run: echo "MONGO_URI=${{ secrets.MONGO_URI != '' }}"
 
     - name: Run tests
       run: |

@@ -14,6 +14,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.12.4
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/jinzhu/copier v0.3.2
+	github.com/nexus-rpc/sdk-go v0.3.0
 	github.com/prometheus/client_golang v1.18.0
 	github.com/rs/cors v1.9.0
 	go.mongodb.org/mongo-driver/v2 v2.2.2
@@ -48,7 +49,6 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
-	github.com/nexus-rpc/sdk-go v0.3.0 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

@@ -21,10 +21,12 @@ func TestNewMongoConn_PingFails(t *testing.T) {
 		mockClient.On("Ping", mock.Anything, mock.Anything).Return(errors.New("ping failed"))
 		return mockClient, nil
 	}
+
+	originalMongoUri := os.Getenv("MONGO_URI")
 	os.Setenv("MONGO_URI", "mongodb://test:27017")
 	defer func() {
 		mongoConnect = originalMongoConnect
-		os.Unsetenv("MONGO_URI")
+		os.Setenv("MONGO_URI", originalMongoUri)
 	}()
 
 	client, err := GetClient()
@@ -39,10 +41,12 @@ func TestNewMongoConn_Success(t *testing.T) {
 		mockClient.On("Ping", mock.Anything, mock.Anything).Return(nil)
 		return mockClient, nil
 	}
+
+	originalMongoUri := os.Getenv("MONGO_URI")
 	os.Setenv("MONGO_URI", "mongodb://test:27017")
 	defer func() {
 		mongoConnect = originalMongoConnect
-		os.Unsetenv("MONGO_URI")
+		os.Setenv("MONGO_URI", originalMongoUri)
 	}()
 
 	client, err := GetClient()
@@ -57,10 +61,12 @@ func TestGetClient_Success(t *testing.T) {
 		mockMongoClient.On("Ping", mock.Anything, mock.Anything).Return(nil)
 		return mockMongoClient, nil
 	}
+
+	originalMongoUri := os.Getenv("MONGO_URI")
 	os.Setenv("MONGO_URI", "mongodb://test:27017")
 	defer func() {
 		mongoConnect = originalMongoConnect
-		os.Unsetenv("MONGO_URI")
+		os.Setenv("MONGO_URI", originalMongoUri)
 	}()
 
 	client, err := GetClient()
@@ -69,6 +75,12 @@ func TestGetClient_Success(t *testing.T) {
 }
 
 func TestGetClient_EmptyURI(t *testing.T) {
+	originalMongoUri := os.Getenv("MONGO_URI")
+	os.Unsetenv("MONGO_URI")
+	defer func() {
+		os.Setenv("MONGO_URI", originalMongoUri)
+	}()
+
 	client, err := GetClient()
 	assert.Nil(t, client)
 	assert.EqualError(t, err, "empty MongoDB URI")
@@ -79,10 +91,12 @@ func TestGetClient_Failure(t *testing.T) {
 	mongoConnect = func(uri string) (MongoClient, error) {
 		return nil, errors.New("connect error")
 	}
+
+	originalMongoUri := os.Getenv("MONGO_URI")
 	os.Setenv("MONGO_URI", "mongodb://test:27017")
 	defer func() {
 		mongoConnect = originalMongoConnect
-		os.Unsetenv("MONGO_URI")
+		os.Setenv("MONGO_URI", originalMongoUri)
 	}()
 
 	client, err := GetClient()

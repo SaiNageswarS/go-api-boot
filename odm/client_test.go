@@ -18,7 +18,7 @@ func TestNewMongoConn_PingFails(t *testing.T) {
 	originalMongoConnect := mongoConnect
 	mongoConnect = func(uri string) (MongoClient, error) {
 		mockClient := new(MockMongoClient)
-		mockClient.On("Ping", mock.Anything).Return(errors.New("ping failed"))
+		mockClient.On("Ping", mock.Anything, mock.Anything).Return(errors.New("ping failed"))
 		return mockClient, nil
 	}
 	os.Setenv("MONGO_URI", "mongodb://test:27017")
@@ -36,7 +36,7 @@ func TestNewMongoConn_Success(t *testing.T) {
 	originalMongoConnect := mongoConnect
 	mongoConnect = func(uri string) (MongoClient, error) {
 		mockClient := new(MockMongoClient)
-		mockClient.On("Ping", mock.Anything).Return(nil)
+		mockClient.On("Ping", mock.Anything, mock.Anything).Return(nil)
 		return mockClient, nil
 	}
 	os.Setenv("MONGO_URI", "mongodb://test:27017")

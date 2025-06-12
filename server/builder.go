@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -229,9 +230,17 @@ func (b *Builder) Build() (*BootServer, error) {
 	// Create a temporal worker if configured
 	var tw worker.Worker
 	var tc client.Client
+	var tcErr error
 	if b.temporalClientOpts != nil {
-		var err error
-		tc, err = client.Dial(*b.temporalClientOpts)
+		// connect to Temporal server with exponential backoff
+		err := RetryWithExponentialBackoff(context.Background(), 5, 10*time.Second, func() error {
+			tc, tcErr = client.Dial(*b.temporalClientOpts)
+			if tcErr != nil {
+				return tcErr
+			}
+			return nil
+		})
+
 		if err != nil {
 			return nil, fmt.Errorf("failed to create temporal client: %w", err)
 		}

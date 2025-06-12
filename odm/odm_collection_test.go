@@ -396,7 +396,7 @@ func TestTextSearch_Err(t *testing.T) {
 
 	params := TermSearchParams{
 		IndexName: "test_text_index",
-		Path:      "text_field",
+		Path:      []string{"text_field"},
 		Limit:     10,
 	}
 

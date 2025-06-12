@@ -169,7 +169,7 @@ func TestEmbeddedMoviesCollection(t *testing.T) {
 		query := "shaolin medieval kings war"
 		searchParams := TermSearchParams{
 			IndexName: "plotIndex",
-			Path:      "plot",
+			Path:      []string{"plot", "title"},
 			Limit:     2,
 		}
 

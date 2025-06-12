@@ -291,7 +291,7 @@ Execute text search:
 ```go
 params := odm.TermSearchParams{
   IndexName: "contentTextIdx",
-  Path:      "content",
+  Path:      []string {"content", "title"},
   Limit:     10,
 }
 results, _ := async.Await(repo.TermSearch(ctx, "golang guides", params))

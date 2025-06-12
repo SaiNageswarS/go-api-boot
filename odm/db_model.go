@@ -55,8 +55,8 @@ type VectorSearchParams struct {
 }
 
 type TermSearchParams struct {
-	IndexName string // required
-	Path      string // field to search
-	Filter    bson.M // optional filter
-	Limit     int    // number of results to return
+	IndexName string   // required
+	Path      []string // field to search
+	Filter    bson.M   // optional filter
+	Limit     int      // number of results to return
 }

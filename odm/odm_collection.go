@@ -217,7 +217,7 @@ func (c *odmCollection[T]) VectorSearch(ctx context.Context, embedding []float32
 
 func (c *odmCollection[T]) TermSearch(ctx context.Context, query string, params TermSearchParams) <-chan async.Result[[]SearchHit[T]] {
 	return async.Go(func() ([]SearchHit[T], error) {
-		if query == "" || params.IndexName == "" || params.Path == "" || params.Limit <= 0 {
+		if query == "" || params.IndexName == "" || len(params.Path) == 0 || params.Limit <= 0 {
 			return nil, errors.New("invalid input - query, index name, path, and limit must be provided")
 		}
 

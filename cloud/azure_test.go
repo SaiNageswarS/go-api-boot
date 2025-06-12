@@ -7,10 +7,12 @@ import (
 	"os"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/SaiNageswarS/go-api-boot/config"
 	"github.com/stretchr/testify/assert"
 )
@@ -210,6 +212,49 @@ func TestGetBlob_OK(t *testing.T) {
 	assert.Equal(t, want, got)
 }
 
+func TestCreateContainer_Success(t *testing.T) {
+	config := &config.BootConfig{
+		AzureStorageAccount: "mystorage",
+	}
+
+	a := &Azure{
+		ccfgg:      config,
+		BlobClient: &mockBlobClient{ShouldFail: false},
+	}
+
+	err := a.EnsureBucket(context.Background(), "mycontainer")
+	assert.NoError(t, err)
+}
+
+func TestCreateContainer_AlreadyExists(t *testing.T) {
+	config := &config.BootConfig{
+		AzureStorageAccount: "mystorage",
+	}
+
+	a := &Azure{
+		ccfgg:      config,
+		BlobClient: &mockBlobClient{ContainerExists: true},
+	}
+
+	err := a.EnsureBucket(context.Background(), "mycontainer")
+	assert.NoError(t, err)
+}
+
+func TestCreateContainer_Failure(t *testing.T) {
+	config := &config.BootConfig{
+		AzureStorageAccount: "mystorage",
+	}
+
+	a := &Azure{
+		ccfgg:      config,
+		BlobClient: &mockBlobClient{ShouldFail: true},
+	}
+
+	err := a.EnsureBucket(context.Background(), "mycontainer")
+	assert.Error(t, err)
+	assert.EqualError(t, err, "create container failed")
+}
+
 type mockVaultClient struct {
 	secrets map[string]string
 }
@@ -258,7 +303,8 @@ func (m *mockVaultClient) GetSecret(ctx context.Context, name string, version st
 }
 
 type mockBlobClient struct {
-	ShouldFail bool
+	ShouldFail      bool
+	ContainerExists bool
 }
 
 func (m *mockBlobClient) UploadBuffer(ctx context.Context, containerName string, blobName string, data []byte, opts *azblob.UploadBufferOptions) (azblob.UploadBufferResponse, error) {
@@ -277,4 +323,19 @@ func (m *mockBlobClient) DownloadFile(ctx context.Context, containerName string,
 		return 0, err
 	}
 	return int64(len("mock blob content")), nil
+}
+
+func (m *mockBlobClient) CreateContainer(ctx context.Context, containerName string, o *azblob.CreateContainerOptions) (azblob.CreateContainerResponse, error) {
+	if m.ContainerExists {
+		return azblob.CreateContainerResponse{}, &azcore.ResponseError{
+			StatusCode: 409,
+			ErrorCode:  string(bloberror.ContainerAlreadyExists),
+		}
+	}
+
+	if m.ShouldFail {
+		return azblob.CreateContainerResponse{}, errors.New("create container failed")
+	}
+
+	return azblob.CreateContainerResponse{}, nil
 }

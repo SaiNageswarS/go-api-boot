@@ -13,6 +13,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/SaiNageswarS/go-api-boot/config"
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	"go.uber.org/zap"
@@ -118,9 +119,29 @@ func (a *Azure) DownloadFile(ctx context.Context, containerName, blobName string
 	return tmpFilePath, nil
 }
 
-func (c *Azure) GetPresignedUrl(ctx context.Context, bucketName, path, contentType string, expiry time.Duration) (string, string) {
+func (a *Azure) GetPresignedUrl(ctx context.Context, bucketName, path, contentType string, expiry time.Duration) (string, string) {
 	//TODO: Get presigned upload url and download url
 	return "", ""
+}
+
+func (a *Azure) EnsureBucket(ctx context.Context, bucketName string) error {
+	if err := a.EnsureBlob(ctx); err != nil {
+		logger.Error("failed to ensure blob client", zap.Error(err))
+		return err
+	}
+
+	// Create the container if it doesn't exist
+	_, err := a.BlobClient.CreateContainer(ctx, bucketName, nil)
+	if err == nil {
+		return nil // Container created successfully
+	}
+
+	// Inspect the error: if it's a "ContainerAlreadyExists", ignore
+	if bloberror.HasCode(err, bloberror.ContainerAlreadyExists) {
+		return nil // Container already exists, no action needed
+	}
+
+	return err // Return any other error
 }
 
 // azure clients
@@ -209,4 +230,5 @@ type keyVaultClient interface {
 type blobClient interface {
 	UploadBuffer(context.Context, string, string, []byte, *azblob.UploadBufferOptions) (azblob.UploadBufferResponse, error)
 	DownloadFile(ctx context.Context, containerName string, blobName string, file *os.File, o *azblob.DownloadFileOptions) (int64, error)
+	CreateContainer(ctx context.Context, containerName string, o *azblob.CreateContainerOptions) (azblob.CreateContainerResponse, error)
 }

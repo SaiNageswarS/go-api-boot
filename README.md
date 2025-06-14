@@ -1,5 +1,5 @@
 # go-api-boot
-[![codecov](https://codecov.io/gh/SaiNageswarS/go-api-boot/branch/master/graph/badge.svg)](https://codecov.io/gh/SaiNageswarS/go-api-boot)
+[![codecov](https://codecov.io/gh/SaiNageswarS/go-api-boot/graph/badge.svg?token=J3NQ3PR0F9)](https://codecov.io/gh/SaiNageswarS/go-api-boot)
 [![Go Report Card](https://goreportcard.com/badge/github.com/SaiNageswarS/go-api-boot)](https://goreportcard.com/report/github.com/SaiNageswarS/go-api-boot) [![Go Reference](https://pkg.go.dev/badge/github.com/SaiNageswarS/go-api-boot.svg)](https://pkg.go.dev/github.com/SaiNageswarS/go-api-boot)
 
 

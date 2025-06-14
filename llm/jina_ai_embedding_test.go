@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SaiNageswarS/go-api-boot/async"
+	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/SaiNageswarS/go-api-boot/async"
+	"github.com/SaiNageswarS/go-collection-boot/async"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"

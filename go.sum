@@ -34,8 +34,8 @@ github.com/AzureAD/microsoft-authentication-extensions-for-go/cache v0.1.1/go.mo
 github.com/AzureAD/microsoft-authentication-library-for-go v1.4.2 h1:oygO0locgZJe7PpYPXT5A29ZkwJaPqcva7BVeemZOZs=
 github.com/AzureAD/microsoft-authentication-library-for-go v1.4.2/go.mod h1:wP83P5OoQ5p6ip3ScPr0BAq0BvuPAvacpEuSzyouqAI=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
-github.com/SaiNageswarS/go-collection-boot v0.0.0-20250614082244-fe97fc498ab9 h1:dSo8g2puSzux7ll7pMLi+mttFHjigPmJv7Px1WR48wo=
-github.com/SaiNageswarS/go-collection-boot v0.0.0-20250614082244-fe97fc498ab9/go.mod h1:Zpt8W8nCgucjdQyxOpQbIxzuVBnijo9y6CrEqTF6Pnc=
+github.com/SaiNageswarS/go-collection-boot v1.0.0 h1:yNB9IeDbQN7/ez5n3KHqBmNFtOrEUtbcSAuMdS+umAI=
+github.com/SaiNageswarS/go-collection-boot v1.0.0/go.mod h1:Zpt8W8nCgucjdQyxOpQbIxzuVBnijo9y6CrEqTF6Pnc=
 github.com/benbjohnson/clock v1.1.0 h1:Q92kusRqC1XV2MjkWETPvjJVqKetz1OzxZB7mHJLju8=
 github.com/benbjohnson/clock v1.1.0/go.mod h1:J11/hYXuz8f4ySSvYwY0FKfm+ezbsZBKZxNJlLklBHA=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=

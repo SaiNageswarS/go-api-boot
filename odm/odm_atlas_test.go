@@ -121,6 +121,12 @@ func TestEmbeddedMoviesCollection(t *testing.T) {
 		assert.Len(t, movies1982, 2, "There should be 2 movies from 1982")
 		assert.Equal(t, "The Shaolin Temple", movies1982[0].Title, "First movie should be The Shaolin Temple")
 		assert.Equal(t, "Death Wish II", movies1982[1].Title, "Second movie should be Death Wish II")
+
+		// test limit
+		movies1982, err = async.Await(collection.Find(ctx, bson.M{"year": 1982}, nil, 1, 0))
+		assert.NoError(t, err, "Failed to find movies of 1982")
+		assert.NotEmpty(t, movies1982, "Movies of 1982 should not be empty")
+		assert.Len(t, movies1982, 1, "There should be 1 movies from 1982")
 	})
 
 	t.Run("TestDistinct", func(t *testing.T) {

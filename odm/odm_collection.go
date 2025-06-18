@@ -96,7 +96,11 @@ func (c *odmCollection[T]) Find(ctx context.Context, filters bson.M, sort bson.D
 			filters = bson.M{} // Default to empty filter if none provided
 		}
 
-		findOpts := options.Find().SetLimit(limit).SetSkip(skip)
+		findOpts := options.Find().SetSkip(skip)
+		if limit > 0 {
+			findOpts.SetLimit(limit)
+		}
+
 		if sort != nil {
 			findOpts.SetSort(sort)
 		}

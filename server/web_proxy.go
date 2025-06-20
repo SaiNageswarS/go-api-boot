@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/SaiNageswarS/go-api-boot/logger"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 )
 
@@ -30,8 +32,10 @@ func GetWebProxy(server *grpc.Server) WebProxy {
 func (w WebProxy) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 	grpcReq, isTextFormat := interceptGrpcRequest(req)
 	grpcResp := getWebProxyResponse(resp, isTextFormat)
-	fmt.Println("WebProxy.ServeHTTP: ", grpcReq.URL.Path)
+	logger.Info("WebProxy.ServeHTTP: ", zap.String("Url", grpcReq.URL.Path))
+
 	w.handler.ServeHTTP(grpcResp, grpcReq)
+	grpcResp.finishRequest(grpcReq)
 }
 
 func listGRPCResources(server *grpc.Server) []string {

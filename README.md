@@ -411,4 +411,4 @@ PRs and issues are welcome!
 
 ## License
 
-Apache‑2.0 – see [https://github.com/SaiNageswarS/go-api-boot/blob/master/LICENSE](LICENSE) for details.
+Apache‑2.0 – see [LICENSE](LICENSE) for details.

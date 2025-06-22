@@ -266,6 +266,17 @@ func TestBuild_WithoutTemporal_Succeeds(t *testing.T) {
 	}
 }
 
+func TestApplySettings_Success(t *testing.T) {
+	b := New().ApplySettings([]grpc.ServerOption{
+		// Increase message size limits for large responses
+		grpc.MaxRecvMsgSize(20 * 1024 * 1024), // 20MB
+		grpc.MaxSendMsgSize(20 * 1024 * 1024),
+	})
+
+	assert.NotNil(t, b.serverOpts, "grpcOpts should not be nil after ApplySettings")
+	assert.True(t, len(b.serverOpts) >= 2, "grpcOpts should contain options after ApplySettings")
+}
+
 func activityFactory() *struct{} { return &struct{}{} }
 
 func testWorkflow() error { return nil }

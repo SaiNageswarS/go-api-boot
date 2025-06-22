@@ -38,7 +38,9 @@ type Builder struct {
 	providers  map[reflect.Type]reflect.Value
 	reg        []registration
 
-	// temporary worker for DI
+	serverOpts []grpc.ServerOption
+
+	// temporal worker for DI
 	taskQueue          string
 	activityRegs       []reflect.Value
 	workflowRegs       []interface{}
@@ -50,7 +52,6 @@ type registration struct {
 	factory  reflect.Value                    // user-supplied func(dep1,…)*Svc
 }
 
-// New returns a fresh builder; cfg may be nil if you DI it later.
 func New() *Builder {
 	return &Builder{
 		cors:       cors.AllowAll(),
@@ -70,7 +71,7 @@ func New() *Builder {
 	}
 }
 
-// ----- basic wiring ----------------------------------------------------------
+// ----- basic wiring (unchanged) ----------------------------------------------------------
 
 func (b *Builder) GRPCPort(p string) *Builder { b.grpcPort = p; return b }
 func (b *Builder) HTTPPort(p string) *Builder { b.httpPort = p; return b }
@@ -124,9 +125,8 @@ func (b *Builder) Provide(value any) *Builder {
 	return b
 }
 
-// Registers a value as a singleton for the given interface type.
 func (b *Builder) ProvideAs(value any, ifacePtr any) *Builder {
-	ifaceType := reflect.TypeOf(ifacePtr).Elem() // Extract the interface type
+	ifaceType := reflect.TypeOf(ifacePtr).Elem()
 	val := reflect.ValueOf(value)
 
 	if !val.Type().Implements(ifaceType) {
@@ -139,7 +139,6 @@ func (b *Builder) ProvideAs(value any, ifacePtr any) *Builder {
 	return b
 }
 
-// ProvideFunc registers a lazy provider func(dep1,…,depN) T.
 func (b *Builder) ProvideFunc(fn any) *Builder {
 	v := reflect.ValueOf(fn)
 	if v.Kind() != reflect.Func {
@@ -150,7 +149,6 @@ func (b *Builder) ProvideFunc(fn any) *Builder {
 	return b
 }
 
-// RegisterService ties a generated pb.RegisterService…Server with your factory func.
 func (b *Builder) RegisterService(
 	register func(grpc.ServiceRegistrar, any),
 	factory any,
@@ -163,12 +161,17 @@ func (b *Builder) RegisterService(
 	return b
 }
 
-// Wrapper for Register that adapts a grpc function with a specific type.
 func Adapt[S any](fn func(grpc.ServiceRegistrar, S)) func(grpc.ServiceRegistrar, any) {
 	return func(r grpc.ServiceRegistrar, v any) { fn(r, v.(S)) }
 }
 
-// ----- build -----------------------------------------------------------------
+// Apply server settings
+func (b *Builder) ApplySettings(opts []grpc.ServerOption) *Builder {
+	b.serverOpts = append(b.serverOpts, opts...)
+	return b
+}
+
+// ----- Resolve DI and build servers/workers -----------------------------------------------------
 
 func (b *Builder) Build() (*BootServer, error) {
 	if b.grpcPort == "" || b.httpPort == "" {
@@ -184,10 +187,13 @@ func (b *Builder) Build() (*BootServer, error) {
 		return nil, err
 	}
 
-	grpcSrv := grpc.NewServer(
+	// Prepare server options
+	b.serverOpts = append(b.serverOpts,
 		grpc.StreamInterceptor(grpc_middleware.ChainStreamServer(b.stream...)),
 		grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(b.unary...)),
 	)
+
+	grpcSrv := grpc.NewServer(b.serverOpts...)
 
 	// tiny DI container
 	ctn := newContainer(b.singletons, b.providers)
@@ -203,8 +209,9 @@ func (b *Builder) Build() (*BootServer, error) {
 
 	// HTTP multiplexer
 	mux := http.NewServeMux()
-	// Web Proxy for gRPC handlers.
-	mux.Handle("/", b.cors.Handler(GetWebProxy(grpcSrv)))
+
+	webProxy := GetWebProxy(grpcSrv)
+	mux.Handle("/", b.cors.Handler(webProxy))
 
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -216,23 +223,30 @@ func (b *Builder) Build() (*BootServer, error) {
 		mux.HandleFunc(p, h)
 	}
 
+	// HTTP server with optimized timeouts
+	var readTimeout, writeTimeout, idleTimeout time.Duration
+	readTimeout = 5 * time.Minute
+	writeTimeout = 5 * time.Minute
+	idleTimeout = 10 * time.Minute
+
 	httpSrv := &http.Server{
 		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  readTimeout,
+		WriteTimeout: writeTimeout,
+		IdleTimeout:  idleTimeout,
 	}
+
 	if b.sslProvider != nil {
 		if err := b.sslProvider.Configure(httpSrv); err != nil {
 			return nil, err
 		}
 	}
 
-	// Create a temporal worker if configured
+	// Create a temporal worker if configured (unchanged)
 	var tw worker.Worker
 	var tc client.Client
 	var tcErr error
 	if b.temporalClientOpts != nil {
-		// connect to Temporal server with exponential backoff
 		err := RetryWithExponentialBackoff(context.Background(), 5, 10*time.Second, func() error {
 			tc, tcErr = client.Dial(*b.temporalClientOpts)
 			if tcErr != nil {
@@ -247,7 +261,7 @@ func (b *Builder) Build() (*BootServer, error) {
 		tw = worker.New(tc, b.taskQueue, worker.Options{})
 
 		for _, f := range b.activityRegs {
-			receiver, err := invokeFactory(ctn, f) // same util used for gRPC
+			receiver, err := invokeFactory(ctn, f)
 			if err != nil {
 				return nil, fmt.Errorf("activity DI failed: %w", err)
 			}
@@ -255,7 +269,6 @@ func (b *Builder) Build() (*BootServer, error) {
 		}
 
 		for _, wf := range b.workflowRegs {
-			// Register workflows as-is, they are not factory funcs.
 			tw.RegisterWorkflow(wf)
 		}
 	}

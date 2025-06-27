@@ -131,7 +131,7 @@ type MockLogger struct {
 	fatalMsg      string
 }
 
-func (m MockLogger) Fatal(msg string, fields ...zap.Field) {
+func (m *MockLogger) Fatal(msg string, fields ...zap.Field) {
 	m.isFatalCalled = true
 	m.fatalMsg = msg
 }

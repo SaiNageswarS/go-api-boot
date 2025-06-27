@@ -24,13 +24,13 @@ func VerifyToken() grpc_auth.AuthFunc {
 		token, err := grpc_auth.AuthFromMD(ctx, "bearer")
 		if err != nil {
 			logger.Error("Error getting token", zap.Error(err))
-			return nil, status.Errorf(codes.Unauthenticated, err.Error())
+			return nil, status.Error(codes.Unauthenticated, "missing or malformed token")
 		}
 
 		userId, tenant, userType, err := decryptToken(token)
 		if err != nil {
 			logger.Error("Error getting token", zap.Error(err))
-			return nil, status.Errorf(codes.Unauthenticated, err.Error())
+			return nil, status.Error(codes.Unauthenticated, "invalid token")
 		}
 
 		newCtx := context.WithValue(ctx, USER_ID_CLAIM, userId)

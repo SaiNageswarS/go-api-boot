@@ -9,14 +9,9 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/SaiNageswarS/go-api-boot/logger"
 	"github.com/SaiNageswarS/go-collection-boot/async"
 )
-
-type JinaAIEmbeddingRequest struct {
-	Model string   `json:"model"` // jina-embeddings-v3
-	Task  string   `json:"task"`  // retrieval.passage or retrieval.query
-	Input []string `json:"input"`
-}
 
 type JinaAIEmbeddingClient struct {
 	apiKey     string
@@ -24,26 +19,33 @@ type JinaAIEmbeddingClient struct {
 	url        string
 }
 
-func ProvideJinaAIEmbeddingClient() (*JinaAIEmbeddingClient, error) {
+func ProvideJinaAIEmbeddingClient() Embedder {
 	apiKey := os.Getenv("JINA_AI_API_KEY")
 	if apiKey == "" {
-		return nil, errors.New("JINA_AI_API_KEY environment variable is not set")
+		// Providers are designed for dependency injection.
+		// If the API key is not set, we log a fatal error.
+		logger.Fatal("JINA_AI_API_KEY environment variable is not set")
+		return nil // This will never be reached, but it's good practice to return nil here.
 	}
 
 	return &JinaAIEmbeddingClient{
 		apiKey:     apiKey,
 		httpClient: &http.Client{},
 		url:        "https://api.jina.ai/v1/embeddings",
-	}, nil
+	}
 }
 
-func (c *JinaAIEmbeddingClient) GetEmbedding(ctx context.Context, req JinaAIEmbeddingRequest) <-chan async.Result[[]float32] {
+func (c *JinaAIEmbeddingClient) GetEmbedding(ctx context.Context, text string, opts ...EmbedOption) <-chan async.Result[[]float32] {
 	return async.Go(func() ([]float32, error) {
-		if req.Model == "" {
-			req.Model = "jina-embeddings-v3"
+		cfg := settings{model: "jina-embeddings-v4", taskName: "retrieval.passage"}
+		for _, opt := range opts {
+			opt(&cfg)
 		}
-		if req.Task == "" {
-			req.Task = "retrieval.passage"
+
+		req := jinaAIEmbeddingRequest{
+			Model: cfg.model,
+			Task:  cfg.taskName,
+			Input: []string{text},
 		}
 
 		jsonData, err := json.Marshal(req)
@@ -85,4 +87,10 @@ func (c *JinaAIEmbeddingClient) GetEmbedding(ctx context.Context, req JinaAIEmbe
 
 		return result.Data[0].Embedding, nil
 	})
+}
+
+type jinaAIEmbeddingRequest struct {
+	Model string   `json:"model"` // jina-embeddings-v3
+	Task  string   `json:"task"`  // retrieval.passage or retrieval.query
+	Input []string `json:"input"`
 }

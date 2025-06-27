@@ -9,8 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SaiNageswarS/go-api-boot/logger"
 	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 )
 
 func TestProvideJinaAIEmbeddingClient_Success(t *testing.T) {
@@ -18,10 +20,8 @@ func TestProvideJinaAIEmbeddingClient_Success(t *testing.T) {
 	os.Setenv("JINA_AI_API_KEY", "dummy-key")
 	defer os.Setenv("JINA_AI_API_KEY", originalApiKey)
 
-	client, err := ProvideJinaAIEmbeddingClient()
-	assert.NoError(t, err)
+	client := ProvideJinaAIEmbeddingClient()
 	assert.NotNil(t, client)
-	assert.Equal(t, "dummy-key", client.apiKey)
 }
 
 func TestProvideJinaAIEmbeddingClient_MissingAPIKey(t *testing.T) {
@@ -29,9 +29,23 @@ func TestProvideJinaAIEmbeddingClient_MissingAPIKey(t *testing.T) {
 	os.Unsetenv("JINA_AI_API_KEY")
 	defer os.Setenv("JINA_AI_API_KEY", originalApiKey)
 
-	client, err := ProvideJinaAIEmbeddingClient()
-	assert.Nil(t, client)
-	assert.EqualError(t, err, "JINA_AI_API_KEY environment variable is not set")
+	isFatalCalled := false
+	fatalMsg := ""
+	mockFatal := func(msg string, fields ...zap.Field) {
+		isFatalCalled = true
+		fatalMsg = msg
+	}
+
+	// Replace the logger's Fatal function with a mock
+	originalFatal := logger.Fatal
+	defer func() {
+		logger.Fatal = originalFatal
+	}()
+	logger.Fatal = mockFatal
+
+	ProvideJinaAIEmbeddingClient()
+	assert.True(t, isFatalCalled)
+	assert.Equal(t, fatalMsg, "JINA_AI_API_KEY environment variable is not set")
 }
 
 func TestGetEmbedding_Success(t *testing.T) {
@@ -60,11 +74,7 @@ func TestGetEmbedding_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	req := JinaAIEmbeddingRequest{
-		Input: []string{"Hello, world"},
-	}
-
-	result, err := async.Await(client.GetEmbedding(ctx, req))
+	result, err := async.Await(client.GetEmbedding(ctx, "Hello, world"))
 
 	assert.NoError(t, err)
 	assert.Equal(t, []float32{0.1, 0.2, 0.3}, result)
@@ -83,8 +93,7 @@ func TestGetEmbedding_HTTPError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	req := JinaAIEmbeddingRequest{Input: []string{"test"}}
-	result := <-client.GetEmbedding(ctx, req)
+	result := <-client.GetEmbedding(ctx, "test")
 
 	assert.Error(t, result.Err)
 	assert.Contains(t, result.Err.Error(), "failed to get embedding")
@@ -103,8 +112,7 @@ func TestGetEmbedding_InvalidJSON(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	req := JinaAIEmbeddingRequest{Input: []string{"test"}}
-	result := <-client.GetEmbedding(ctx, req)
+	result := <-client.GetEmbedding(ctx, "test")
 
 	assert.Error(t, result.Err)
 	assert.Contains(t, result.Err.Error(), "invalid character")
@@ -123,8 +131,7 @@ func TestGetEmbedding_EmptyData(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	req := JinaAIEmbeddingRequest{Input: []string{"test"}}
-	result := <-client.GetEmbedding(ctx, req)
+	result := <-client.GetEmbedding(ctx, "test")
 
 	assert.Error(t, result.Err)
 	assert.EqualError(t, result.Err, "no embedding data found")

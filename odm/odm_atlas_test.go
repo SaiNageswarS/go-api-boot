@@ -50,7 +50,7 @@ func (m EmbeddedMovies) VectorIndexSpecs() []VectorIndexSpec {
 			Name:          "plotEmbeddingIndex",
 			Path:          "plotEmbedding",
 			Type:          "vector",
-			NumDimensions: 1024,
+			NumDimensions: 2048,
 			Similarity:    "cosine",
 			Quantization:  "scalar",
 		},
@@ -71,10 +71,9 @@ func (m EmbeddedMovies) TermSearchIndexSpecs() []TermSearchIndexSpec {
 
 func TestEmbeddedMoviesCollection(t *testing.T) {
 	dotenv.LoadEnv("../.env")
-	ctx := context.Background()
+	ctx := t.Context()
 
-	mongo, err := GetClient()
-	assert.NoError(t, err, "Failed to connect to MongoDB")
+	mongo := ProvideMongoClient()
 
 	defer func() { mongo.Disconnect(ctx) }()
 
@@ -83,15 +82,14 @@ func TestEmbeddedMoviesCollection(t *testing.T) {
 	assert.NotNil(t, collection, "Failed to get collection for EmbeddedMovies")
 
 	// Create Vector Index for plot embeddings and term index for plot text.
-	err = EnsureIndexes[EmbeddedMovies](ctx, mongo, tenant)
+	err := EnsureIndexes[EmbeddedMovies](ctx, mongo, tenant)
 	assert.NoError(t, err, "Failed to ensure vector index for EmbeddedMovies")
 
 	// create embedder
-	embedder, err := llm.ProvideJinaAIEmbeddingClient()
-	assert.NoError(t, err, "Failed to create JinaAIEmbeddingClient")
+	embedder := llm.ProvideJinaAIEmbeddingClient()
 
 	// Save fixtures
-	fixtures, err := parseTestFixture("../fixtures/odm/embedded_movies_data.tsv", embedder)
+	fixtures, err := parseTestFixture(ctx, "../fixtures/odm/embedded_movies_data.tsv", embedder)
 	assert.NoError(t, err, "Failed to parse test fixture")
 
 	for _, movie := range fixtures {
@@ -151,7 +149,7 @@ func TestEmbeddedMoviesCollection(t *testing.T) {
 	t.Run("TestVectorIndex", func(t *testing.T) {
 		// Perform vector search
 		query := "shaolin medieval kings war"
-		embedding, err := getEmbedding(embedder, query, "retrieval.query")
+		embedding, err := getEmbedding(ctx, embedder, query, "retrieval.query")
 		assert.NoError(t, err, "Failed to get embedding for query")
 		assert.NotEmpty(t, embedding, "Embedding should not be empty")
 
@@ -189,7 +187,7 @@ func TestEmbeddedMoviesCollection(t *testing.T) {
 	})
 }
 
-func parseTestFixture(fixturePath string, embedder *llm.JinaAIEmbeddingClient) ([]EmbeddedMovies, error) {
+func parseTestFixture(ctx context.Context, fixturePath string, embedder llm.Embedder) ([]EmbeddedMovies, error) {
 	fixture, err := os.Open(fixturePath)
 	if err != nil {
 		return nil, err
@@ -230,7 +228,7 @@ func parseTestFixture(fixturePath string, embedder *llm.JinaAIEmbeddingClient) (
 			Cast:      collectNonEmpty(record[9:13]),
 		}
 
-		embedding, err := getEmbedding(embedder, movie.Plot, "retrieval.passage")
+		embedding, err := getEmbedding(ctx, embedder, movie.Plot, "retrieval.passage")
 		if err != nil {
 			return nil, err
 		}
@@ -252,18 +250,12 @@ func collectNonEmpty(fields []string) []string {
 	return result
 }
 
-func getEmbedding(em *llm.JinaAIEmbeddingClient, text, task string) ([]float32, error) {
+func getEmbedding(ctx context.Context, em llm.Embedder, text, task string) ([]float32, error) {
 	if task == "" {
 		task = "retrieval.passage" // Default task if not specified
 	}
 
-	req := llm.JinaAIEmbeddingRequest{
-		Model: "jina-embeddings-v3",
-		Task:  task,
-		Input: []string{text},
-	}
-
-	result, err := async.Await(em.GetEmbedding(context.Background(), req))
+	result, err := async.Await(em.GetEmbedding(ctx, text, llm.WithTask(task)))
 	if err != nil {
 		return nil, err
 	}

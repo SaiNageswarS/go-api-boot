@@ -50,7 +50,7 @@ func (m EmbeddedMovies) VectorIndexSpecs() []VectorIndexSpec {
 			Name:          "plotEmbeddingIndex",
 			Path:          "plotEmbedding",
 			Type:          "vector",
-			NumDimensions: 1024,
+			NumDimensions: 2048,
 			Similarity:    "cosine",
 			Quantization:  "scalar",
 		},

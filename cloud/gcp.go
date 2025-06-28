@@ -182,6 +182,33 @@ func (c *GCP) GetPresignedUrl(ctx context.Context, bucketName, path, contentType
 	return uploadUrl, downloadUrl
 }
 
+func (c *GCP) EnsureBucket(ctx context.Context, bucketName string) error {
+	if err := c.EnsureStorage(ctx); err != nil {
+		return err
+	}
+
+	bucket := c.Storage.Bucket(bucketName)
+	// Check if the bucket exists
+	_, err := bucket.Attrs(ctx)
+	if err == nil {
+		logger.Info("Bucket already exists", zap.String("bucketName", bucketName))
+		return nil
+	}
+
+	if strings.Contains(err.Error(), "not found") {
+		// Create the bucket if it does not exist
+		if err := bucket.Create(ctx, c.ccfgg.GcpProjectId, nil); err != nil {
+			logger.Error("Failed to create bucket", zap.String("bucketName", bucketName), zap.Error(err))
+			return err
+		}
+		logger.Info("Bucket created successfully", zap.String("bucketName", bucketName))
+		return nil
+	}
+
+	logger.Error("Failed to ensure bucket", zap.String("bucketName", bucketName), zap.Error(err))
+	return err
+}
+
 func (c *GCP) EnsureSecrets(ctx context.Context) error {
 	c.secretsOnce.Do(func() {
 		c.Secrets, c.secretsErr = newSecrets(ctx)

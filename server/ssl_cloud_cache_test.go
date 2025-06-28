@@ -130,3 +130,8 @@ func (m *mockCloud) GetPresignedUrl(ctx context.Context, bucketName, path, conte
 	// No-op for testing
 	return "", ""
 }
+
+func (m *mockCloud) EnsureBucket(ctx context.Context, bucketName string) error {
+	// No-op for testing
+	return nil
+}

@@ -3,15 +3,12 @@ package llm
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/SaiNageswarS/go-api-boot/logger"
 	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/ollama/ollama/api"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 )
 
 type stubClient struct {
@@ -78,34 +75,16 @@ func TestGetEmbedding(t *testing.T) {
 }
 
 func TestProvideOllamaEmbeddingClient_Success(t *testing.T) {
-	originalOllamaHost := os.Getenv("OLLAMA_HOST")
-	os.Setenv("OLLAMA_HOST", "http://localhost:11434")
-	defer os.Setenv("OLLAMA_HOST", originalOllamaHost)
-
-	client := ProvideOllamaEmbeddingClient()
-	assert.NotNil(t, client)
+	withEnv("OLLAMA_HOST", "http://localhost:11434", func(logger *MockLogger) {
+		client := ProvideOllamaEmbeddingClient()
+		assert.NotNil(t, client)
+	})
 }
 
 func TestProvideOllamaEmbeddingClient_Failure(t *testing.T) {
-	originalOllamaHost := os.Getenv("OLLAMA_HOST")
-	os.Unsetenv("OLLAMA_HOST")
-	defer os.Setenv("OLLAMA_HOST", originalOllamaHost)
-
-	isFatalCalled := false
-	fatalMsg := ""
-	mockFatal := func(msg string, fields ...zap.Field) {
-		isFatalCalled = true
-		fatalMsg = msg
-	}
-
-	// Replace the logger's Fatal function with a mock
-	originalFatal := logger.Fatal
-	defer func() {
-		logger.Fatal = originalFatal
-	}()
-	logger.Fatal = mockFatal
-
-	ProvideOllamaEmbeddingClient()
-	assert.True(t, isFatalCalled)
-	assert.Equal(t, "OLLAMA_HOST environment variable is not set", fatalMsg)
+	withEnv("OLLAMA_HOST", "", func(logger *MockLogger) {
+		ProvideOllamaEmbeddingClient()
+		assert.True(t, logger.isFatalCalled)
+		assert.Equal(t, "OLLAMA_HOST environment variable is not set", logger.fatalMsg)
+	})
 }

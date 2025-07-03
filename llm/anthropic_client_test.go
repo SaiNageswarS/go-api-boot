@@ -21,7 +21,7 @@ func TestProvideAnthropicClient_MissingAPIKey(t *testing.T) {
 
 func TestProvideAnthropicClient_Success(t *testing.T) {
 	withEnv("ANTHROPIC_API_KEY", "test-key", func(logger *MockLogger) {
-		client := ProvideAnthropicClient()
+		client := ProvideAnthropicClient().(*AnthropicClient)
 
 		assert.NotNil(t, client)
 		assert.Equal(t, "test-key", client.apiKey)
@@ -54,16 +54,11 @@ func TestGenerateInference_Success(t *testing.T) {
 		url:        server.URL,
 	}
 
-	req := &AnthropicRequest{
-		Model:       "claude-2",
-		MaxTokens:   50,
-		Temperature: 0.5,
-		Messages: []Message{
-			{Role: "user", Content: "Hello"},
-		},
+	messages := []Message{
+		{Role: "user", Content: "Hello"},
 	}
 
-	respText, err := async.Await(client.GenerateInference(context.Background(), req))
+	respText, err := async.Await(client.GenerateInference(t.Context(), messages))
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -84,13 +79,9 @@ func TestGenerateInference_BadStatusCode(t *testing.T) {
 		url:        server.URL,
 	}
 
-	req := &AnthropicRequest{
-		Model:     "claude-2",
-		MaxTokens: 50,
-		Messages:  []Message{{Role: "user", Content: "Test"}},
-	}
+	messages := []Message{{Role: "user", Content: "Test"}}
 
-	_, err := async.Await(client.GenerateInference(context.Background(), req))
+	_, err := async.Await(client.GenerateInference(t.Context(), messages))
 	if err == nil {
 		t.Fatal("Expected error due to bad status code, got nil")
 	}
@@ -109,13 +100,9 @@ func TestGenerateInference_InvalidJSON(t *testing.T) {
 		url:        server.URL,
 	}
 
-	req := &AnthropicRequest{
-		Model:     "claude-2",
-		MaxTokens: 50,
-		Messages:  []Message{{Role: "user", Content: "Test"}},
-	}
+	messages := []Message{{Role: "user", Content: "Test"}}
 
-	_, err := async.Await(client.GenerateInference(context.Background(), req))
+	_, err := async.Await(client.GenerateInference(context.Background(), messages))
 	if err == nil {
 		t.Fatal("Expected JSON unmarshal error, got nil")
 	}
@@ -139,13 +126,9 @@ func TestGenerateInference_EmptyContent(t *testing.T) {
 		url:        server.URL,
 	}
 
-	req := &AnthropicRequest{
-		Model:     "claude-2",
-		MaxTokens: 50,
-		Messages:  []Message{{Role: "user", Content: "Test"}},
-	}
+	messages := []Message{{Role: "user", Content: "Test"}}
 
-	_, err := async.Await(client.GenerateInference(context.Background(), req))
+	_, err := async.Await(client.GenerateInference(context.Background(), messages))
 	if err == nil || err.Error() != "no content in response" {
 		t.Errorf("Expected 'no content in response' error, got: %v", err)
 	}

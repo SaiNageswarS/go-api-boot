@@ -13,42 +13,13 @@ import (
 	"github.com/SaiNageswarS/go-collection-boot/async"
 )
 
-type AnthropicRequest struct {
-	Model       string    `json:"model"`
-	MaxTokens   int       `json:"max_tokens"`
-	Messages    []Message `json:"messages"`
-	System      string    `json:"system,omitempty"`
-	Temperature float64   `json:"temperature"`
-}
-
-// Message represents a message in the conversation
-type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-// AnthropicResponse represents the response from Anthropic API
-type AnthropicResponse struct {
-	Content []Content `json:"content"`
-	ID      string    `json:"id"`
-	Model   string    `json:"model"`
-	Role    string    `json:"role"`
-	Type    string    `json:"type"`
-}
-
-// Content represents the content in the response
-type Content struct {
-	Text string `json:"text"`
-	Type string `json:"type"`
-}
-
 type AnthropicClient struct {
 	apiKey     string
 	httpClient *http.Client
 	url        string
 }
 
-func ProvideAnthropicClient() *AnthropicClient {
+func ProvideAnthropicClient() LLMClient {
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
 		// Providers are designed for dependency injection.
@@ -64,8 +35,28 @@ func ProvideAnthropicClient() *AnthropicClient {
 	}
 }
 
-func (c *AnthropicClient) GenerateInference(ctx context.Context, request *AnthropicRequest) <-chan async.Result[string] {
+func (c *AnthropicClient) GenerateInference(ctx context.Context, messages []Message, opts ...LLMOption) <-chan async.Result[string] {
 	return async.Go(func() (string, error) {
+		// Default settings
+		settings := LLMSettings{
+			model:       "claude-3-sonnet-20240229",
+			temperature: 0.7,
+			maxTokens:   4096,
+		}
+
+		// Apply options
+		for _, opt := range opts {
+			opt(&settings)
+		}
+
+		request := anthropicRequest{
+			Model:       settings.model,
+			MaxTokens:   settings.maxTokens,
+			Temperature: settings.temperature,
+			System:      settings.system,
+			Messages:    messages,
+		}
+
 		jsonData, err := json.Marshal(request)
 		if err != nil {
 			return "", fmt.Errorf("error marshaling request: %w", err)
@@ -95,7 +86,7 @@ func (c *AnthropicClient) GenerateInference(ctx context.Context, request *Anthro
 			return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 		}
 
-		var response AnthropicResponse
+		var response anthropicResponse
 		if err := json.Unmarshal(body, &response); err != nil {
 			return "", fmt.Errorf("error unmarshaling response: %w", err)
 		}
@@ -106,4 +97,27 @@ func (c *AnthropicClient) GenerateInference(ctx context.Context, request *Anthro
 
 		return response.Content[0].Text, nil
 	})
+}
+
+type anthropicRequest struct {
+	Model       string    `json:"model"`
+	MaxTokens   int       `json:"max_tokens"`
+	Messages    []Message `json:"messages"`
+	System      string    `json:"system,omitempty"`
+	Temperature float64   `json:"temperature"`
+}
+
+// anthropicResponse represents the response from Anthropic API
+type anthropicResponse struct {
+	Content []content `json:"content"`
+	ID      string    `json:"id"`
+	Model   string    `json:"model"`
+	Role    string    `json:"role"`
+	Type    string    `json:"type"`
+}
+
+// content represents the content in the response
+type content struct {
+	Text string `json:"text"`
+	Type string `json:"type"`
 }

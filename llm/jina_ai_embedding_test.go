@@ -5,47 +5,26 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/SaiNageswarS/go-api-boot/logger"
 	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 )
 
 func TestProvideJinaAIEmbeddingClient_Success(t *testing.T) {
-	originalApiKey := os.Getenv("JINA_AI_API_KEY")
-	os.Setenv("JINA_AI_API_KEY", "dummy-key")
-	defer os.Setenv("JINA_AI_API_KEY", originalApiKey)
-
-	client := ProvideJinaAIEmbeddingClient()
-	assert.NotNil(t, client)
+	withEnv("JINA_AI_API_KEY", "dummy-key", func(logger *MockLogger) {
+		client := ProvideJinaAIEmbeddingClient()
+		assert.NotNil(t, client)
+	})
 }
 
 func TestProvideJinaAIEmbeddingClient_MissingAPIKey(t *testing.T) {
-	originalApiKey := os.Getenv("JINA_AI_API_KEY")
-	os.Unsetenv("JINA_AI_API_KEY")
-	defer os.Setenv("JINA_AI_API_KEY", originalApiKey)
-
-	isFatalCalled := false
-	fatalMsg := ""
-	mockFatal := func(msg string, fields ...zap.Field) {
-		isFatalCalled = true
-		fatalMsg = msg
-	}
-
-	// Replace the logger's Fatal function with a mock
-	originalFatal := logger.Fatal
-	defer func() {
-		logger.Fatal = originalFatal
-	}()
-	logger.Fatal = mockFatal
-
-	ProvideJinaAIEmbeddingClient()
-	assert.True(t, isFatalCalled)
-	assert.Equal(t, fatalMsg, "JINA_AI_API_KEY environment variable is not set")
+	withEnv("JINA_AI_API_KEY", "", func(logger *MockLogger) {
+		ProvideJinaAIEmbeddingClient()
+		assert.True(t, logger.isFatalCalled)
+		assert.Equal(t, logger.fatalMsg, "JINA_AI_API_KEY environment variable is not set")
+	})
 }
 
 func TestGetEmbedding_Success(t *testing.T) {

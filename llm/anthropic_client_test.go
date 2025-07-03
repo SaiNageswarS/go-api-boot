@@ -4,34 +4,24 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
-	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/stretchr/testify/assert"
 )
 
-func withEnv(key, value string, fn func()) {
-	original := os.Getenv(key)
-	os.Setenv(key, value)
-	defer os.Setenv(key, original)
-	fn()
-}
-
 func TestProvideAnthropicClient_MissingAPIKey(t *testing.T) {
-	os.Unsetenv("ANTHROPIC_API_KEY")
-	client, err := ProvideAnthropicClient()
+	withEnv("ANTHROPIC_API_KEY", "", func(logger *MockLogger) {
+		ProvideAnthropicClient()
 
-	assert.Error(t, err)
-	assert.Nil(t, client)
-	assert.Equal(t, "ANTHROPIC_API_KEY environment variable is not set", err.Error())
+		assert.True(t, logger.isFatalCalled)
+		assert.Equal(t, "ANTHROPIC_API_KEY environment variable is not set", logger.fatalMsg)
+	})
 }
 
 func TestProvideAnthropicClient_Success(t *testing.T) {
-	withEnv("ANTHROPIC_API_KEY", "test-key", func() {
-		client, err := ProvideAnthropicClient()
+	withEnv("ANTHROPIC_API_KEY", "test-key", func(logger *MockLogger) {
+		client := ProvideAnthropicClient().(*AnthropicClient)
 
-		assert.NoError(t, err)
 		assert.NotNil(t, client)
 		assert.Equal(t, "test-key", client.apiKey)
 		assert.NotEmpty(t, client.url)
@@ -63,22 +53,17 @@ func TestGenerateInference_Success(t *testing.T) {
 		url:        server.URL,
 	}
 
-	req := &AnthropicRequest{
-		Model:       "claude-2",
-		MaxTokens:   50,
-		Temperature: 0.5,
-		Messages: []Message{
-			{Role: "user", Content: "Hello"},
-		},
+	messages := []Message{
+		{Role: "user", Content: "Hello"},
 	}
 
-	respText, err := async.Await(client.GenerateInference(context.Background(), req))
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-	if respText != "Test response" {
-		t.Errorf("Expected 'Test response', got '%s'", respText)
-	}
+	var respText string
+	err := client.GenerateInference(t.Context(), messages, func(chunk string) error {
+		respText += chunk
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "Test response", respText)
 }
 
 func TestGenerateInference_BadStatusCode(t *testing.T) {
@@ -93,16 +78,10 @@ func TestGenerateInference_BadStatusCode(t *testing.T) {
 		url:        server.URL,
 	}
 
-	req := &AnthropicRequest{
-		Model:     "claude-2",
-		MaxTokens: 50,
-		Messages:  []Message{{Role: "user", Content: "Test"}},
-	}
+	messages := []Message{{Role: "user", Content: "Test"}}
 
-	_, err := async.Await(client.GenerateInference(context.Background(), req))
-	if err == nil {
-		t.Fatal("Expected error due to bad status code, got nil")
-	}
+	err := client.GenerateInference(t.Context(), messages, func(chunk string) error { return nil })
+	assert.Error(t, err)
 }
 
 func TestGenerateInference_InvalidJSON(t *testing.T) {
@@ -118,16 +97,10 @@ func TestGenerateInference_InvalidJSON(t *testing.T) {
 		url:        server.URL,
 	}
 
-	req := &AnthropicRequest{
-		Model:     "claude-2",
-		MaxTokens: 50,
-		Messages:  []Message{{Role: "user", Content: "Test"}},
-	}
+	messages := []Message{{Role: "user", Content: "Test"}}
 
-	_, err := async.Await(client.GenerateInference(context.Background(), req))
-	if err == nil {
-		t.Fatal("Expected JSON unmarshal error, got nil")
-	}
+	err := client.GenerateInference(context.Background(), messages, func(chunk string) error { return nil })
+	assert.Error(t, err)
 }
 
 func TestGenerateInference_EmptyContent(t *testing.T) {
@@ -148,14 +121,9 @@ func TestGenerateInference_EmptyContent(t *testing.T) {
 		url:        server.URL,
 	}
 
-	req := &AnthropicRequest{
-		Model:     "claude-2",
-		MaxTokens: 50,
-		Messages:  []Message{{Role: "user", Content: "Test"}},
-	}
+	messages := []Message{{Role: "user", Content: "Test"}}
 
-	_, err := async.Await(client.GenerateInference(context.Background(), req))
-	if err == nil || err.Error() != "no content in response" {
-		t.Errorf("Expected 'no content in response' error, got: %v", err)
-	}
+	err := client.GenerateInference(context.Background(), messages, func(chunk string) error { return nil })
+	assert.Error(t, err)
+	assert.EqualError(t, err, "no content in response")
 }

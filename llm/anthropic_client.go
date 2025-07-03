@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 
+	"github.com/SaiNageswarS/go-api-boot/logger"
 	"github.com/SaiNageswarS/go-collection-boot/async"
 )
 
@@ -48,17 +48,20 @@ type AnthropicClient struct {
 	url        string
 }
 
-func ProvideAnthropicClient() (*AnthropicClient, error) {
+func ProvideAnthropicClient() *AnthropicClient {
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
-		return nil, errors.New("ANTHROPIC_API_KEY environment variable is not set")
+		// Providers are designed for dependency injection.
+		// If the API key is not set, we log a fatal error.
+		logger.Fatal("ANTHROPIC_API_KEY environment variable is not set")
+		return nil // This will never be reached, but it's good practice to return nil here.
 	}
 
 	return &AnthropicClient{
 		apiKey:     apiKey,
 		httpClient: &http.Client{},
 		url:        "https://api.anthropic.com/v1/messages",
-	}, nil
+	}
 }
 
 func (c *AnthropicClient) GenerateInference(ctx context.Context, request *AnthropicRequest) <-chan async.Result[string] {

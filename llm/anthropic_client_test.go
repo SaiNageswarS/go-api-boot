@@ -4,34 +4,25 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/stretchr/testify/assert"
 )
 
-func withEnv(key, value string, fn func()) {
-	original := os.Getenv(key)
-	os.Setenv(key, value)
-	defer os.Setenv(key, original)
-	fn()
-}
-
 func TestProvideAnthropicClient_MissingAPIKey(t *testing.T) {
-	os.Unsetenv("ANTHROPIC_API_KEY")
-	client, err := ProvideAnthropicClient()
+	withEnv("ANTHROPIC_API_KEY", "", func(logger *MockLogger) {
+		ProvideAnthropicClient()
 
-	assert.Error(t, err)
-	assert.Nil(t, client)
-	assert.Equal(t, "ANTHROPIC_API_KEY environment variable is not set", err.Error())
+		assert.True(t, logger.isFatalCalled)
+		assert.Equal(t, "ANTHROPIC_API_KEY environment variable is not set", logger.fatalMsg)
+	})
 }
 
 func TestProvideAnthropicClient_Success(t *testing.T) {
-	withEnv("ANTHROPIC_API_KEY", "test-key", func() {
-		client, err := ProvideAnthropicClient()
+	withEnv("ANTHROPIC_API_KEY", "test-key", func(logger *MockLogger) {
+		client := ProvideAnthropicClient()
 
-		assert.NoError(t, err)
 		assert.NotNil(t, client)
 		assert.Equal(t, "test-key", client.apiKey)
 		assert.NotEmpty(t, client.url)

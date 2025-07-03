@@ -2,12 +2,15 @@ package llm
 
 import (
 	"context"
-
-	"github.com/SaiNageswarS/go-collection-boot/async"
 )
 
 type LLMClient interface {
-	GenerateInference(ctx context.Context, messages []Message, opts ...LLMOption) <-chan async.Result[string]
+	GenerateInference(
+		ctx context.Context,
+		messages []Message,
+		callback func(chunk string) error,
+		opts ...LLMOption,
+	) error
 }
 
 type LLMSettings struct {

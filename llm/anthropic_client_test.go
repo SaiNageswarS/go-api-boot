@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -58,13 +57,13 @@ func TestGenerateInference_Success(t *testing.T) {
 		{Role: "user", Content: "Hello"},
 	}
 
-	respText, err := async.Await(client.GenerateInference(t.Context(), messages))
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-	if respText != "Test response" {
-		t.Errorf("Expected 'Test response', got '%s'", respText)
-	}
+	var respText string
+	err := client.GenerateInference(t.Context(), messages, func(chunk string) error {
+		respText += chunk
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "Test response", respText)
 }
 
 func TestGenerateInference_BadStatusCode(t *testing.T) {
@@ -81,10 +80,8 @@ func TestGenerateInference_BadStatusCode(t *testing.T) {
 
 	messages := []Message{{Role: "user", Content: "Test"}}
 
-	_, err := async.Await(client.GenerateInference(t.Context(), messages))
-	if err == nil {
-		t.Fatal("Expected error due to bad status code, got nil")
-	}
+	err := client.GenerateInference(t.Context(), messages, func(chunk string) error { return nil })
+	assert.Error(t, err)
 }
 
 func TestGenerateInference_InvalidJSON(t *testing.T) {
@@ -102,10 +99,8 @@ func TestGenerateInference_InvalidJSON(t *testing.T) {
 
 	messages := []Message{{Role: "user", Content: "Test"}}
 
-	_, err := async.Await(client.GenerateInference(context.Background(), messages))
-	if err == nil {
-		t.Fatal("Expected JSON unmarshal error, got nil")
-	}
+	err := client.GenerateInference(context.Background(), messages, func(chunk string) error { return nil })
+	assert.Error(t, err)
 }
 
 func TestGenerateInference_EmptyContent(t *testing.T) {
@@ -128,8 +123,7 @@ func TestGenerateInference_EmptyContent(t *testing.T) {
 
 	messages := []Message{{Role: "user", Content: "Test"}}
 
-	_, err := async.Await(client.GenerateInference(context.Background(), messages))
-	if err == nil || err.Error() != "no content in response" {
-		t.Errorf("Expected 'no content in response' error, got: %v", err)
-	}
+	err := client.GenerateInference(context.Background(), messages, func(chunk string) error { return nil })
+	assert.Error(t, err)
+	assert.EqualError(t, err, "no content in response")
 }

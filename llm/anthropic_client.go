@@ -10,7 +10,6 @@ import (
 	"os"
 
 	"github.com/SaiNageswarS/go-api-boot/logger"
-	"github.com/SaiNageswarS/go-collection-boot/async"
 )
 
 type AnthropicClient struct {
@@ -35,68 +34,65 @@ func ProvideAnthropicClient() LLMClient {
 	}
 }
 
-func (c *AnthropicClient) GenerateInference(ctx context.Context, messages []Message, opts ...LLMOption) <-chan async.Result[string] {
-	return async.Go(func() (string, error) {
-		// Default settings
-		settings := LLMSettings{
-			model:       "claude-3-sonnet-20240229",
-			temperature: 0.7,
-			maxTokens:   4096,
-		}
+func (c *AnthropicClient) GenerateInference(ctx context.Context, messages []Message, callback func(chunk string) error, opts ...LLMOption) error {
+	settings := LLMSettings{
+		model:       "claude-3-sonnet-20240229",
+		temperature: 0.7,
+		maxTokens:   4096,
+	}
 
-		// Apply options
-		for _, opt := range opts {
-			opt(&settings)
-		}
+	// Apply options
+	for _, opt := range opts {
+		opt(&settings)
+	}
 
-		request := anthropicRequest{
-			Model:       settings.model,
-			MaxTokens:   settings.maxTokens,
-			Temperature: settings.temperature,
-			System:      settings.system,
-			Messages:    messages,
-		}
+	request := anthropicRequest{
+		Model:       settings.model,
+		MaxTokens:   settings.maxTokens,
+		Temperature: settings.temperature,
+		System:      settings.system,
+		Messages:    messages,
+	}
 
-		jsonData, err := json.Marshal(request)
-		if err != nil {
-			return "", fmt.Errorf("error marshaling request: %w", err)
-		}
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return fmt.Errorf("error marshaling request: %w", err)
+	}
 
-		req, err := http.NewRequestWithContext(ctx, "POST", c.url, bytes.NewBuffer(jsonData))
-		if err != nil {
-			return "", fmt.Errorf("error creating request: %w", err)
-		}
+	req, err := http.NewRequestWithContext(ctx, "POST", c.url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("error creating request: %w", err)
+	}
 
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("x-api-key", c.apiKey)
-		req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", c.apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
 
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			return "", fmt.Errorf("error making request: %w", err)
-		}
-		defer resp.Body.Close()
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("error making request: %w", err)
+	}
+	defer resp.Body.Close()
 
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return "", fmt.Errorf("error reading response: %w", err)
-		}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("error reading response: %w", err)
+	}
 
-		if resp.StatusCode != http.StatusOK {
-			return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-		}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
 
-		var response anthropicResponse
-		if err := json.Unmarshal(body, &response); err != nil {
-			return "", fmt.Errorf("error unmarshaling response: %w", err)
-		}
+	var response anthropicResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return fmt.Errorf("error unmarshaling response: %w", err)
+	}
 
-		if len(response.Content) == 0 {
-			return "", fmt.Errorf("no content in response")
-		}
+	if len(response.Content) == 0 {
+		return fmt.Errorf("no content in response")
+	}
 
-		return response.Content[0].Text, nil
-	})
+	return callback(response.Content[0].Text)
 }
 
 type anthropicRequest struct {

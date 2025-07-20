@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/SaiNageswarS/go-api-boot/logger"
-	"github.com/SaiNageswarS/go-collection-boot/linq"
 	"github.com/ollama/ollama/api"
 )
 
@@ -40,12 +39,13 @@ func (c *OllamaLLMClient) GenerateInference(ctx context.Context, messages []Mess
 	}
 
 	// Convert messages to Ollama format
-	ollamaMessages := linq.Map(messages, func(msg Message) api.Message {
-		return api.Message{
+	ollamaMessages := make([]api.Message, len(messages))
+	for i, msg := range messages {
+		ollamaMessages[i] = api.Message{
 			Role:    msg.Role,
 			Content: msg.Content,
 		}
-	})
+	}
 
 	req := &api.ChatRequest{
 		Model:    settings.model,

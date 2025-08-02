@@ -1,4 +1,4 @@
-package llm
+package embed
 
 import (
 	"context"

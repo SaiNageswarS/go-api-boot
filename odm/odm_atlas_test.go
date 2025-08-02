@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/SaiNageswarS/go-api-boot/dotenv"
-	"github.com/SaiNageswarS/go-api-boot/llm"
+	"github.com/SaiNageswarS/go-api-boot/embed"
 	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -86,7 +86,7 @@ func TestEmbeddedMoviesCollection(t *testing.T) {
 	assert.NoError(t, err, "Failed to ensure vector index for EmbeddedMovies")
 
 	// create embedder
-	embedder := llm.ProvideJinaAIEmbeddingClient()
+	embedder := embed.ProvideJinaAIEmbeddingClient()
 
 	// Save fixtures
 	fixtures, err := parseTestFixture(ctx, "../fixtures/odm/embedded_movies_data.tsv", embedder)
@@ -187,7 +187,7 @@ func TestEmbeddedMoviesCollection(t *testing.T) {
 	})
 }
 
-func parseTestFixture(ctx context.Context, fixturePath string, embedder llm.Embedder) ([]EmbeddedMovies, error) {
+func parseTestFixture(ctx context.Context, fixturePath string, embedder embed.Embedder) ([]EmbeddedMovies, error) {
 	fixture, err := os.Open(fixturePath)
 	if err != nil {
 		return nil, err
@@ -250,12 +250,12 @@ func collectNonEmpty(fields []string) []string {
 	return result
 }
 
-func getEmbedding(ctx context.Context, em llm.Embedder, text, task string) ([]float32, error) {
+func getEmbedding(ctx context.Context, em embed.Embedder, text, task string) ([]float32, error) {
 	if task == "" {
 		task = "retrieval.passage" // Default task if not specified
 	}
 
-	result, err := async.Await(em.GetEmbedding(ctx, text, llm.WithTask(task)))
+	result, err := async.Await(em.GetEmbedding(ctx, text, embed.WithTask(task)))
 	if err != nil {
 		return nil, err
 	}

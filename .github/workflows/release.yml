@@ -1,0 +1,77 @@
+name: Release and SEO
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.24'
+
+    - name: Run tests
+      run: go test -v ./...
+
+    - name: Generate changelog
+      id: changelog
+      run: |
+        echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+        echo "## What's Changed in ${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "### 🚀 Features & Improvements" >> $GITHUB_OUTPUT
+        git log --oneline --grep="feat\|feature" $(git describe --tags --abbrev=0 HEAD^)..HEAD | sed 's/^/- /' >> $GITHUB_OUTPUT || echo "- See commits for detailed changes" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "### 🐛 Bug Fixes" >> $GITHUB_OUTPUT  
+        git log --oneline --grep="fix\|bug" $(git describe --tags --abbrev=0 HEAD^)..HEAD | sed 's/^/- /' >> $GITHUB_OUTPUT || echo "- See commits for detailed changes" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "### 📖 Documentation & Examples" >> $GITHUB_OUTPUT
+        echo "- Full documentation: https://github.com/SaiNageswarS/go-api-boot" >> $GITHUB_OUTPUT
+        echo "- API Reference: https://pkg.go.dev/github.com/SaiNageswarS/go-api-boot" >> $GITHUB_OUTPUT
+        echo "- Examples: https://github.com/SaiNageswarS/go-api-boot#examples" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "### 🛠️ Installation" >> $GITHUB_OUTPUT
+        echo "\`\`\`bash" >> $GITHUB_OUTPUT
+        echo "go install github.com/SaiNageswarS/go-api-boot/cmd/go-api-boot@${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        echo "\`\`\`" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "**Full Changelog**: https://github.com/SaiNageswarS/go-api-boot/compare/$(git describe --tags --abbrev=0 HEAD^)...${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Create Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: 'go-api-boot ${{ github.ref }}'
+        body: ${{ steps.changelog.outputs.CHANGELOG }}
+        draft: false
+        prerelease: false
+
+    - name: Submit to pkg.go.dev
+      run: |
+        curl -X POST "https://proxy.golang.org/github.com/SaiNageswarS/go-api-boot/@v/${{ github.ref_name }}.info"
+
+  seo-update:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Update package discovery
+      run: |
+        # Trigger pkg.go.dev discovery
+        curl -f "https://proxy.golang.org/github.com/SaiNageswarS/go-api-boot/@latest" || true
+        
+        # Update module proxy
+        go list -m github.com/SaiNageswarS/go-api-boot@latest || true

@@ -1,9 +1,19 @@
-# go-api-boot
+# go-api-boot - Production-Ready Go API Framework
+
 [![codecov](https://codecov.io/gh/SaiNageswarS/go-api-boot/graph/badge.svg?token=J3NQ3PR0F9)](https://codecov.io/gh/SaiNageswarS/go-api-boot)
-[![Go Report Card](https://goreportcard.com/badge/github.com/SaiNageswarS/go-api-boot)](https://goreportcard.com/report/github.com/SaiNageswarS/go-api-boot) [![Go Reference](https://pkg.go.dev/badge/github.com/SaiNageswarS/go-api-boot.svg)](https://pkg.go.dev/github.com/SaiNageswarS/go-api-boot)
+[![Go Report Card](https://goreportcard.com/badge/github.com/SaiNageswarS/go-api-boot)](https://goreportcard.com/report/github.com/SaiNageswarS/go-api-boot) 
+[![Go Reference](https://pkg.go.dev/badge/github.com/SaiNageswarS/go-api-boot.svg)](https://pkg.go.dev/github.com/SaiNageswarS/go-api-boot)
+[![GitHub release](https://img.shields.io/github/release/SaiNageswarS/go-api-boot.svg)](https://github.com/SaiNageswarS/go-api-boot/releases)
+[![Go version](https://img.shields.io/github/go-mod/go-version/SaiNageswarS/go-api-boot)](https://github.com/SaiNageswarS/go-api-boot)
+[![License](https://img.shields.io/github/license/SaiNageswarS/go-api-boot.svg)](https://github.com/SaiNageswarS/go-api-boot/blob/master/LICENSE)
+
+> **🚀 The Original & Official go-api-boot Framework by [@SaiNageswarS](https://github.com/SaiNageswarS)**  
+> ⚠️ **Note**: This is the original and actively maintained repository.
 
 
-> **Batteries‑included framework for building production‑grade gRPC + HTTP APIs in Go – with generics, MongoDB ODM, cloud utilities, zero‑config HTTPS, workers, and a one‑line bootstrap CLI.**
+> **Batteries‑included Go framework for building production‑grade gRPC + HTTP APIs – with generics, MongoDB ODM, cloud utilities, zero‑config HTTPS, Temporal workers, and a one‑line bootstrap CLI.**
+
+**🎯 Keywords**: Go API framework, gRPC Go, HTTP server Go, MongoDB ODM Go, Go microservices, Go web framework, production Go APIs, Go cloud native, Temporal Go workers, Go dependency injection
 
 ---
 
@@ -26,7 +36,6 @@
    * [Cloud Abstractions](#cloud-abstractions)
    * [Zero‑Config SSL/TLS](#zero-config-ssltls)
    * [Temporal Workers](#temporal-workers)
-   * [LLM Clients](#llm-clients)
 6. [CLI Reference](#cli-reference)
 7. [Examples](#examples)
 8. [Contributing](#contributing)
@@ -374,10 +383,6 @@ boot, _ := server.New().
 boot.Serve(context.Background())
 ```
 
-### LLM Clients
-
-Lightweight clients for Anthropic, OpenAI, Jina AI, etc.
-
 ---
 
 ## CLI Reference
@@ -394,6 +399,7 @@ Run with `-h` for full flags.
 
 ## Examples
 
+* **Medicine RAG** - A retrieval-augmented generation full-stack application for doctors -> [https://github.com/SaiNageswarS/medicine-rag](https://github.com/SaiNageswarS/medicine-rag)
 * **Agent Boot** – AI agent framework → [github.com/SaiNageswarS/agent-boot](https://github.com/SaiNageswarS/agent-boot)
 * **Kotlang/authGo** – real‑world auth service → [github.com/Kotlang/authGo](https://github.com/Kotlang/authGo)
 

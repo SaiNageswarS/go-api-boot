@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Documentation
+    url: https://pkg.go.dev/github.com/SaiNageswarS/go-api-boot
+    about: Check the official documentation for usage examples and API reference
+  - name: 💬 Community Discussion
+    url: https://github.com/SaiNageswarS/go-api-boot/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: 📚 Examples
+    url: https://github.com/SaiNageswarS/go-api-boot/tree/master/examples
+    about: Browse code examples and implementation patterns

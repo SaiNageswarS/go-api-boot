@@ -216,7 +216,7 @@ func (b *Builder) Build() (*BootServer, error) {
 	mux := http.NewServeMux()
 
 	webProxy := GetWebProxy(grpcSrv)
-	mux.Handle("/", b.cors.Handler(webProxy))
+	mux.Handle("/api", b.cors.Handler(webProxy))
 
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {

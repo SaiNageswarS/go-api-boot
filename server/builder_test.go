@@ -352,16 +352,15 @@ func TestBuild_WithoutStaticDir_NoStaticRoutes(t *testing.T) {
 	}
 	defer boot.Shutdown(context.Background())
 
-	// Test that static routes return 405 (Method Not Allowed) when not configured
-	// because the default grpc-web proxy handles all unmatched routes
+	// Test that static routes return 404 (Not Found) when not configured
 	req := httptest.NewRequest("GET", "/static/nonexistent.txt", nil)
 	rec := httptest.NewRecorder()
 
 	boot.http.Handler.ServeHTTP(rec, req)
 
-	// The grpc-web proxy returns 405 for unhandled HTTP methods on unregistered paths
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Errorf("expected status 405, got %d", rec.Code)
+	// unhandled routes return 404
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", rec.Code)
 	}
 }
 

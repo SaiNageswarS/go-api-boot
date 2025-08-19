@@ -27,6 +27,7 @@ import (
 type Builder struct {
 	grpcPort    string
 	httpPort    string
+	staticDir   string
 	sslProvider SSLProvider
 
 	unary  []grpc.UnaryServerInterceptor
@@ -75,6 +76,10 @@ func New() *Builder {
 
 func (b *Builder) GRPCPort(p string) *Builder { b.grpcPort = p; return b }
 func (b *Builder) HTTPPort(p string) *Builder { b.httpPort = p; return b }
+
+// StaticDir sets the directory to serve static files from (e.g., "./static").
+// Static files will be served on the same HTTP port at /static/* path.
+func (b *Builder) StaticDir(dir string) *Builder { b.staticDir = dir; return b }
 
 func (b *Builder) EnableSSL(p SSLProvider) *Builder { b.sslProvider = p; return b }
 
@@ -221,6 +226,12 @@ func (b *Builder) Build() (*BootServer, error) {
 	// register extra handlers
 	for p, h := range b.extra {
 		mux.HandleFunc(p, h)
+	}
+
+	// Add static file serving if configured
+	if b.staticDir != "" {
+		fileServer := http.FileServer(http.Dir(b.staticDir))
+		mux.Handle("/static/", http.StripPrefix("/static/", fileServer))
 	}
 
 	// HTTP server with optimized timeouts

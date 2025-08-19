@@ -3,7 +3,11 @@ package server
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/rs/cors"
@@ -280,3 +284,212 @@ func TestApplySettings_Success(t *testing.T) {
 func activityFactory() *struct{} { return &struct{}{} }
 
 func testWorkflow() error { return nil }
+
+// ------ Static File Serving Tests ------
+
+func TestBuilder_StaticDir_SetsStaticDirectory(t *testing.T) {
+	b := New().StaticDir("./public")
+
+	if b.staticDir != "./public" {
+		t.Errorf("expected staticDir './public', got %q", b.staticDir)
+	}
+}
+
+func TestBuilder_StaticDir_ChainableBuilder(t *testing.T) {
+	b := New().
+		GRPCPort(":0").
+		HTTPPort(":0").
+		StaticDir("./assets")
+
+	if b.staticDir != "./assets" {
+		t.Errorf("expected staticDir './assets', got %q", b.staticDir)
+	}
+}
+
+func TestBuild_WithStaticDir_AddsStaticRoutes(t *testing.T) {
+	// Create a temporary directory with a test file
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
+		t.Fatalf("failed to create test file: %v", err)
+	}
+
+	// Build server with static directory
+	boot, err := New().
+		GRPCPort(":0").
+		HTTPPort(":0").
+		StaticDir(tmpDir).
+		Build()
+
+	if err != nil {
+		t.Fatalf("Build() failed: %v", err)
+	}
+	defer boot.Shutdown(context.Background())
+
+	// Test that static files are served
+	req := httptest.NewRequest("GET", "/static/test.txt", nil)
+	rec := httptest.NewRecorder()
+
+	boot.http.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rec.Code)
+	}
+
+	if rec.Body.String() != "test content" {
+		t.Errorf("expected 'test content', got %q", rec.Body.String())
+	}
+}
+
+func TestBuild_WithoutStaticDir_NoStaticRoutes(t *testing.T) {
+	boot, err := New().
+		GRPCPort(":0").
+		HTTPPort(":0").
+		Build()
+
+	if err != nil {
+		t.Fatalf("Build() failed: %v", err)
+	}
+	defer boot.Shutdown(context.Background())
+
+	// Test that static routes return 405 (Method Not Allowed) when not configured
+	// because the default grpc-web proxy handles all unmatched routes
+	req := httptest.NewRequest("GET", "/static/nonexistent.txt", nil)
+	rec := httptest.NewRecorder()
+
+	boot.http.Handler.ServeHTTP(rec, req)
+
+	// The grpc-web proxy returns 405 for unhandled HTTP methods on unregistered paths
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected status 405, got %d", rec.Code)
+	}
+}
+
+func TestBuild_StaticDir_PathPrefix(t *testing.T) {
+	// Create a temporary directory with nested structure
+	tmpDir := t.TempDir()
+	cssDir := filepath.Join(tmpDir, "css")
+	if err := os.MkdirAll(cssDir, 0755); err != nil {
+		t.Fatalf("failed to create css directory: %v", err)
+	}
+
+	cssFile := filepath.Join(cssDir, "style.css")
+	if err := os.WriteFile(cssFile, []byte("body { color: red; }"), 0644); err != nil {
+		t.Fatalf("failed to create css file: %v", err)
+	}
+
+	boot, err := New().
+		GRPCPort(":0").
+		HTTPPort(":0").
+		StaticDir(tmpDir).
+		Build()
+
+	if err != nil {
+		t.Fatalf("Build() failed: %v", err)
+	}
+	defer boot.Shutdown(context.Background())
+
+	// Test nested file access
+	req := httptest.NewRequest("GET", "/static/css/style.css", nil)
+	rec := httptest.NewRecorder()
+
+	boot.http.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rec.Code)
+	}
+
+	if rec.Body.String() != "body { color: red; }" {
+		t.Errorf("expected CSS content, got %q", rec.Body.String())
+	}
+
+	// Verify Content-Type header is set correctly
+	contentType := rec.Header().Get("Content-Type")
+	if !strings.Contains(contentType, "text/css") {
+		t.Errorf("expected CSS content type, got %q", contentType)
+	}
+}
+
+func TestBuild_StaticDir_IntegrationTest(t *testing.T) {
+	// Create a temporary directory with realistic static assets
+	tmpDir := t.TempDir()
+
+	// Create index.html
+	indexHTML := `<!DOCTYPE html>
+<html>
+<head>
+    <title>Test App</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <h1>Hello World</h1>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>`
+
+	// Create directory structure
+	cssDir := filepath.Join(tmpDir, "css")
+	jsDir := filepath.Join(tmpDir, "js")
+	if err := os.MkdirAll(cssDir, 0755); err != nil {
+		t.Fatalf("failed to create css directory: %v", err)
+	}
+	if err := os.MkdirAll(jsDir, 0755); err != nil {
+		t.Fatalf("failed to create js directory: %v", err)
+	}
+
+	// Write files
+	files := map[string]string{
+		"index.html":    indexHTML,
+		"css/style.css": "body { font-family: Arial, sans-serif; }",
+		"js/app.js":     "console.log('Hello from static JS!');",
+		"favicon.ico":   "fake-ico-data",
+	}
+
+	for relPath, content := range files {
+		fullPath := filepath.Join(tmpDir, relPath)
+		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write %s: %v", relPath, err)
+		}
+	}
+
+	// Build server with static directory
+	boot, err := New().
+		GRPCPort(":0").
+		HTTPPort(":0").
+		StaticDir(tmpDir).
+		Build()
+
+	if err != nil {
+		t.Fatalf("Build() failed: %v", err)
+	}
+	defer boot.Shutdown(context.Background())
+
+	// Test all static files are accessible
+	testCases := []struct {
+		path         string
+		expectedCode int
+		contains     string
+	}{
+		{"/static/css/style.css", 200, "font-family"},
+		{"/static/js/app.js", 200, "console.log"},
+		{"/static/favicon.ico", 200, "fake-ico-data"},
+		{"/static/nonexistent.txt", 404, ""},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.path, func(t *testing.T) {
+			req := httptest.NewRequest("GET", tc.path, nil)
+			rec := httptest.NewRecorder()
+
+			boot.http.Handler.ServeHTTP(rec, req)
+
+			if rec.Code != tc.expectedCode {
+				t.Errorf("expected status %d, got %d", tc.expectedCode, rec.Code)
+			}
+
+			if tc.contains != "" && !strings.Contains(rec.Body.String(), tc.contains) {
+				t.Errorf("expected response to contain %q, got %q", tc.contains, rec.Body.String())
+			}
+		})
+	}
+}

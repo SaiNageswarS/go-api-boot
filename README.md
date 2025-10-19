@@ -9,6 +9,8 @@
 
 > **Batteries‑included Go framework for building production‑grade gRPC + HTTP APIs – with generics, MongoDB ODM, cloud utilities, zero‑config HTTPS, Temporal workers, and a one‑line bootstrap CLI.**
 
+> 🚀 **Featured in [Awesome Go](https://github.com/avelino/awesome-go)** — the curated list of high-quality Go frameworks.
+
 **🎯 Keywords**: Go API framework, gRPC Go, HTTP server Go, MongoDB ODM Go, Go microservices, Go web framework, production Go APIs, Go cloud native, Temporal Go workers, Go dependency injection
 
 ---
@@ -414,3 +416,7 @@ PRs and issues are welcome!
 ## License
 
 Apache‑2.0 – see [LICENSE](LICENSE) for details.
+
+---
+
+**Built with ❤️ for developers by [Sai Nageswar S](https://prism.apiboot.com/sainageswar/).**

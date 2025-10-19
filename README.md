@@ -7,10 +7,6 @@
 [![Go version](https://img.shields.io/github/go-mod/go-version/SaiNageswarS/go-api-boot)](https://github.com/SaiNageswarS/go-api-boot)
 [![License](https://img.shields.io/github/license/SaiNageswarS/go-api-boot.svg)](https://github.com/SaiNageswarS/go-api-boot/blob/master/LICENSE)
 
-> **🚀 The Original & Official go-api-boot Framework by [@SaiNageswarS](https://github.com/SaiNageswarS)**  
-> ⚠️ **Note**: This is the original and actively maintained repository.
-
-
 > **Batteries‑included Go framework for building production‑grade gRPC + HTTP APIs – with generics, MongoDB ODM, cloud utilities, zero‑config HTTPS, Temporal workers, and a one‑line bootstrap CLI.**
 
 **🎯 Keywords**: Go API framework, gRPC Go, HTTP server Go, MongoDB ODM Go, Go microservices, Go web framework, production Go APIs, Go cloud native, Temporal Go workers, Go dependency injection

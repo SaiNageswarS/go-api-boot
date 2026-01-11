@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -72,21 +73,30 @@ func TestBuilder_RegisterValidation(t *testing.T) {
 			AllowedHeaders: []string{"*"},
 		})
 
-	customHttpHandler := func(res http.ResponseWriter, req *http.Request) {
-		res.WriteHeader(http.StatusOK)
-		res.Write([]byte("Custom HTTP Handler"))
-	}
-
 	builder := New().
 		Unary(mockUnaryInterceptor).
 		Stream(mockStreamInterceptor).
 		CORS(corsConfig).
-		Handle("/getTestApi", customHttpHandler)
+		AddRestController(func() *testRestController {
+			return &testRestController{}
+		})
 
-	assert.Equal(t, len(builder.unary), 4)  // 3 default + 1 custom
-	assert.Equal(t, len(builder.stream), 4) // 3 default + 1 custom
-	assert.Equal(t, len(builder.extra), 1)  // 1 custom HTTP handler
+	assert.Equal(t, len(builder.unary), 4)              // 3 default + 1 custom
+	assert.Equal(t, len(builder.stream), 4)             // 3 default + 1 custom
+	assert.Equal(t, len(builder.restControllerRegs), 1) // 1 REST controller
 	assert.NotNil(t, builder.cors)
+}
+
+// testRestController is a mock REST controller for testing
+type testRestController struct{}
+
+func (c *testRestController) Routes() []Route {
+	return []Route{
+		{Pattern: "/getTestApi", Method: "GET", Handler: func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("Custom HTTP Handler"))
+		}},
+	}
 }
 
 func TestBuilder_Provide_RegistersService(t *testing.T) {
@@ -284,6 +294,178 @@ func TestApplySettings_Success(t *testing.T) {
 func activityFactory() *struct{} { return &struct{}{} }
 
 func testWorkflow() error { return nil }
+
+// ------ REST Controller Tests ------
+
+// testRestControllerWithDep is a REST controller with dependencies
+type testRestControllerWithDep struct {
+	dep *dep
+}
+
+func (c *testRestControllerWithDep) Routes() []Route {
+	return []Route{
+		{
+			Pattern: "/api/test",
+			Method:  "GET",
+			Handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(fmt.Sprintf("dep id: %d", c.dep.id)))
+			},
+		},
+		{
+			Pattern: "/api/test/post",
+			Method:  "POST",
+			Handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusCreated)
+				w.Write([]byte("created"))
+			},
+		},
+	}
+}
+
+func TestBuilder_AddRestController_WithDI(t *testing.T) {
+	d := &dep{id: 42}
+
+	boot, err := New().
+		GRPCPort(":0").
+		HTTPPort(":0").
+		Provide(d).
+		AddRestController(func(dd *dep) *testRestControllerWithDep {
+			return &testRestControllerWithDep{dep: dd}
+		}).
+		Build()
+
+	if err != nil {
+		t.Fatalf("Build() failed: %v", err)
+	}
+	defer boot.Shutdown(context.Background())
+
+	// Test GET request
+	req := httptest.NewRequest("GET", "/api/test", nil)
+	rec := httptest.NewRecorder()
+	boot.http.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rec.Code)
+	}
+	if rec.Body.String() != "dep id: 42" {
+		t.Errorf("expected 'dep id: 42', got %q", rec.Body.String())
+	}
+}
+
+func TestBuilder_AddRestController_MethodFiltering(t *testing.T) {
+	boot, err := New().
+		GRPCPort(":0").
+		HTTPPort(":0").
+		AddRestController(func() *testRestControllerWithDep {
+			return &testRestControllerWithDep{dep: &dep{id: 1}}
+		}).
+		Build()
+
+	if err != nil {
+		t.Fatalf("Build() failed: %v", err)
+	}
+	defer boot.Shutdown(context.Background())
+
+	// Test that POST to GET endpoint returns 405
+	req := httptest.NewRequest("POST", "/api/test", nil)
+	rec := httptest.NewRecorder()
+	boot.http.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected status 405, got %d", rec.Code)
+	}
+
+	// Test that POST to POST endpoint works
+	req = httptest.NewRequest("POST", "/api/test/post", nil)
+	rec = httptest.NewRecorder()
+	boot.http.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("expected status 201, got %d", rec.Code)
+	}
+}
+
+// testRestControllerAllMethods handles all HTTP methods
+type testRestControllerAllMethods struct{}
+
+func (c *testRestControllerAllMethods) Routes() []Route {
+	return []Route{
+		{
+			Pattern: "/api/any",
+			Method:  "", // empty means all methods
+			Handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("method: " + r.Method))
+			},
+		},
+	}
+}
+
+func TestBuilder_AddRestController_AllMethods(t *testing.T) {
+	boot, err := New().
+		GRPCPort(":0").
+		HTTPPort(":0").
+		AddRestController(func() *testRestControllerAllMethods {
+			return &testRestControllerAllMethods{}
+		}).
+		Build()
+
+	if err != nil {
+		t.Fatalf("Build() failed: %v", err)
+	}
+	defer boot.Shutdown(context.Background())
+
+	// Test various HTTP methods
+	methods := []string{"GET", "POST", "PUT", "DELETE"}
+	for _, method := range methods {
+		req := httptest.NewRequest(method, "/api/any", nil)
+		rec := httptest.NewRecorder()
+		boot.http.Handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: expected status 200, got %d", method, rec.Code)
+		}
+		expected := "method: " + method
+		if rec.Body.String() != expected {
+			t.Errorf("%s: expected %q, got %q", method, expected, rec.Body.String())
+		}
+	}
+}
+
+func TestBuilder_AddRestController_MultipleControllers(t *testing.T) {
+	boot, err := New().
+		GRPCPort(":0").
+		HTTPPort(":0").
+		AddRestController(func() *testRestControllerAllMethods {
+			return &testRestControllerAllMethods{}
+		}).
+		AddRestController(func() *testRestControllerWithDep {
+			return &testRestControllerWithDep{dep: &dep{id: 99}}
+		}).
+		Build()
+
+	if err != nil {
+		t.Fatalf("Build() failed: %v", err)
+	}
+	defer boot.Shutdown(context.Background())
+
+	// Test first controller
+	req := httptest.NewRequest("GET", "/api/any", nil)
+	rec := httptest.NewRecorder()
+	boot.http.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || rec.Body.String() != "method: GET" {
+		t.Errorf("first controller failed: status=%d, body=%q", rec.Code, rec.Body.String())
+	}
+
+	// Test second controller
+	req = httptest.NewRequest("GET", "/api/test", nil)
+	rec = httptest.NewRecorder()
+	boot.http.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || rec.Body.String() != "dep id: 99" {
+		t.Errorf("second controller failed: status=%d, body=%q", rec.Code, rec.Body.String())
+	}
+}
 
 // ------ Static File Serving Tests ------
 

@@ -21,9 +21,10 @@
 2. [Key Features](#key-features)
 3. [Quick Start](#quick-start)
 4. [Project Structure](#project-structure)
-5. [Core Modules](#core-modules)
+5. [Core Modules](#core-modules)
 
    * [Server](#server)
+   * [REST Controllers](#rest-controllers)
    * [ODM (MongoDB)](#odm-mongodb)
 
         * [Generic CRUD](#generic-crud)
@@ -180,6 +181,60 @@ azure_storage_account=prodaccount
 
 * gRPC, gRPC‑Web, and optional REST gateway on the same port.
 * Middleware registry (unary + stream) to plug in OpenTelemetry, Prometheus, etc.
+
+#### REST Controllers
+
+For pure REST APIs (without gRPC), use the `RestController` interface with full dependency injection support:
+
+```go
+// Define a REST controller
+type UserController struct {
+    repo *UserRepository
+}
+
+// Implement the RestController interface
+func (c *UserController) Routes() []server.Route {
+    return []server.Route{
+        {Pattern: "/users", Method: "GET", Handler: c.listUsers},
+        {Pattern: "/users", Method: "POST", Handler: c.createUser},
+        {Pattern: "/users/{id}", Method: "GET", Handler: c.getUser},
+    }
+}
+
+func (c *UserController) listUsers(w http.ResponseWriter, r *http.Request) {
+    // handler implementation
+}
+
+func (c *UserController) createUser(w http.ResponseWriter, r *http.Request) {
+    // handler implementation
+}
+
+func (c *UserController) getUser(w http.ResponseWriter, r *http.Request) {
+    // handler implementation
+}
+
+// Factory function for DI
+func ProvideUserController(repo *UserRepository) *UserController {
+    return &UserController{repo: repo}
+}
+```
+
+Register with the builder:
+
+```go
+boot, _ := server.New().
+    GRPCPort(":50051").
+    HTTPPort(":8080").
+    Provide(userRepo).
+    AddRestController(ProvideUserController).  // DI resolves dependencies
+    Build()
+```
+
+**Key features:**
+* **Dependency Injection** – Controller factories receive dependencies automatically.
+* **Method Filtering** – Specify HTTP method per route; empty string allows all methods.
+* **CORS Support** – All REST routes are automatically wrapped with the configured CORS handler.
+* **Multiple Controllers** – Register as many controllers as needed; each gets its own DI resolution.
 
 ### ODM (MongoDB)
 

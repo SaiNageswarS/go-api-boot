@@ -467,6 +467,42 @@ func TestBuilder_AddRestController_MultipleControllers(t *testing.T) {
 	}
 }
 
+func TestBuilder_AddRestController_NonFunction_CallsFatal(t *testing.T) {
+	mockLogger := withMockLogger(func() {
+		New().AddRestController("not a function")
+	})
+
+	assert.True(t, mockLogger.isFatalCalled, "expected logger.Fatal to be called")
+	assert.Equal(t, "AddRestController expects a factory function", mockLogger.fatalMsg)
+}
+
+func TestBuilder_AddRestController_NonRestController_CallsFatal(t *testing.T) {
+	mockLogger := withMockLogger(func() {
+		// Factory returns *dep which does not implement RestController
+		New().AddRestController(func() *dep {
+			return &dep{id: 1}
+		})
+	})
+
+	assert.True(t, mockLogger.isFatalCalled, "expected logger.Fatal to be called")
+	assert.Equal(t, "factory must return a type implementing RestController", mockLogger.fatalMsg)
+}
+
+func TestBuilder_AddRestController_DIFails_ReturnsError(t *testing.T) {
+	// Register a REST controller that requires a dependency (*dep) that is NOT provided
+	_, err := New().
+		GRPCPort(":0").
+		HTTPPort(":0").
+		// Note: we do NOT call Provide(dep) - so the dependency is missing
+		AddRestController(func(d *dep) *testRestControllerWithDep {
+			return &testRestControllerWithDep{dep: d}
+		}).
+		Build()
+
+	assert.Error(t, err, "expected Build() to fail when REST controller dependency is missing")
+	assert.Contains(t, err.Error(), "REST controller DI failed")
+}
+
 // ------ Static File Serving Tests ------
 
 func TestBuilder_StaticDir_SetsStaticDirectory(t *testing.T) {

@@ -256,6 +256,7 @@ func (b *Builder) Build() (*BootServer, error) {
 		for _, route := range ctrl.Routes() {
 			handler := methodFilterHandler(route.Method, route.Handler)
 			mux.Handle(route.Pattern, b.cors.Handler(handler))
+			logger.Info("Registered REST route", zap.String("method", route.Method), zap.String("pattern", route.Pattern))
 		}
 	}
 

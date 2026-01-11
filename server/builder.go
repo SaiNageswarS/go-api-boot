@@ -33,11 +33,13 @@ type Builder struct {
 	unary  []grpc.UnaryServerInterceptor
 	stream []grpc.StreamServerInterceptor
 	cors   *cors.Cors
-	extra  map[string]http.HandlerFunc
 
 	singletons map[reflect.Type]reflect.Value
 	providers  map[reflect.Type]reflect.Value
 	reg        []registration
+
+	// REST controller registrations
+	restControllerRegs []reflect.Value
 
 	serverOpts []grpc.ServerOption
 
@@ -56,7 +58,6 @@ type registration struct {
 func New() *Builder {
 	return &Builder{
 		cors:       cors.AllowAll(),
-		extra:      map[string]http.HandlerFunc{},
 		singletons: map[reflect.Type]reflect.Value{},
 		providers:  map[reflect.Type]reflect.Value{},
 		unary: []grpc.UnaryServerInterceptor{
@@ -93,8 +94,30 @@ func (b *Builder) Stream(i ...grpc.StreamServerInterceptor) *Builder {
 }
 func (b *Builder) CORS(c *cors.Cors) *Builder { b.cors = c; return b }
 
-func (b *Builder) Handle(pattern string, h http.HandlerFunc) *Builder {
-	b.extra[pattern] = h
+// AddRestController registers a REST controller factory for dependency injection.
+// The factory is a function that takes dependencies as arguments and returns
+// a type implementing RestController interface.
+//
+// Example:
+//
+//	builder.AddRestController(func(userRepo UserRepository) *UserController {
+//	    return &UserController{repo: userRepo}
+//	})
+func (b *Builder) AddRestController(factory any) *Builder {
+	v := reflect.ValueOf(factory)
+	if v.Kind() != reflect.Func {
+		logger.Fatal("AddRestController expects a factory function", zap.Any("received", factory))
+	}
+
+	// Validate that the factory returns a type implementing RestController
+	outType := v.Type().Out(0)
+	restControllerType := reflect.TypeOf((*RestController)(nil)).Elem()
+	if !outType.Implements(restControllerType) {
+		logger.Fatal("factory must return a type implementing RestController",
+			zap.String("returnType", outType.String()))
+	}
+
+	b.restControllerRegs = append(b.restControllerRegs, v)
 	return b
 }
 
@@ -223,9 +246,18 @@ func (b *Builder) Build() (*BootServer, error) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// register extra handlers
-	for p, h := range b.extra {
-		mux.HandleFunc(p, h)
+	// register REST controllers via DI
+	for _, factory := range b.restControllerRegs {
+		ctrlVal, err := invokeFactory(ctn, factory)
+		if err != nil {
+			return nil, fmt.Errorf("REST controller DI failed: %w", err)
+		}
+		ctrl := ctrlVal.Interface().(RestController)
+		for _, route := range ctrl.Routes() {
+			handler := methodFilterHandler(route.Method, route.Handler)
+			mux.Handle(route.Pattern, b.cors.Handler(handler))
+			logger.Info("Registered REST route", zap.String("method", route.Method), zap.String("pattern", route.Pattern))
+		}
 	}
 
 	// Add static file serving if configured

@@ -3,7 +3,9 @@ package auth
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
+	"strings"
 
 	"github.com/SaiNageswarS/go-api-boot/logger"
 	"github.com/dgrijalva/jwt-go"
@@ -19,7 +21,7 @@ var USER_ID_CLAIM = Claims("userId")
 var TENANT_CLAIM = Claims("tenantId")
 var USER_TYPE_CLAIM = Claims("userType")
 
-func VerifyToken() grpc_auth.AuthFunc {
+func VerifyTokenGrpcMiddleware() grpc_auth.AuthFunc {
 	return func(ctx context.Context) (context.Context, error) {
 		token, err := grpc_auth.AuthFromMD(ctx, "bearer")
 		if err != nil {
@@ -39,6 +41,41 @@ func VerifyToken() grpc_auth.AuthFunc {
 
 		return newCtx, nil
 	}
+}
+
+func VerifyTokenHttpMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			logger.Error("Missing Authorization header")
+			http.Error(w, "missing or malformed token", http.StatusUnauthorized)
+			return
+		}
+
+		splits := strings.SplitN(authHeader, " ", 2)
+
+		// Check for Bearer scheme (case-insensitive)
+		if len(splits) < 2 || !strings.EqualFold(splits[0], "bearer") {
+			logger.Error("Bad authorization string")
+			http.Error(w, "missing or malformed token", http.StatusUnauthorized)
+			return
+		}
+
+		token := splits[1]
+
+		userId, tenant, userType, err := decryptToken(token)
+		if err != nil {
+			logger.Error("Error decrypting token", zap.Error(err))
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), USER_ID_CLAIM, userId)
+		ctx = context.WithValue(ctx, TENANT_CLAIM, tenant)
+		ctx = context.WithValue(ctx, USER_TYPE_CLAIM, userType)
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 func GetToken(tenant, userId, userType string) (string, error) {

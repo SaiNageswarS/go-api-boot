@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SaiNageswarS/go-api-boot/testutil"
 	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/ollama/ollama/api"
 	"github.com/stretchr/testify/assert"
@@ -75,16 +76,16 @@ func TestGetEmbedding(t *testing.T) {
 }
 
 func TestProvideOllamaEmbeddingClient_Success(t *testing.T) {
-	withEnv("OLLAMA_HOST", "http://localhost:11434", func(logger *MockLogger) {
+	testutil.WithEnv("OLLAMA_HOST", "http://localhost:11434", func(logger *testutil.MockLogger) {
 		client := ProvideOllamaEmbeddingClient()
 		assert.NotNil(t, client)
 	})
 }
 
 func TestProvideOllamaEmbeddingClient_Failure(t *testing.T) {
-	withEnv("OLLAMA_HOST", "", func(logger *MockLogger) {
+	testutil.WithEnv("OLLAMA_HOST", "", func(logger *testutil.MockLogger) {
 		ProvideOllamaEmbeddingClient()
-		assert.True(t, logger.isFatalCalled)
-		assert.Equal(t, "OLLAMA_HOST environment variable is not set", logger.fatalMsg)
+		assert.True(t, logger.IsFatalCalled)
+		assert.Equal(t, "OLLAMA_HOST environment variable is not set", logger.FatalMsg)
 	})
 }

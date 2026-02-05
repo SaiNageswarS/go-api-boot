@@ -8,22 +8,23 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SaiNageswarS/go-api-boot/testutil"
 	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestProvideJinaAIEmbeddingClient_Success(t *testing.T) {
-	withEnv("JINA_AI_API_KEY", "dummy-key", func(logger *MockLogger) {
+	testutil.WithEnv("JINA_AI_API_KEY", "dummy-key", func(logger *testutil.MockLogger) {
 		client := ProvideJinaAIEmbeddingClient()
 		assert.NotNil(t, client)
 	})
 }
 
 func TestProvideJinaAIEmbeddingClient_MissingAPIKey(t *testing.T) {
-	withEnv("JINA_AI_API_KEY", "", func(logger *MockLogger) {
+	testutil.WithEnv("JINA_AI_API_KEY", "", func(logger *testutil.MockLogger) {
 		ProvideJinaAIEmbeddingClient()
-		assert.True(t, logger.isFatalCalled)
-		assert.Equal(t, logger.fatalMsg, "JINA_AI_API_KEY environment variable is not set")
+		assert.True(t, logger.IsFatalCalled)
+		assert.Equal(t, logger.FatalMsg, "JINA_AI_API_KEY environment variable is not set")
 	})
 }
 

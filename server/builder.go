@@ -63,12 +63,12 @@ func New() *Builder {
 		unary: []grpc.UnaryServerInterceptor{
 			grpc_ctxtags.UnaryServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
 			grpc_zap.UnaryServerInterceptor(logger.Get()),
-			grpc_auth.UnaryServerInterceptor(auth.VerifyToken()),
+			grpc_auth.UnaryServerInterceptor(auth.VerifyTokenGrpcMiddleware()),
 		},
 		stream: []grpc.StreamServerInterceptor{
 			grpc_ctxtags.StreamServerInterceptor(grpc_ctxtags.WithFieldExtractor(grpc_ctxtags.CodeGenRequestFieldExtractor)),
 			grpc_zap.StreamServerInterceptor(logger.Get()),
-			grpc_auth.StreamServerInterceptor(auth.VerifyToken()),
+			grpc_auth.StreamServerInterceptor(auth.VerifyTokenGrpcMiddleware()),
 		},
 	}
 }

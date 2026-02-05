@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/SaiNageswarS/go-api-boot/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -25,10 +26,10 @@ func TestNewMongoConn_PingFails(t *testing.T) {
 		mongoConnect = originalMongoConnect
 	}()
 
-	withEnv("MONGO_URI", "mongodb://test:27017", func(logger *MockLogger) {
+	testutil.WithEnv("MONGO_URI", "mongodb://test:27017", func(logger *testutil.MockLogger) {
 		ProvideMongoClient()
-		assert.True(t, logger.isFatalCalled)
-		assert.Equal(t, "Failed to ping MongoDB", logger.fatalMsg)
+		assert.True(t, logger.IsFatalCalled)
+		assert.Equal(t, "Failed to ping MongoDB", logger.FatalMsg)
 	})
 }
 
@@ -44,17 +45,17 @@ func TestNewMongoConn_Success(t *testing.T) {
 		mongoConnect = originalMongoConnect
 	}()
 
-	withEnv("MONGO_URI", "mongodb://test:27017", func(logger *MockLogger) {
+	testutil.WithEnv("MONGO_URI", "mongodb://test:27017", func(logger *testutil.MockLogger) {
 		client := ProvideMongoClient()
 		assert.NotNil(t, client)
 	})
 }
 
 func TestGetClient_EmptyURI(t *testing.T) {
-	withEnv("MONGO_URI", "", func(mLog *MockLogger) {
+	testutil.WithEnv("MONGO_URI", "", func(mLog *testutil.MockLogger) {
 		ProvideMongoClient()
-		assert.True(t, mLog.isFatalCalled)
-		assert.Equal(t, "MONGO_URI environment variable is not set", mLog.fatalMsg)
+		assert.True(t, mLog.IsFatalCalled)
+		assert.Equal(t, "MONGO_URI environment variable is not set", mLog.FatalMsg)
 	})
 }
 
@@ -68,10 +69,10 @@ func TestGetClient_Failure(t *testing.T) {
 		mongoConnect = originalMongoConnect
 	}()
 
-	withEnv("MONGO_URI", "mongodb://test:27017", func(mLog *MockLogger) {
+	testutil.WithEnv("MONGO_URI", "mongodb://test:27017", func(mLog *testutil.MockLogger) {
 		ProvideMongoClient()
-		assert.True(t, mLog.isFatalCalled)
-		assert.Equal(t, "Failed to connect to MongoDB", mLog.fatalMsg)
+		assert.True(t, mLog.IsFatalCalled)
+		assert.Equal(t, "Failed to connect to MongoDB", mLog.FatalMsg)
 	})
 }
 

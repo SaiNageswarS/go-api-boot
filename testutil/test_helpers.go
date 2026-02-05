@@ -1,3 +1,5 @@
+// Package testutil provides shared testing utilities and mocks.
+// This package contains test helpers that should be excluded from code coverage reporting.
 package testutil
 
 import (

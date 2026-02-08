@@ -85,3 +85,19 @@ func WithCodePassage() EmbedOption {
 func WithTextMatching() EmbedOption {
 	return WithTask(TaskTextMatching)
 }
+
+func WithClassification() EmbedOption {
+	return WithTask(TaskClassification)
+}
+
+func WithClustering() EmbedOption {
+	return WithTask(TaskClustering)
+}
+
+func WithQuestionAnswering() EmbedOption {
+	return WithTask(TaskQuestionAnswering)
+}
+
+func WithFactVerification() EmbedOption {
+	return WithTask(TaskFactVerification)
+}

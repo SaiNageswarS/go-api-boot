@@ -112,7 +112,7 @@ func TestGeminiGetEmbedding_WithTaskType(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result, err := async.Await(client.GetEmbedding(ctx, "test text", WithTask(TaskRetrievalQuery)))
+	result, err := async.Await(client.GetEmbedding(ctx, "test text", WithRetrievalQuery()))
 
 	assert.NoError(t, err)
 	assert.Equal(t, []float32{0.1, 0.2, 0.3}, result)
@@ -179,40 +179,40 @@ func TestGeminiGetEmbedding_EmptyEmbeddingValues(t *testing.T) {
 }
 
 func TestGeminiTaskMapping(t *testing.T) {
-// Test all task mappings from Jina to Gemini
-testCases := []struct {
-jinaTask   string
-geminiTask string
-}{
-{TaskRetrievalQuery, "RETRIEVAL_QUERY"},
-{TaskRetrievalPassage, "RETRIEVAL_DOCUMENT"},
-{TaskCodeQuery, "CODE_RETRIEVAL_QUERY"},
-{TaskCodePassage, "RETRIEVAL_DOCUMENT"},
-{TaskTextMatching, "SEMANTIC_SIMILARITY"},
-{TaskClassification, "CLASSIFICATION"},
-{TaskClustering, "CLUSTERING"},
-{TaskQuestionAnswering, "QUESTION_ANSWERING"},
-{TaskFactVerification, "FACT_VERIFICATION"},
-{"unknown_task", "SEMANTIC_SIMILARITY"}, // Default fallback
-}
+	// Test task mappings using helper functions
+	helperFunctionTests := []struct {
+		name       string
+		option     EmbedOption
+		geminiTask string
+	}{
+		{"WithRetrievalQuery", WithRetrievalQuery(), "RETRIEVAL_QUERY"},
+		{"WithRetrievalPassage", WithRetrievalPassage(), "RETRIEVAL_DOCUMENT"},
+		{"WithCodeQuery", WithCodeQuery(), "CODE_RETRIEVAL_QUERY"},
+		{"WithCodePassage", WithCodePassage(), "RETRIEVAL_DOCUMENT"},
+		{"WithTextMatching", WithTextMatching(), "SEMANTIC_SIMILARITY"},
+		{"WithClassification", WithClassification(), "CLASSIFICATION"},
+		{"WithClustering", WithClustering(), "CLUSTERING"},
+		{"WithQuestionAnswering", WithQuestionAnswering(), "QUESTION_ANSWERING"},
+		{"WithFactVerification", WithFactVerification(), "FACT_VERIFICATION"},
+	}
 
-for _, tc := range testCases {
-t.Run(tc.jinaTask, func(t *testing.T) {
-mockClient := &mockGenaiClient{
-embedContentResponse: &genai.EmbedContentResponse{
-Embeddings: []*genai.ContentEmbedding{
-{Values: []float32{0.1, 0.2}},
-},
-},
-}
+	for _, tc := range helperFunctionTests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockClient := &mockGenaiClient{
+				embedContentResponse: &genai.EmbedContentResponse{
+					Embeddings: []*genai.ContentEmbedding{
+						{Values: []float32{0.1, 0.2}},
+					},
+				},
+			}
 
-client := &GeminiEmbeddingClient{client: mockClient}
-ctx := context.Background()
+			client := &GeminiEmbeddingClient{client: mockClient}
+			ctx := context.Background()
 
-_, err := async.Await(client.GetEmbedding(ctx, "test", WithTask(tc.jinaTask)))
+			_, err := async.Await(client.GetEmbedding(ctx, "test", tc.option))
 
-assert.NoError(t, err)
-assert.Equal(t, tc.geminiTask, mockClient.capturedConfig.TaskType)
-})
-}
+			assert.NoError(t, err)
+			assert.Equal(t, tc.geminiTask, mockClient.capturedConfig.TaskType)
+		})
+	}
 }

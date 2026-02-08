@@ -37,7 +37,7 @@ func ProvideJinaAIEmbeddingClient() Embedder {
 
 func (c *JinaAIEmbeddingClient) GetEmbedding(ctx context.Context, text string, opts ...EmbedOption) <-chan async.Result[[]float32] {
 	return async.Go(func() ([]float32, error) {
-		cfg := settings{model: "jina-embeddings-v4", taskName: "retrieval.passage"}
+		cfg := settings{model: "jina-embeddings-v4", taskName: TaskRetrievalPassage}
 		for _, opt := range opts {
 			opt(&cfg)
 		}

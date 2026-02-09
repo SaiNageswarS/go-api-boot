@@ -43,9 +43,11 @@ func (c *JinaAIEmbeddingClient) GetEmbedding(ctx context.Context, text string, o
 		}
 
 		req := jinaAIEmbeddingRequest{
-			Model: cfg.model,
-			Task:  cfg.taskName,
-			Input: []string{text},
+			Model:             cfg.model,
+			Task:              cfg.taskName,
+			Input:             []string{text},
+			LateChunking:      cfg.lateChunking,
+			ReturnMultivector: cfg.returnMultivector,
 		}
 
 		jsonData, err := json.Marshal(req)
@@ -90,7 +92,9 @@ func (c *JinaAIEmbeddingClient) GetEmbedding(ctx context.Context, text string, o
 }
 
 type jinaAIEmbeddingRequest struct {
-	Model string   `json:"model"` // jina-embeddings-v3
-	Task  string   `json:"task"`  // retrieval.passage or retrieval.query
-	Input []string `json:"input"`
+	Model             string   `json:"model"` // jina-embeddings-v3
+	Task              string   `json:"task"`  // retrieval.passage or retrieval.query
+	Input             []string `json:"input"`
+	LateChunking      bool     `json:"late_chunking,omitempty"`      // Optional: for long inputs, let Jina handle chunking
+	ReturnMultivector bool     `json:"return_multivector,omitempty"` // Optional: if true, returns multiple vectors for long inputs
 }

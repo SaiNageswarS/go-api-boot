@@ -18,9 +18,11 @@ type Embedder interface {
 }
 
 type settings struct {
-	model     string        //   common
-	keepAlive time.Duration //   ollama
-	taskName  string        //   Jina & Gemini
+	model             string        //   common
+	keepAlive         time.Duration //   ollama
+	taskName          string        //   Jina & Gemini
+	lateChunking      bool          //   Jina
+	returnMultivector bool          //   Jina
 }
 
 // Task name constants (using Jina AI naming convention as standard)
@@ -55,6 +57,14 @@ func WithKeepAlive(d time.Duration) EmbedOption {
 	return func(s *settings) { s.keepAlive = d }
 }
 
+func WithLateChunking(enabled bool) EmbedOption {
+	return func(s *settings) { s.lateChunking = enabled }
+}
+
+func WithReturnMultivector(enabled bool) EmbedOption {
+	return func(s *settings) { s.returnMultivector = enabled }
+}
+
 // ---- Jina & Gemini task helpers ----
 func WithTask(name string) EmbedOption {
 	// Supported task names:
@@ -66,38 +76,38 @@ func WithTask(name string) EmbedOption {
 }
 
 // Task-specific helper functions for common use cases
-func WithRetrievalQuery() EmbedOption {
+func WithRetrievalQueryTask() EmbedOption {
 	return WithTask(TaskRetrievalQuery)
 }
 
-func WithRetrievalPassage() EmbedOption {
+func WithRetrievalPassageTask() EmbedOption {
 	return WithTask(TaskRetrievalPassage)
 }
 
-func WithCodeQuery() EmbedOption {
+func WithCodeQueryTask() EmbedOption {
 	return WithTask(TaskCodeQuery)
 }
 
-func WithCodePassage() EmbedOption {
+func WithCodePassageTask() EmbedOption {
 	return WithTask(TaskCodePassage)
 }
 
-func WithTextMatching() EmbedOption {
+func WithTextMatchingTask() EmbedOption {
 	return WithTask(TaskTextMatching)
 }
 
-func WithClassification() EmbedOption {
+func WithClassificationTask() EmbedOption {
 	return WithTask(TaskClassification)
 }
 
-func WithClustering() EmbedOption {
+func WithClusteringTask() EmbedOption {
 	return WithTask(TaskClustering)
 }
 
-func WithQuestionAnswering() EmbedOption {
+func WithQuestionAnsweringTask() EmbedOption {
 	return WithTask(TaskQuestionAnswering)
 }
 
-func WithFactVerification() EmbedOption {
+func WithFactVerificationTask() EmbedOption {
 	return WithTask(TaskFactVerification)
 }

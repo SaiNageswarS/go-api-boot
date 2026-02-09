@@ -2,6 +2,7 @@ package embed
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -115,4 +116,46 @@ func TestGetEmbedding_EmptyData(t *testing.T) {
 
 	assert.Error(t, result.Err)
 	assert.EqualError(t, result.Err, "no embedding data found")
+}
+
+func TestGetEmbedding_WithAllJinaAISettings(t *testing.T) {
+	var capturedRequest jinaAIEmbeddingRequest
+	mockResponse := `{
+		"data": [
+			{"embedding": [0.1, 0.2, 0.3]}
+		]
+	}`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Capture the request body
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &capturedRequest)
+
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, mockResponse)
+	}))
+	defer server.Close()
+
+	client := &JinaAIEmbeddingClient{
+		apiKey:     "test-key",
+		httpClient: server.Client(),
+		url:        server.URL,
+	}
+
+	ctx := context.Background()
+	result, err := async.Await(client.GetEmbedding(ctx, "test text",
+		WithModel("jina-embeddings-v3"),
+		WithTask(TaskRetrievalQuery),
+		WithLateChunking(true),
+		WithReturnMultivector(true)))
+
+	assert.NoError(t, err)
+	assert.Equal(t, []float32{0.1, 0.2, 0.3}, result)
+
+	// Assert all Jina AI settings are properly sent in the request
+	assert.Equal(t, "jina-embeddings-v3", capturedRequest.Model)
+	assert.Equal(t, TaskRetrievalQuery, capturedRequest.Task)
+	assert.True(t, capturedRequest.LateChunking)
+	assert.True(t, capturedRequest.ReturnMultivector)
+	assert.Equal(t, []string{"test text"}, capturedRequest.Input)
 }

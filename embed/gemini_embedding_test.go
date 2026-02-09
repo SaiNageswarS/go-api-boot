@@ -112,7 +112,7 @@ func TestGeminiGetEmbedding_WithTaskType(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result, err := async.Await(client.GetEmbedding(ctx, "test text", WithRetrievalQuery()))
+	result, err := async.Await(client.GetEmbedding(ctx, "test text", WithRetrievalQueryTask()))
 
 	assert.NoError(t, err)
 	assert.Equal(t, []float32{0.1, 0.2, 0.3}, result)
@@ -185,15 +185,15 @@ func TestGeminiTaskMapping(t *testing.T) {
 		option     EmbedOption
 		geminiTask string
 	}{
-		{"WithRetrievalQuery", WithRetrievalQuery(), "RETRIEVAL_QUERY"},
-		{"WithRetrievalPassage", WithRetrievalPassage(), "RETRIEVAL_DOCUMENT"},
-		{"WithCodeQuery", WithCodeQuery(), "CODE_RETRIEVAL_QUERY"},
-		{"WithCodePassage", WithCodePassage(), "RETRIEVAL_DOCUMENT"},
-		{"WithTextMatching", WithTextMatching(), "SEMANTIC_SIMILARITY"},
-		{"WithClassification", WithClassification(), "CLASSIFICATION"},
-		{"WithClustering", WithClustering(), "CLUSTERING"},
-		{"WithQuestionAnswering", WithQuestionAnswering(), "QUESTION_ANSWERING"},
-		{"WithFactVerification", WithFactVerification(), "FACT_VERIFICATION"},
+		{"WithRetrievalQuery", WithRetrievalQueryTask(), "RETRIEVAL_QUERY"},
+		{"WithRetrievalPassage", WithRetrievalPassageTask(), "RETRIEVAL_DOCUMENT"},
+		{"WithCodeQuery", WithCodeQueryTask(), "CODE_RETRIEVAL_QUERY"},
+		{"WithCodePassage", WithCodePassageTask(), "RETRIEVAL_DOCUMENT"},
+		{"WithTextMatching", WithTextMatchingTask(), "SEMANTIC_SIMILARITY"},
+		{"WithClassification", WithClassificationTask(), "CLASSIFICATION"},
+		{"WithClustering", WithClusteringTask(), "CLUSTERING"},
+		{"WithQuestionAnswering", WithQuestionAnsweringTask(), "QUESTION_ANSWERING"},
+		{"WithFactVerification", WithFactVerificationTask(), "FACT_VERIFICATION"},
 	}
 
 	for _, tc := range helperFunctionTests {

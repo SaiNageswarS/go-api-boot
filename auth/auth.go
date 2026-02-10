@@ -43,7 +43,7 @@ func VerifyTokenGrpcMiddleware() grpc_auth.AuthFunc {
 	}
 }
 
-func VerifyTokenHttpMiddleware(next http.Handler) http.Handler {
+func VerifyTokenHttpMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {

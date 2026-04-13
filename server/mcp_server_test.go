@@ -191,3 +191,48 @@ func TestBuilder_WithMCP_ToolListViaInMemory(t *testing.T) {
 	structJSON, _ := json.Marshal(callResult.StructuredContent)
 	assert.Contains(t, string(structJSON), "Hello World")
 }
+
+func TestBuilder_MCPHTTPOptions_SetsOptions(t *testing.T) {
+	opts := &mcp.StreamableHTTPOptions{Stateless: true}
+	b := New().MCPHTTPOptions(opts)
+	assert.Equal(t, opts, b.mcpHTTPOpts)
+}
+
+func TestBuilder_AddMCPConfigurator_NonFunction_CallsFatal(t *testing.T) {
+	mockLogger := withMockLogger(func() {
+		New().AddMCPConfigurator("not a function")
+	})
+
+	assert.True(t, mockLogger.isFatalCalled, "expected logger.Fatal to be called")
+	assert.Equal(t, "AddMCPConfigurator expects a factory function", mockLogger.fatalMsg)
+}
+
+func TestBuilder_AddMCPConfigurator_NonConfigurator_CallsFatal(t *testing.T) {
+	mockLogger := withMockLogger(func() {
+		// Factory returns *dep which does not implement MCPConfigurator
+		New().AddMCPConfigurator(func() *dep {
+			return &dep{id: 1}
+		})
+	})
+
+	assert.True(t, mockLogger.isFatalCalled, "expected logger.Fatal to be called")
+	assert.Equal(t, "factory must return a type implementing MCPConfigurator", mockLogger.fatalMsg)
+}
+
+func TestBuilder_AddMCPConfigurator_DIFails_ReturnsError(t *testing.T) {
+	// Register a configurator that requires *dep which is NOT provided
+	_, err := New().
+		GRPCPort(":0").
+		HTTPPort(":0").
+		WithMCP(
+			&mcp.Implementation{Name: "test", Version: "v1"},
+			nil,
+		).
+		AddMCPConfigurator(func(d *dep) *mcpTestConfigurator {
+			return &mcpTestConfigurator{d: d}
+		}).
+		Build()
+
+	assert.Error(t, err, "expected Build() to fail when MCP configurator dependency is missing")
+	assert.Contains(t, err.Error(), "MCP configurator DI failed")
+}

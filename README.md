@@ -34,6 +34,7 @@
    * [Auth & JWT](#auth--jwt)
    * [Cloud Abstractions](#cloud-abstractions)
    * [Zero‑Config SSL/TLS](#zero-config-ssltls)
+   * [MCP Tools](#mcp-tools)
    * [Temporal Workers](#temporal-workers)
 6. [CLI Reference](#cli-reference)
 7. [Examples](#examples)
@@ -67,6 +68,7 @@ The result: you write business logic, not boilerplate.
 * **JWT Auth & Middleware Stack** – observability, logging, panic recovery pre‑wired.
 * **Cloud Providers** – interchangeable Azure / GCP helpers for storage & secrets.
 * **Zero‑Config SSL** – automatic Let’s Encrypt certificates with exponential back‑off and optional cloud-backed cache (SslCloudCache) for stateless containers.
+* **MCP Tool Server** – expose [Model Context Protocol](https://modelcontextprotocol.io) tools alongside gRPC/REST on the same HTTP port, with full DI support.
 * **Temporal Workflow Support** – run long-lived, fault-tolerant background jobs with native Temporal integration and DI-based worker registration.
 * **Fluent Dependency Injection** – chainable, lifecycle-aware registration for gRPC services, Temporal workflows/activities, SSL providers, cloud abstractions, and more, all via a single builder API.
 * **Bootstrap CLI** – scaffold full service, models, repos, services, Dockerfile, build scripts.
@@ -406,6 +408,83 @@ boot, _ := server.New().
 * SslCloudCache streams certificates to the chosen object store (S3, Azure Blob, GCS).
 * Multiple replicas of your service instantly share the same certs – no race conditions, no volume mounts.
 * Exponential back-off is applied automatically while waiting for DNS / IP propagation.
+
+### MCP Tools
+
+go-api-boot supports exposing [Model Context Protocol](https://modelcontextprotocol.io) (MCP) tools on the same HTTP port, served via the **Streamable HTTP** transport at `/mcp` (configurable). This lets AI agents and LLM clients discover and call your tools over a standard protocol.
+
+```go
+import (
+    "context"
+    "github.com/SaiNageswarS/go-api-boot/server"
+    "github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+type GreetInput struct {
+    Name string `json:"name" jsonschema:"the name to greet"`
+}
+type GreetOutput struct {
+    Greeting string `json:"greeting"`
+}
+
+func SayHi(_ context.Context, _ *mcp.CallToolRequest, in GreetInput) (
+    *mcp.CallToolResult, GreetOutput, error,
+) {
+    return nil, GreetOutput{Greeting: "Hi " + in.Name}, nil
+}
+
+func main() {
+    boot, _ := server.New().
+        GRPCPort(":50051").
+        HTTPPort(":8080").
+        WithMCP(
+            &mcp.Implementation{Name: "my-service", Version: "v1.0.0"},
+            nil,
+        ).
+        ConfigureMCP(func(s *mcp.Server) {
+            mcp.AddTool(s, &mcp.Tool{
+                Name:        "greet",
+                Description: "say hello",
+            }, SayHi)
+        }).
+        Build()
+
+    boot.Serve(context.Background())
+}
+```
+
+**With Dependency Injection** – implement the `MCPConfigurator` interface and register via `AddMCPConfigurator`:
+
+```go
+type MyMCPTools struct {
+    repo *UserRepository
+}
+
+func (m *MyMCPTools) ConfigureMCP(s *mcp.Server) {
+    mcp.AddTool(s, &mcp.Tool{Name: "getUser", Description: "fetch user"}, m.getUser)
+}
+
+// Factory for DI
+func ProvideMyMCPTools(repo *UserRepository) *MyMCPTools {
+    return &MyMCPTools{repo: repo}
+}
+
+// Register
+boot, _ := server.New().
+    GRPCPort(":50051").HTTPPort(":8080").
+    Provide(userRepo).
+    WithMCP(&mcp.Implementation{Name: "my-service", Version: "v1.0.0"}, nil).
+    AddMCPConfigurator(ProvideMyMCPTools).
+    Build()
+```
+
+**Key features:**
+* Tools, resources, and prompts via the official [go-sdk](https://github.com/modelcontextprotocol/go-sdk).
+* Served on the same HTTP port – no extra listener.
+* Full dependency injection for MCP configurators.
+* Configurable path (`MCPPath("/custom")`) and HTTP options (`MCPHTTPOptions(...)`).
+
+---
 
 ### Temporal Workers
 

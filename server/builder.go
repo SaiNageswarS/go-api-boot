@@ -15,6 +15,7 @@ import (
 	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	grpc_zap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 	"go.temporal.io/sdk/client"
@@ -48,6 +49,14 @@ type Builder struct {
 	activityRegs       []reflect.Value
 	workflowRegs       []interface{}
 	temporalClientOpts *client.Options
+
+	// MCP server
+	mcpImpl           *mcp.Implementation
+	mcpOpts           *mcp.ServerOptions
+	mcpPath           string
+	mcpHTTPOpts       *mcp.StreamableHTTPOptions
+	mcpConfigFns      []func(*mcp.Server)
+	mcpConfiguratorFn []reflect.Value
 }
 
 type registration struct {
@@ -143,6 +152,67 @@ func (b *Builder) RegisterTemporalActivity(factory any) *Builder {
 		logger.Fatal("activity receiver factory must be a func", zap.Any("received", factory))
 	}
 	b.activityRegs = append(b.activityRegs, v)
+	return b
+}
+
+// ---- MCP server --------------------------------------------------------------
+
+// WithMCP enables an MCP (Model Context Protocol) server on the HTTP port.
+// The server is served via the Streamable HTTP transport at the configured path
+// (default "/mcp"). Use AddMCPConfigurator or ConfigureMCP to add tools,
+// resources and prompts to the server.
+func (b *Builder) WithMCP(impl *mcp.Implementation, opts *mcp.ServerOptions) *Builder {
+	b.mcpImpl = impl
+	b.mcpOpts = opts
+	return b
+}
+
+// MCPPath sets the HTTP path where the MCP server is mounted.
+// Default is "/mcp".
+func (b *Builder) MCPPath(path string) *Builder {
+	b.mcpPath = path
+	return b
+}
+
+// MCPHTTPOptions sets the StreamableHTTPOptions for the MCP handler.
+// If nil, sensible defaults are used.
+func (b *Builder) MCPHTTPOptions(opts *mcp.StreamableHTTPOptions) *Builder {
+	b.mcpHTTPOpts = opts
+	return b
+}
+
+// ConfigureMCP registers a function that is called with the MCP server
+// during Build. Use this to add tools, resources, and prompts directly:
+//
+//	builder.ConfigureMCP(func(s *mcp.Server) {
+//	    mcp.AddTool(s, &mcp.Tool{Name: "greet"}, SayHi)
+//	})
+func (b *Builder) ConfigureMCP(fn func(*mcp.Server)) *Builder {
+	b.mcpConfigFns = append(b.mcpConfigFns, fn)
+	return b
+}
+
+// AddMCPConfigurator registers a factory function whose return type implements
+// MCPConfigurator. Dependencies are injected the same way as for gRPC services
+// and REST controllers. Example:
+//
+//	builder.AddMCPConfigurator(func(repo *UserRepo) *MyMCPTools {
+//	    return &MyMCPTools{repo: repo}
+//	})
+func (b *Builder) AddMCPConfigurator(factory any) *Builder {
+	v := reflect.ValueOf(factory)
+	if v.Kind() != reflect.Func {
+		logger.Fatal("AddMCPConfigurator expects a factory function", zap.Any("received", factory))
+	}
+
+	outType := v.Type().Out(0)
+	mcpConfiguratorType := reflect.TypeOf((*MCPConfigurator)(nil)).Elem()
+	if !outType.Implements(mcpConfiguratorType) {
+		logger.Fatal("factory must return a type implementing MCPConfigurator",
+			zap.String("returnType", outType.String()))
+	}
+
+	b.mcpConfiguratorFn = append(b.mcpConfiguratorFn, v)
 	return b
 }
 
@@ -264,6 +334,36 @@ func (b *Builder) Build() (*BootServer, error) {
 	if b.staticDir != "" {
 		fileServer := http.FileServer(http.Dir(b.staticDir))
 		mux.Handle("/static/", http.StripPrefix("/static/", fileServer))
+	}
+
+	// Mount MCP server if configured
+	if b.mcpImpl != nil {
+		mcpSrv := mcp.NewServer(b.mcpImpl, b.mcpOpts)
+
+		// Apply direct configuration functions
+		for _, fn := range b.mcpConfigFns {
+			fn(mcpSrv)
+		}
+
+		// Apply DI-based configurators
+		for _, factory := range b.mcpConfiguratorFn {
+			cfgVal, cfgErr := invokeFactory(ctn, factory)
+			if cfgErr != nil {
+				return nil, fmt.Errorf("MCP configurator DI failed: %w", cfgErr)
+			}
+			cfgVal.Interface().(MCPConfigurator).ConfigureMCP(mcpSrv)
+		}
+
+		mcpPath := b.mcpPath
+		if mcpPath == "" {
+			mcpPath = "/mcp"
+		}
+		mcpHandler := mcp.NewStreamableHTTPHandler(
+			func(_ *http.Request) *mcp.Server { return mcpSrv },
+			b.mcpHTTPOpts,
+		)
+		mux.Handle(mcpPath, mcpHandler)
+		logger.Info("Registered MCP server", zap.String("path", mcpPath))
 	}
 
 	// HTTP server with optimized timeouts

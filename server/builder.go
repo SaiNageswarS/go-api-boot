@@ -57,6 +57,7 @@ type Builder struct {
 	mcpHTTPOpts       *mcp.StreamableHTTPOptions
 	mcpConfigFns      []func(*mcp.Server)
 	mcpConfiguratorFn []reflect.Value
+	mcpMiddleware     func(http.Handler) http.Handler
 }
 
 type registration struct {
@@ -171,6 +172,20 @@ func (b *Builder) WithMCP(impl *mcp.Implementation, opts *mcp.ServerOptions) *Bu
 // Default is "/mcp".
 func (b *Builder) MCPPath(path string) *Builder {
 	b.mcpPath = path
+	return b
+}
+
+// WithMCPMiddleware sets an HTTP middleware that wraps the MCP handler.
+// Use this to add authentication, logging, or other concerns to the MCP endpoint.
+//
+//	builder.WithMCPMiddleware(func(next http.Handler) http.Handler {
+//	    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+//	        // verify auth ...
+//	        next.ServeHTTP(w, r)
+//	    })
+//	})
+func (b *Builder) WithMCPMiddleware(mw func(http.Handler) http.Handler) *Builder {
+	b.mcpMiddleware = mw
 	return b
 }
 
@@ -358,11 +373,14 @@ func (b *Builder) Build() (*BootServer, error) {
 		if mcpPath == "" {
 			mcpPath = "/mcp"
 		}
-		mcpHandler := mcp.NewStreamableHTTPHandler(
+		var handler http.Handler = mcp.NewStreamableHTTPHandler(
 			func(_ *http.Request) *mcp.Server { return mcpSrv },
 			b.mcpHTTPOpts,
 		)
-		mux.Handle(mcpPath, mcpHandler)
+		if b.mcpMiddleware != nil {
+			handler = b.mcpMiddleware(handler)
+		}
+		mux.Handle(mcpPath, handler)
 		logger.Info("Registered MCP server", zap.String("path", mcpPath))
 	}
 

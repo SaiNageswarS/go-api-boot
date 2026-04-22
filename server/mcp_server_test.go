@@ -236,3 +236,122 @@ func TestBuilder_AddMCPConfigurator_DIFails_ReturnsError(t *testing.T) {
 	assert.Error(t, err, "expected Build() to fail when MCP configurator dependency is missing")
 	assert.Contains(t, err.Error(), "MCP configurator DI failed")
 }
+
+func TestBuilder_WithMCPMiddleware_StoresMiddleware(t *testing.T) {
+	mw := func(next http.Handler) http.Handler { return next }
+	b := New().WithMCPMiddleware(mw)
+	assert.NotNil(t, b.mcpMiddleware, "middleware should be stored on builder")
+}
+
+func TestBuilder_WithMCPMiddleware_AppliedToRequests(t *testing.T) {
+	// Middleware that blocks requests without an "X-Auth" header.
+	authMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("X-Auth") == "" {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	boot, err := New().
+		GRPCPort(":0").
+		HTTPPort(":0").
+		WithMCP(
+			&mcp.Implementation{Name: "mw-test", Version: "v1.0.0"},
+			nil,
+		).
+		WithMCPMiddleware(authMiddleware).
+		Build()
+
+	require.NoError(t, err)
+	defer boot.Shutdown(context.Background())
+
+	initReq := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"v1"}}}`
+
+	// Request WITHOUT the auth header should be rejected by middleware.
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(initReq))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	w := httptest.NewRecorder()
+	boot.http.Handler.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Result().StatusCode,
+		"request without X-Auth header should be blocked by middleware")
+
+	// Request WITH the auth header should reach the MCP server.
+	req = httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(initReq))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("X-Auth", "valid-token")
+	w = httptest.NewRecorder()
+	boot.http.Handler.ServeHTTP(w, req)
+
+	resp := w.Result()
+	body, _ := io.ReadAll(resp.Body)
+	assert.Contains(t, []int{http.StatusOK, http.StatusAccepted}, resp.StatusCode,
+		"authenticated request should succeed, got status %d, body: %s", resp.StatusCode, string(body))
+	assert.Contains(t, string(body), "mw-test")
+}
+
+func TestBuilder_WithMCPMiddleware_HeaderInjection(t *testing.T) {
+	// Middleware that injects a response header.
+	headerMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-MCP-Version", "1.0")
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	boot, err := New().
+		GRPCPort(":0").
+		HTTPPort(":0").
+		WithMCP(
+			&mcp.Implementation{Name: "header-test", Version: "v1.0.0"},
+			nil,
+		).
+		WithMCPMiddleware(headerMiddleware).
+		Build()
+
+	require.NoError(t, err)
+	defer boot.Shutdown(context.Background())
+
+	initReq := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"v1"}}}`
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(initReq))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	w := httptest.NewRecorder()
+	boot.http.Handler.ServeHTTP(w, req)
+
+	assert.Equal(t, "1.0", w.Result().Header.Get("X-MCP-Version"),
+		"middleware should inject X-MCP-Version header")
+}
+
+func TestBuilder_WithMCPMiddleware_NilMiddleware_NoWrap(t *testing.T) {
+	// When no middleware is set, MCP handler should work directly.
+	boot, err := New().
+		GRPCPort(":0").
+		HTTPPort(":0").
+		WithMCP(
+			&mcp.Implementation{Name: "no-mw", Version: "v1.0.0"},
+			nil,
+		).
+		Build()
+
+	require.NoError(t, err)
+	defer boot.Shutdown(context.Background())
+
+	initReq := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"v1"}}}`
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(initReq))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	w := httptest.NewRecorder()
+	boot.http.Handler.ServeHTTP(w, req)
+
+	resp := w.Result()
+	body, _ := io.ReadAll(resp.Body)
+	assert.Contains(t, []int{http.StatusOK, http.StatusAccepted}, resp.StatusCode,
+		"MCP without middleware should work, got status %d, body: %s", resp.StatusCode, string(body))
+	assert.Contains(t, string(body), "no-mw")
+}

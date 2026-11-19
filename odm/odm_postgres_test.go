@@ -74,8 +74,8 @@ func TestPostgresCollection(t *testing.T) {
 		_, _ = client.Exec(ctx, "DROP SCHEMA IF EXISTS "+pgx.Identifier{tenant}.Sanitize()+" CASCADE")
 	}()
 
-	require.NoError(t, EnsurePostgresIndexes[pgMovie](ctx, client, tenant))
-	require.NoError(t, EnsurePostgresIndexes[pgMovie](ctx, client, tenant), "must be idempotent")
+	require.NoError(t, EnsurePgIndexes[pgMovie](ctx, client, tenant))
+	require.NoError(t, EnsurePgIndexes[pgMovie](ctx, client, tenant), "must be idempotent")
 
 	col := PgCollectionOf[pgMovie](client, tenant)
 	date := func(y int) time.Time { return time.Date(y, 6, 1, 0, 0, 0, 0, time.UTC) }

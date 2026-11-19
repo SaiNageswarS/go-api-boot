@@ -375,7 +375,7 @@ The same models and `OdmCollectionInterface[T]` work on Postgres. Only the clien
 pg := odm.ProvidePostgresClient() // reads POSTGRES_URI
 defer pg.Close()
 
-if err := odm.EnsurePostgresIndexes[Article](ctx, pg, tenant); err != nil {
+if err := odm.EnsurePgIndexes[Article](ctx, pg, tenant); err != nil {
   log.Fatalf("failed to ensure indexes: %v", err)
 }
 
@@ -409,7 +409,7 @@ Differences from MongoDB:
 * Dotted paths don't traverse arrays of sub-documents; use `$elemMatch`.
 * `$gt`/`$lt` only compare values of the same JSON type.
 * `TermSearch` matches any word of the query and ranks with `ts_rank`. Pass the same `Path` as the index, in the same order, for the index to be used.
-* Vector search needs the `vector` extension (`CREATE EXTENSION vector`, done by `EnsurePostgresIndexes`). Scores follow Atlas: cosine and dotProduct give `(1 + similarity) / 2`, euclidean gives `1 / (1 + distance)`.
+* Vector search needs the `vector` extension (`CREATE EXTENSION vector`, done by `EnsurePgIndexes`). Scores follow Atlas: cosine and dotProduct give `(1 + similarity) / 2`, euclidean gives `1 / (1 + distance)`.
 
 ---
 

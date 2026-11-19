@@ -9,7 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-// EnsurePostgresIndexes is EnsureIndexes for Postgres. It creates the table and
+// EnsurePgIndexes is EnsureIndexes for Postgres. It creates the table and
 // translates every index the model advertises:
 //   - IndexModels (1 / -1 keys, Unique, Name) become btree indexes on the fields;
 //   - TermSearchIndexSpecs become GIN full-text indexes;
@@ -18,7 +18,7 @@ import (
 //
 // Index names are prefixed with the collection name, since Postgres index names
 // are unique per schema, not per table.
-func EnsurePostgresIndexes[T DbModel](ctx context.Context, client PostgresClient, tenant string) error {
+func EnsurePgIndexes[T DbModel](ctx context.Context, client PostgresClient, tenant string) error {
 	var zero T
 	table := zero.CollectionName()
 	if err := ensurePgTable(ctx, client, tenant, table); err != nil {

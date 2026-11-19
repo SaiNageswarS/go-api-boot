@@ -3,6 +3,7 @@ package odm
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -18,7 +19,7 @@ import (
 //
 // Index names are prefixed with the collection name, since Postgres index names
 // are unique per schema, not per table.
-func EnsurePgIndexes[T DbModel](ctx context.Context, client PostgresClient, tenant string) error {
+func EnsurePgIndexes[T DbModel](ctx context.Context, client PgClient, tenant string) error {
 	var zero T
 	table := zero.CollectionName()
 	if err := ensurePgTable(ctx, client, tenant, table); err != nil {
@@ -42,7 +43,7 @@ func EnsurePgIndexes[T DbModel](ctx context.Context, client PostgresClient, tena
 			for i, e := range pairs {
 				dir, ok := toInt64(e.Value)
 				if !ok || (dir != 1 && dir != -1) {
-					return fmt.Errorf("odm/postgres: index key %s: only 1 / -1 indexes are supported, got %v", e.Key, e.Value)
+					return errUnsupported("index key %s: %v (only 1 / -1 keys)", e.Key, e.Value)
 				}
 				path := strings.Split(e.Key, ".")
 				col := jsonbExpr(path)
@@ -64,6 +65,9 @@ func EnsurePgIndexes[T DbModel](ctx context.Context, client PostgresClient, tena
 						return err
 					}
 				}
+			}
+			if unsupported := unsupportedIndexOptions(opts); len(unsupported) > 0 {
+				return errUnsupported("index %v: options %s", model.Keys, strings.Join(unsupported, ", "))
 			}
 			name := strings.Join(nameParts, "_")
 			if opts.Name != nil {
@@ -119,4 +123,35 @@ func EnsurePgIndexes[T DbModel](ctx context.Context, client PostgresClient, tena
 		}
 	}
 	return nil
+}
+
+// unsupportedIndexOptions names the options set on a MongoDB index that have no
+// Postgres translation. Name and Unique are translated; Sparse is accepted
+// because Postgres indexes already skip missing fields for uniqueness (they
+// are NULL); Version only concerns MongoDB's on-disk format.
+func unsupportedIndexOptions(o options.IndexOptions) []string {
+	var names []string
+	for name, set := range map[string]bool{
+		"ExpireAfterSeconds":      o.ExpireAfterSeconds != nil,
+		"PartialFilterExpression": o.PartialFilterExpression != nil,
+		"Collation":               o.Collation != nil,
+		"StorageEngine":           o.StorageEngine != nil,
+		"Hidden":                  o.Hidden != nil,
+		"WildcardProjection":      o.WildcardProjection != nil,
+		"Weights":                 o.Weights != nil,
+		"DefaultLanguage":         o.DefaultLanguage != nil,
+		"LanguageOverride":        o.LanguageOverride != nil,
+		"TextVersion":             o.TextVersion != nil,
+		"SphereVersion":           o.SphereVersion != nil,
+		"Bits":                    o.Bits != nil,
+		"Min":                     o.Min != nil,
+		"Max":                     o.Max != nil,
+		"BucketSize":              o.BucketSize != nil,
+	} {
+		if set {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }

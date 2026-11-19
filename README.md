@@ -369,10 +369,10 @@ for _, hit := range results {
 
 #### Postgres Backend
 
-The same models and `OdmCollectionInterface[T]` work on Postgres. Only the client and constructor change, plus listing queries: `Find` is MongoDB only and `FindSql` is Postgres only (each returns `errors.ErrUnsupported` on the other backend).
+The same models, `bson` filters and `OdmCollectionInterface[T]` work on Postgres. Only the client and the constructors change:
 
 ```go
-pg := odm.ProvidePostgresClient() // reads POSTGRES_URI
+pg := odm.ProvidePgClient() // reads POSTGRES_URI
 defer pg.Close()
 
 if err := odm.EnsurePgIndexes[Article](ctx, pg, tenant); err != nil {
@@ -381,8 +381,7 @@ if err := odm.EnsurePgIndexes[Article](ctx, pg, tenant); err != nil {
 
 articles := odm.PgCollectionOf[Article](pg, tenant)
 _, err := async.Await(articles.Save(ctx, article))
-recent, err := async.Await(articles.FindSql(ctx,
-  "WHERE (doc->>'year')::int >= $1 ORDER BY doc->'year' DESC LIMIT 10", 2020))
+recent, err := async.Await(articles.Find(ctx, bson.M{"year": bson.M{"$gte": 2020}}, bson.D{{Key: "year", Value: -1}}, 10, 0))
 hits, err := async.Await(articles.VectorSearch(ctx, embedding, params))
 ```
 
@@ -393,23 +392,37 @@ How it maps:
 | database (tenant) | schema |
 | collection | table `(id TEXT PRIMARY KEY, doc JSONB)`, created on first use |
 | document | `doc`, encoded with the model's `bson` tags |
-| `IndexModels()` (1 / -1 keys, `Unique`, `Name`) | btree indexes on the fields |
-| `TermSearchIndexSpecs()` | GIN full-text index (`odm.PostgresTextSearchConfig`, default `english`) |
+| `IndexModels()` | btree indexes on the fields |
+| `TermSearchIndexSpecs()` | GIN full-text index (`odm.PgTextSearchConfig`, default `english`) |
 | `VectorIndexSpecs()` | [pgvector](https://github.com/pgvector/pgvector) HNSW index (`halfvec` for scalar quantization or > 2000 dims); `filter` specs become btree indexes |
 
 Every table also gets a GIN index on `doc`, so equality filters on any field are indexed.
 
-`FindSql(ctx, clause, args...)` runs `SELECT doc FROM <table> <clause>`; the clause can hold `WHERE`, `ORDER BY`, `LIMIT` and `OFFSET` over the columns `id` (text) and `doc` (jsonb, keyed by bson field names), with `$1, $2, ...` bound to `args`.
+##### Raw SQL with `FindSql`
 
-`FindOne`, `Count`, `DeleteOne`, `DistinctInto`, `Aggregate` and the search filters still take `bson` filters. Supported in filters: equality (including array membership), `$eq $ne $gt $gte $lt $lte $in $nin $exists $regex $options $size $all $not $elemMatch $and $or $nor`. `Aggregate` accepts `$match`, `$sort`, `$skip` and `$limit` stages. `FindOne` returns `odm.ErrNoDocuments` when nothing matches, on both backends.
+`PgCollectionOf` returns a `PgCollection[T]`: the portable interface plus `FindSql`, for queries `bson` filters can't express. It runs `SELECT doc FROM <table> <clause>` over the columns `id` (text) and `doc` (jsonb, keyed by bson field names):
 
-Differences from MongoDB:
+```go
+top, err := async.Await(articles.FindSql(ctx,
+  "WHERE (doc->>'year')::int >= $1 ORDER BY (doc->'rating'->>'imdb')::float DESC LIMIT 10", 2020))
+```
 
-* Equality with a sub-document matches when the stored sub-document contains it (extra fields allowed).
-* Dotted paths don't traverse arrays of sub-documents; use `$elemMatch`.
-* `$gt`/`$lt` only compare values of the same JSON type.
-* `TermSearch` matches any word of the query and ranks with `ts_rank`. Pass the same `Path` as the index, in the same order, for the index to be used.
-* Vector search needs the `vector` extension (`CREATE EXTENSION vector`, done by `EnsurePgIndexes`). Scores follow Atlas: cosine and dotProduct give `(1 + similarity) / 2`, euclidean gives `1 / (1 + distance)`.
+The clause is executed as SQL, so it must be trusted code; pass user values as `args` (`$1, $2, ...`). Code holding the portable `OdmCollectionInterface[T]` can reach it with a type assertion: `pg, ok := col.(odm.PgCollection[T])`.
+
+##### Postgres query semantics
+
+| | Postgres behaviour |
+|---|---|
+| Filter operators | equality (including array membership), `$eq $ne $gt $gte $lt $lte $in $nin $exists $regex $options $size $all $not $elemMatch $and $or $nor` |
+| Equality with a sub-document | matches when the stored sub-document contains it (extra fields allowed) |
+| Dotted paths | don't traverse arrays of sub-documents; use `$elemMatch` |
+| `$gt` / `$lt` / sort | compare values of the same JSON type only; missing values sort first ascending, last descending |
+| `Aggregate` | `$match`, `$sort`, `$skip` and `$limit` stages |
+| `IndexModels()` | 1 / -1 keys with `Name`, `Unique` and `Sparse`; unique indexes allow many documents missing the field |
+| `TermSearch` | matches any word of the query, ranked with `ts_rank`; pass the same `Path` as the index, in the same order, for the index to be used |
+| `VectorSearch` | needs the `vector` extension (created by `EnsurePgIndexes`). Scores follow Atlas: cosine and dotProduct give `(1 + similarity) / 2`, euclidean gives `1 / (1 + distance)` |
+
+Anything else (other operators, stages, index key types or index options such as TTL and partial filters) returns an error wrapping `errors.ErrUnsupported`; nothing is silently ignored. `FindOne` returns `odm.ErrNoDocuments` when nothing matches, on both backends.
 
 ---
 

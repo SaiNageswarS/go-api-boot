@@ -8,6 +8,7 @@ import (
 )
 
 // Classic B-tree / hashed / compound indexes.
+// Postgres: only 1 / -1 keys and the Name, Unique and Sparse options (see README).
 type Indexed interface {
 	IndexModels() []mongo.IndexModel
 }

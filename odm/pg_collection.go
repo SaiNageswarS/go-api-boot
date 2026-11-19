@@ -17,20 +17,41 @@ import (
 // both the MongoDB and the Postgres collections.
 var ErrNoDocuments = mongo.ErrNoDocuments
 
-// PostgresTextSearchConfig is the text search configuration TermSearch and the
+// PgTextSearchConfig is the text search configuration TermSearch and the
 // term search indexes use. Change it before creating indexes.
-var PostgresTextSearchConfig = "english"
+var PgTextSearchConfig = "english"
 
 type pgCollection[T DbModel] struct {
-	db     PostgresClient
+	db     PgClient
 	schema string
 	table  string
 	timer  Timer
 }
 
-// PgCollectionOf is CollectionOf for Postgres: the same collection
-// interface, backed by the table "<tenant>"."<CollectionName()>".
-func PgCollectionOf[T DbModel](client PostgresClient, tenant string) OdmCollectionInterface[T] {
+// PgCollection is a Postgres collection: the portable OdmCollectionInterface,
+// plus SQL for queries the bson filters can't express. Pass it anywhere an
+// OdmCollectionInterface is expected; reach FindSql by holding a PgCollection
+// or with a type assertion.
+type PgCollection[T DbModel] interface {
+	OdmCollectionInterface[T]
+
+	// FindSql runs "SELECT doc FROM <tenant>.<collection> <clause>" and decodes
+	// each row into T. The clause may hold WHERE, ORDER BY, LIMIT and OFFSET
+	// over the columns id (text) and doc (jsonb, keyed by bson field names),
+	// with $1, $2, ... bound to args:
+	//
+	//	FindSql(ctx, "WHERE (doc->>'year')::int >= $1 ORDER BY doc->'year' DESC LIMIT 10", 2020)
+	//
+	// The clause is executed as SQL: it must be trusted code, never built from
+	// user input. Pass user values through args.
+	FindSql(ctx context.Context, clause string, args ...any) <-chan async.Result[[]T]
+}
+
+var _ PgCollection[DbModel] = (*pgCollection[DbModel])(nil)
+
+// PgCollectionOf is CollectionOf for Postgres, backed by the table
+// "<tenant>"."<CollectionName()>".
+func PgCollectionOf[T DbModel](client PgClient, tenant string) PgCollection[T] {
 	var zero T
 	return &pgCollection[T]{
 		db:     client,
@@ -101,19 +122,27 @@ func (c *pgCollection[T]) FindOne(ctx context.Context, filters bson.M) <-chan as
 	})
 }
 
-// Find is not supported on Postgres; use FindSql.
 func (c *pgCollection[T]) Find(ctx context.Context, filters bson.M, sort bson.D, limit, skip int64) <-chan async.Result[[]T] {
 	return async.Go(func() ([]T, error) {
-		return nil, fmt.Errorf("%w: Find on a Postgres collection, use FindSql", errors.ErrUnsupported)
+		if err := c.ensure(ctx); err != nil {
+			return nil, err
+		}
+
+		q := &pgQuery{}
+		where, err := q.where(filters)
+		if err != nil {
+			return nil, err
+		}
+		order, err := orderBy(sort)
+		if err != nil {
+			return nil, err
+		}
+
+		sql := "SELECT doc::text FROM " + c.qualified() + " WHERE " + where + order + limitOffset(limit, skip)
+		return c.queryModels(ctx, sql, q.args)
 	})
 }
 
-// FindSql runs "SELECT doc FROM <table> <clause>" and decodes each row into T.
-// The clause may hold WHERE, ORDER BY, LIMIT and OFFSET, with $1, $2, ...
-// bound to args. Rows have two columns: id (text) and doc (jsonb, the
-// document in bson field names), e.g.
-//
-//	FindSql(ctx, "WHERE (doc->>'year')::int >= $1 ORDER BY doc->'year' DESC LIMIT 10", 2020)
 func (c *pgCollection[T]) FindSql(ctx context.Context, clause string, args ...any) <-chan async.Result[[]T] {
 	return async.Go(func() ([]T, error) {
 		if err := c.ensure(ctx); err != nil {
@@ -290,7 +319,7 @@ func (c *pgCollection[T]) pipelineSQL(q *pgQuery, pipeline mongo.Pipeline) (stri
 				cur.limit = n
 			}
 		default:
-			return "", fmt.Errorf("odm/postgres: unsupported aggregation stage %s", op)
+			return "", errUnsupported("aggregation stage %s", op)
 		}
 	}
 
@@ -398,7 +427,7 @@ func (c *pgCollection[T]) TermSearch(ctx context.Context, query string, params T
 		}
 
 		tsv := tsVectorExpr(params.Path)
-		cfg := quoteLiteral(PostgresTextSearchConfig)
+		cfg := quoteLiteral(PgTextSearchConfig)
 		// plainto_tsquery ANDs the words; Atlas text search matches any of them.
 		tsq := "replace(plainto_tsquery(" + cfg + ", " + q.arg(query) + ")::text, '&', '|')::tsquery"
 
@@ -532,5 +561,5 @@ func tsVectorExpr(paths []string) string {
 	for i, p := range paths {
 		fields[i] = "coalesce(" + textExpr(strings.Split(p, ".")) + ", '')"
 	}
-	return "to_tsvector(" + quoteLiteral(PostgresTextSearchConfig) + "::regconfig, " + strings.Join(fields, " || ' ' || ") + ")"
+	return "to_tsvector(" + quoteLiteral(PgTextSearchConfig) + "::regconfig, " + strings.Join(fields, " || ' ' || ") + ")"
 }

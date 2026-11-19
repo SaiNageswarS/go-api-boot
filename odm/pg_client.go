@@ -14,7 +14,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// PostgresClient is the subset of *pgxpool.Pool the Postgres ODM uses.
+// PgClient is the subset of *pgxpool.Pool the Postgres ODM uses.
 //
 // The Postgres backend stores every collection as a table of JSON documents:
 //
@@ -23,7 +23,7 @@ import (
 // A tenant maps to a Postgres schema, the way it maps to a database in MongoDB.
 // Documents are encoded with the model's bson tags, so the same model type works
 // against both backends.
-type PostgresClient interface {
+type PgClient interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
@@ -32,12 +32,12 @@ type PostgresClient interface {
 	Close()
 }
 
-var postgresConnect = func(ctx context.Context, uri string) (PostgresClient, error) {
+var postgresConnect = func(ctx context.Context, uri string) (PgClient, error) {
 	return pgxpool.New(ctx, uri)
 }
 
-// ProvidePostgresClient connects to the database in POSTGRES_URI.
-func ProvidePostgresClient() PostgresClient {
+// ProvidePgClient connects to the database in POSTGRES_URI.
+func ProvidePgClient() PgClient {
 	uri := os.Getenv("POSTGRES_URI")
 	if uri == "" {
 		logger.Fatal("POSTGRES_URI environment variable is not set")
@@ -67,7 +67,7 @@ var ensuredTables sync.Map
 
 // ensurePgTable creates the tenant schema and the collection table if missing.
 // MongoDB creates collections on first write; this keeps that behaviour.
-func ensurePgTable(ctx context.Context, db PostgresClient, schema, table string) error {
+func ensurePgTable(ctx context.Context, db PgClient, schema, table string) error {
 	key := fmt.Sprintf("%p|%s.%s", db, schema, table)
 	if _, ok := ensuredTables.Load(key); ok {
 		return nil

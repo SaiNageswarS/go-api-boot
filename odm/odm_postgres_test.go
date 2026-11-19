@@ -60,13 +60,26 @@ func (m pgMovie) VectorIndexSpecs() []VectorIndexSpec {
 	}
 }
 
-func TestPostgresCollection(t *testing.T) {
+type pgTTLModel struct {
+	ID string `bson:"_id"`
+}
+
+func (m pgTTLModel) Id() string             { return m.ID }
+func (m pgTTLModel) CollectionName() string { return "sessions" }
+func (m pgTTLModel) IndexModels() []mongo.IndexModel {
+	return []mongo.IndexModel{{
+		Keys:    bson.D{{Key: "createdOn", Value: 1}},
+		Options: options.Index().SetExpireAfterSeconds(3600),
+	}}
+}
+
+func TestPgCollection(t *testing.T) {
 	dotenv.LoadEnv("../.env")
 	if os.Getenv("POSTGRES_URI") == "" {
 		t.Skip("POSTGRES_URI not set")
 	}
 	ctx := t.Context()
-	client := ProvidePostgresClient()
+	client := ProvidePgClient()
 	defer client.Close()
 
 	tenant := fmt.Sprintf("odm_test_%d", time.Now().UnixNano())
@@ -119,10 +132,7 @@ func TestPostgresCollection(t *testing.T) {
 		assert.ErrorIs(t, err, ErrNoDocuments)
 	})
 
-	t.Run("Find is unsupported, FindSql", func(t *testing.T) {
-		_, err := async.Await(col.Find(ctx, bson.M{}, nil, 0, 0))
-		assert.ErrorIs(t, err, errors.ErrUnsupported)
-
+	t.Run("FindSql", func(t *testing.T) {
 		res, err := async.Await(col.FindSql(ctx, "WHERE (doc->>'year')::int >= $1 ORDER BY doc->'year' DESC LIMIT 2", 1986))
 		require.NoError(t, err)
 		require.Len(t, res, 2)
@@ -133,23 +143,29 @@ func TestPostgresCollection(t *testing.T) {
 		res, err = async.Await(col.FindSql(ctx, ""))
 		require.NoError(t, err)
 		assert.Len(t, res, 4)
+
+		// Reachable from the portable interface by type assertion.
+		var portable OdmCollectionInterface[pgMovie] = col
+		_, ok := portable.(PgCollection[pgMovie])
+		assert.True(t, ok)
 	})
 
-	t.Run("filters", func(t *testing.T) {
-		// Filters are compiled for FindOne, Count, DeleteOne and Aggregate;
-		// exercise them through Aggregate, which also takes sort, limit and skip.
+	t.Run("unsupported features wrap errors.ErrUnsupported", func(t *testing.T) {
+		_, err := async.Await(col.Find(ctx, bson.M{"loc": bson.M{"$near": bson.A{0, 0}}}, nil, 0, 0))
+		assert.ErrorIs(t, err, errors.ErrUnsupported)
+		assert.ErrorContains(t, err, "$near")
+
+		_, err = async.Await(col.Aggregate(ctx, mongo.Pipeline{{{Key: "$group", Value: bson.M{}}}}))
+		assert.ErrorIs(t, err, errors.ErrUnsupported)
+
+		err = EnsurePgIndexes[pgTTLModel](ctx, client, tenant)
+		assert.ErrorIs(t, err, errors.ErrUnsupported)
+		assert.ErrorContains(t, err, "ExpireAfterSeconds")
+	})
+
+	t.Run("Find filters", func(t *testing.T) {
 		ids := func(filter bson.M, sort bson.D, limit, skip int64) []string {
-			pipeline := mongo.Pipeline{{{Key: "$match", Value: filter}}}
-			if sort != nil {
-				pipeline = append(pipeline, bson.D{{Key: "$sort", Value: sort}})
-			}
-			if skip > 0 {
-				pipeline = append(pipeline, bson.D{{Key: "$skip", Value: skip}})
-			}
-			if limit > 0 {
-				pipeline = append(pipeline, bson.D{{Key: "$limit", Value: limit}})
-			}
-			res, err := async.Await(col.Aggregate(ctx, pipeline))
+			res, err := async.Await(col.Find(ctx, filter, sort, limit, skip))
 			require.NoError(t, err, "%v", filter)
 			out := []string{}
 			for _, m := range res {
@@ -218,9 +234,6 @@ func TestPostgresCollection(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, res, 1)
 		assert.Equal(t, "m2", res[0].ID)
-
-		_, err = async.Await(col.Aggregate(ctx, mongo.Pipeline{{{Key: "$group", Value: bson.M{}}}}))
-		assert.Error(t, err)
 	})
 
 	t.Run("VectorSearch", func(t *testing.T) {

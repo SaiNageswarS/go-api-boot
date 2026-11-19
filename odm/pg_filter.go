@@ -1,6 +1,7 @@
 package odm
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -35,7 +36,7 @@ func (q *pgQuery) arg(v any) string {
 func (q *pgQuery) where(filter any) (string, error) {
 	pairs, ok := toPairs(filter)
 	if !ok {
-		return "", fmt.Errorf("odm/postgres: unsupported filter type %T", filter)
+		return "", errUnsupported("filter type %T", filter)
 	}
 	if len(pairs) == 0 {
 		return "TRUE", nil
@@ -52,7 +53,7 @@ func (q *pgQuery) where(filter any) (string, error) {
 			clause, err = q.logical(e.Key, e.Value)
 		default:
 			if strings.HasPrefix(e.Key, "$") {
-				return "", fmt.Errorf("odm/postgres: unsupported top-level operator %s", e.Key)
+				return "", errUnsupported("operator %s", e.Key)
 			}
 			clause, err = q.field(strings.Split(e.Key, "."), e.Value)
 		}
@@ -155,7 +156,7 @@ func (q *pgQuery) field(path []string, v any) (string, error) {
 		case "$elemMatch":
 			clause, err = q.elemMatch(path, op.Value)
 		default:
-			err = fmt.Errorf("odm/postgres: unsupported operator %s", op.Key)
+			err = errUnsupported("operator %s", op.Key)
 		}
 		if err != nil {
 			return "", err
@@ -272,7 +273,7 @@ func (q *pgQuery) regex(path []string, pattern, options string) (string, error) 
 			flags += "x"
 		case 's':
 		default:
-			return "", fmt.Errorf("odm/postgres: unsupported regex option %q", o)
+			return "", errUnsupported("regex option %q", o)
 		}
 	}
 	if flags != "" {
@@ -331,7 +332,7 @@ func (q *pgQuery) elemMatch(path []string, v any) (string, error) {
 func orderBy(sortDoc any) (string, error) {
 	pairs, ok := toPairs(sortDoc)
 	if !ok {
-		return "", fmt.Errorf("odm/postgres: unsupported sort type %T", sortDoc)
+		return "", errUnsupported("sort type %T", sortDoc)
 	}
 	if len(pairs) == 0 {
 		return "", nil
@@ -400,6 +401,12 @@ func nestUnder(path []string, v any) (string, error) {
 		nested = bson.D{{Key: path[i], Value: nested}}
 	}
 	return bsonToJSON(nested)
+}
+
+// errUnsupported reports a query or index feature the Postgres backend can't
+// translate. It wraps errors.ErrUnsupported.
+func errUnsupported(format string, args ...any) error {
+	return fmt.Errorf("odm/postgres: %w: "+format, append([]any{errors.ErrUnsupported}, args...)...)
 }
 
 func negate(clause string) string { return "(NOT COALESCE(" + clause + ", false))" }

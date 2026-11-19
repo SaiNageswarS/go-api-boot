@@ -366,6 +366,49 @@ for _, hit := range results {
 
 ---
 
+#### Postgres Backend
+
+The same models, filters and `OdmCollectionInterface[T]` work on Postgres. Only the client and constructor change:
+
+```go
+pg := odm.ProvidePostgresClient() // reads POSTGRES_URI
+defer pg.Close()
+
+if err := odm.EnsurePostgresIndexes[Article](ctx, pg, tenant); err != nil {
+  log.Fatalf("failed to ensure indexes: %v", err)
+}
+
+articles := odm.PostgresCollectionOf[Article](pg, tenant)
+_, err := async.Await(articles.Save(ctx, article))
+recent, err := async.Await(articles.Find(ctx, bson.M{"year": bson.M{"$gte": 2020}}, bson.D{{Key: "year", Value: -1}}, 10, 0))
+hits, err := async.Await(articles.VectorSearch(ctx, embedding, params))
+```
+
+How it maps:
+
+| MongoDB | Postgres |
+|---|---|
+| database (tenant) | schema |
+| collection | table `(id TEXT PRIMARY KEY, doc JSONB)`, created on first use |
+| document | `doc`, encoded with the model's `bson` tags |
+| `IndexModels()` (1 / -1 keys, `Unique`, `Name`) | btree indexes on the fields |
+| `TermSearchIndexSpecs()` | GIN full-text index (`odm.PostgresTextSearchConfig`, default `english`) |
+| `VectorIndexSpecs()` | [pgvector](https://github.com/pgvector/pgvector) HNSW index (`halfvec` for scalar quantization or > 2000 dims); `filter` specs become btree indexes |
+
+Every table also gets a GIN index on `doc`, so equality filters on any field are indexed.
+
+Supported in filters: equality (including array membership), `$eq $ne $gt $gte $lt $lte $in $nin $exists $regex $options $size $all $not $elemMatch $and $or $nor`. `Aggregate` accepts `$match`, `$sort`, `$skip` and `$limit` stages. `FindOne` returns `odm.ErrNoDocuments` when nothing matches, on both backends.
+
+Differences from MongoDB:
+
+* Equality with a sub-document matches when the stored sub-document contains it (extra fields allowed).
+* Dotted paths don't traverse arrays of sub-documents; use `$elemMatch`.
+* `$gt`/`$lt` only compare values of the same JSON type.
+* `TermSearch` matches any word of the query and ranks with `ts_rank`. Pass the same `Path` as the index, in the same order, for the index to be used.
+* Vector search needs the `vector` extension (`CREATE EXTENSION vector`, done by `EnsurePostgresIndexes`). Scores follow Atlas: cosine and dotProduct give `(1 + similarity) / 2`, euclidean gives `1 / (1 + distance)`.
+
+---
+
 ### Auth & JWT
 
 * HS256 by default – override via env vars or secrets manager.

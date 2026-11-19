@@ -17,10 +17,6 @@ import (
 // both the MongoDB and the Postgres collections.
 var ErrNoDocuments = mongo.ErrNoDocuments
 
-// PgTextSearchConfig is the text search configuration TermSearch and the
-// term search indexes use. Change it before creating indexes.
-var PgTextSearchConfig = "english"
-
 type pgCollection[T DbModel] struct {
 	db     PgClient
 	schema string
@@ -408,33 +404,26 @@ func (c *pgCollection[T]) VectorSearch(ctx context.Context, embedding []float32,
 	})
 }
 
-// TermSearch runs Postgres full-text search over params.Path, matching any of
-// the query's words and ranking with ts_rank. A term search index over the
-// same paths, in the same order, makes it fast.
+// TermSearch runs a ParadeDB BM25 search over params.Path, matching any of the
+// query's words. Every path must be in the model's TermSearchIndexSpecs and
+// indexed by EnsurePgIndexes. Needs the pg_search extension.
 func (c *pgCollection[T]) TermSearch(ctx context.Context, query string, params TermSearchParams) <-chan async.Result[[]SearchHit[T]] {
 	return async.Go(func() ([]SearchHit[T], error) {
 		if query == "" || params.IndexName == "" || len(params.Path) == 0 || params.Limit <= 0 {
 			return nil, errors.New("invalid input - query, index name, path, and limit must be provided")
+		}
+		if err := requirePgSearch(ctx, c.db); err != nil {
+			return nil, err
 		}
 		if err := c.ensure(ctx); err != nil {
 			return nil, err
 		}
 
 		q := &pgQuery{}
-		where, err := q.where(params.Filter)
+		sql, err := termSearchSQL(c.qualified(), q, query, params.Path, params.Filter, params.Limit)
 		if err != nil {
 			return nil, err
 		}
-
-		tsv := tsVectorExpr(params.Path)
-		cfg := quoteLiteral(PgTextSearchConfig)
-		// plainto_tsquery ANDs the words; Atlas text search matches any of them.
-		tsq := "replace(plainto_tsquery(" + cfg + ", " + q.arg(query) + ")::text, '&', '|')::tsquery"
-
-		sql := "SELECT doc::text, ts_rank(" + tsv + ", tq.query) AS score FROM " + c.qualified() +
-			", (SELECT " + tsq + " AS query) AS tq" +
-			" WHERE " + tsv + " @@ tq.query AND " + where +
-			" ORDER BY score DESC LIMIT " + strconv.Itoa(params.Limit)
 
 		rows, err := c.db.Query(ctx, sql, q.args...)
 		if err != nil {
@@ -554,12 +543,4 @@ func vectorLiteral(v []float32) string {
 		parts[i] = strconv.FormatFloat(float64(f), 'g', -1, 32)
 	}
 	return "[" + strings.Join(parts, ",") + "]"
-}
-
-func tsVectorExpr(paths []string) string {
-	fields := make([]string, len(paths))
-	for i, p := range paths {
-		fields[i] = "coalesce(" + textExpr(strings.Split(p, ".")) + ", '')"
-	}
-	return "to_tsvector(" + quoteLiteral(PgTextSearchConfig) + "::regconfig, " + strings.Join(fields, " || ' ' || ") + ")"
 }

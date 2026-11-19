@@ -1,7 +1,13 @@
 package odm
 
 import (
+	"context"
+	"errors"
 	"testing"
+
+	"github.com/SaiNageswarS/go-collection-boot/async"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -88,4 +94,26 @@ func TestPgJSONRoundTrip(t *testing.T) {
 	f, ok := out.Vec.Float32OK()
 	assert.True(t, ok)
 	assert.Equal(t, []float32{0.5, -1}, f)
+}
+
+// noPgSearchClient is a database without the pg_search extension.
+type noPgSearchClient struct{ PgClient }
+
+type boolRow bool
+
+func (r boolRow) Scan(dest ...any) error { *(dest[0].(*bool)) = bool(r); return nil }
+
+func (noPgSearchClient) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, errors.New(`extension "pg_search" is not available`)
+}
+func (noPgSearchClient) QueryRow(context.Context, string, ...any) pgx.Row { return boolRow(false) }
+
+func TestPgSearchRequired(t *testing.T) {
+	db := &noPgSearchClient{}
+	err := ensurePgSearchIndex(t.Context(), db, "tenant", "movies", []string{"plot"})
+	assert.ErrorIs(t, err, ErrPgSearchNotInstalled)
+
+	_, err = async.Await(PgCollectionOf[pgMovie](db, "tenant").TermSearch(t.Context(), "crew",
+		TermSearchParams{IndexName: "plotIndex", Path: []string{"plot"}, Limit: 5}))
+	assert.ErrorIs(t, err, ErrPgSearchNotInstalled)
 }

@@ -1,7 +1,8 @@
-// Integration tests for the Postgres ODM. They need a Postgres with pgvector:
+// Integration tests for the Postgres ODM. They need ParadeDB (pg_search for
+// term search; the image also ships pgvector):
 //
-//	docker run -d -e POSTGRES_PASSWORD=test -p 55432:5432 pgvector/pgvector:pg17
-//	POSTGRES_URI=postgres://postgres:test@localhost:55432/postgres go test ./odm -run Postgres
+//	docker run -d -e POSTGRES_PASSWORD=test -p 55433:5432 paradedb/paradedb:latest
+//	POSTGRES_URI=postgres://postgres:test@localhost:55433/postgres go test ./odm -run TestPg
 //
 // They are skipped when POSTGRES_URI is not set.
 
@@ -59,6 +60,20 @@ func (m pgMovie) VectorIndexSpecs() []VectorIndexSpec {
 		{Name: "yearFilter", Path: "year", Type: "filter"},
 	}
 }
+
+// Same table as pgMovie, with one more term search path.
+type pgMovieMoreSearch struct {
+	pgMovie `bson:",inline"`
+}
+
+func (m pgMovieMoreSearch) IndexModels() []mongo.IndexModel { return nil }
+func (m pgMovieMoreSearch) TermSearchIndexSpecs() []TermSearchIndexSpec {
+	return []TermSearchIndexSpec{
+		{Name: "plotIndex", Paths: []string{"title", "plot"}},
+		{Name: "genreIndex", Paths: []string{"genres"}},
+	}
+}
+func (m pgMovieMoreSearch) VectorIndexSpecs() []VectorIndexSpec { return nil }
 
 type pgTTLModel struct {
 	ID string `bson:"_id"`
@@ -272,6 +287,34 @@ func TestPgCollection(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, hits, 1)
 		assert.Equal(t, "m1", hits[0].Doc.ID)
+
+		// Stemming: "mercenary" matches "Mercenaries". A subset of the indexed paths works.
+		hits, err = async.Await(col.TermSearch(ctx, "mercenary", TermSearchParams{
+			IndexName: "plotIndex", Path: []string{"plot"}, Limit: 10,
+		}))
+		require.NoError(t, err)
+		require.Len(t, hits, 1)
+		assert.Equal(t, "m4", hits[0].Doc.ID)
+		assert.Greater(t, hits[0].Score, 0.0)
+
+		// Filters that ParadeDB can't push down (containment on doc) still apply.
+		hits, err = async.Await(col.TermSearch(ctx, "crew aliens", TermSearchParams{
+			IndexName: "plotIndex", Path: []string{"title", "plot"}, Limit: 10,
+			Filter: bson.M{"genres": "sci-fi", "year": bson.M{"$gte": 1980}},
+		}))
+		require.NoError(t, err)
+		require.Len(t, hits, 1)
+		assert.Equal(t, "m2", hits[0].Doc.ID)
+
+		// Paths outside the index are rejected by ParadeDB.
+		_, err = async.Await(col.TermSearch(ctx, "crew", TermSearchParams{
+			IndexName: "plotIndex", Path: []string{"genres"}, Limit: 10,
+		}))
+		assert.Error(t, err)
+
+		// The one ParadeDB index per table must cover new paths; say so clearly.
+		err = EnsurePgIndexes[pgMovieMoreSearch](ctx, client, tenant)
+		assert.ErrorContains(t, err, "doesn't cover genres")
 	})
 
 	t.Run("unique index", func(t *testing.T) {

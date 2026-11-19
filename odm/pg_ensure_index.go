@@ -13,7 +13,9 @@ import (
 // EnsurePgIndexes is EnsureIndexes for Postgres. It creates the table and
 // translates every index the model advertises:
 //   - IndexModels (1 / -1 keys, Unique, Name) become btree indexes on the fields;
-//   - TermSearchIndexSpecs become GIN full-text indexes;
+//   - TermSearchIndexSpecs become one ParadeDB BM25 index over all their paths
+//     (ParadeDB allows one per table); this needs the pg_search extension and
+//     returns ErrPgSearchNotInstalled without it;
 //   - VectorIndexSpecs become pgvector HNSW indexes (type "filter" specs become
 //     btree indexes). The pgvector extension is created if missing.
 //
@@ -83,11 +85,17 @@ func EnsurePgIndexes[T DbModel](ctx context.Context, client PgClient, tenant str
 		}
 	}
 
-	// --- Term search indexes -------------------------------------------------
+	// --- Term search index (ParadeDB, one per table) --------------------------
+	var searchPaths []string
 	if sx, ok := any(zero).(SearchIndexed); ok {
+		seen := map[string]bool{}
 		for _, spec := range sx.TermSearchIndexSpecs() {
-			stmts = append(stmts, fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON %s USING gin (%s)",
-				indexName(spec.Name), qualified, tsVectorExpr(spec.Paths)))
+			for _, p := range spec.Paths {
+				if !seen[p] {
+					seen[p] = true
+					searchPaths = append(searchPaths, p)
+				}
+			}
 		}
 	}
 
@@ -121,6 +129,10 @@ func EnsurePgIndexes[T DbModel](ctx context.Context, client PgClient, tenant str
 		if _, err := client.Exec(ctx, stmt); err != nil {
 			return fmt.Errorf("odm/postgres: %s: %w", stmt, err)
 		}
+	}
+
+	if len(searchPaths) > 0 {
+		return ensurePgSearchIndex(ctx, client, tenant, table, searchPaths)
 	}
 	return nil
 }

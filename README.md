@@ -393,10 +393,16 @@ How it maps:
 | collection | table `(id TEXT PRIMARY KEY, doc JSONB)`, created on first use |
 | document | `doc`, encoded with the model's `bson` tags |
 | `IndexModels()` | btree indexes on the fields |
-| `TermSearchIndexSpecs()` | GIN full-text index (`odm.PgTextSearchConfig`, default `english`) |
+| `TermSearchIndexSpecs()` | one [ParadeDB](https://www.paradedb.com/docs) BM25 index over all their paths (requires `pg_search`) |
 | `VectorIndexSpecs()` | [pgvector](https://github.com/pgvector/pgvector) HNSW index (`halfvec` for scalar quantization or > 2000 dims); `filter` specs become btree indexes |
 
 Every table also gets a GIN index on `doc`, so equality filters on any field are indexed.
+
+##### Term search needs ParadeDB
+
+`TermSearch` uses [ParadeDB](https://www.paradedb.com/docs)'s `pg_search` extension for BM25 ranking, the same scoring Atlas Search uses. Run the `paradedb/paradedb` image (it includes pgvector), or install `pg_search` and add it to `shared_preload_libraries`. Without it, `EnsurePgIndexes` (for models with `TermSearchIndexSpecs`) and `TermSearch` return `odm.ErrPgSearchNotInstalled`; everything else works on plain Postgres with pgvector.
+
+ParadeDB allows one index per table, so all the paths in a model's `TermSearchIndexSpecs` share one index, `<collection>_search`. Each path is stored in a generated column, `search_<path>`, which Postgres keeps up to date on every write. Adding a path later needs the old index dropped first; `EnsurePgIndexes` says so when it finds one that doesn't cover every path.
 
 ##### Raw SQL with `FindSql`
 
@@ -419,7 +425,7 @@ The clause is executed as SQL, so it must be trusted code; pass user values as `
 | `$gt` / `$lt` / sort | compare values of the same JSON type only; missing values sort first ascending, last descending |
 | `Aggregate` | `$match`, `$sort`, `$skip` and `$limit` stages |
 | `IndexModels()` | 1 / -1 keys with `Name`, `Unique` and `Sparse`; unique indexes allow many documents missing the field |
-| `TermSearch` | matches any word of the query, ranked with `ts_rank`; pass the same `Path` as the index, in the same order, for the index to be used |
+| `TermSearch` | ParadeDB BM25: matches any word of the query, stemmed with `odm.PgSearchStemmer` (default `english`); every `Path` must be in the model's `TermSearchIndexSpecs` |
 | `VectorSearch` | needs the `vector` extension (created by `EnsurePgIndexes`). Scores follow Atlas: cosine and dotProduct give `(1 + similarity) / 2`, euclidean gives `1 / (1 + distance)` |
 
 Anything else (other operators, stages, index key types or index options such as TTL and partial filters) returns an error wrapping `errors.ErrUnsupported`; nothing is silently ignored. `FindOne` returns `odm.ErrNoDocuments` when nothing matches, on both backends.

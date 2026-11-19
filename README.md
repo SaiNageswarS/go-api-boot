@@ -31,6 +31,7 @@
         * [Creating & Ensuring Indexes](#creating--ensuring-indexes)
         * [Vector Search](#vector-search)
         * [Text Search](#text-search)
+        * [Postgres Backend](#postgres-backend)
    * [Auth & JWT](#auth--jwt)
    * [Cloud Abstractions](#cloud-abstractions)
    * [Zero‑Config SSL/TLS](#zero-config-ssltls)

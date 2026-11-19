@@ -3,6 +3,7 @@ package odm
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/SaiNageswarS/go-collection-boot/async"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -14,7 +15,10 @@ type OdmCollectionInterface[T DbModel] interface {
 	Save(ctx context.Context, model T) <-chan async.Result[struct{}]
 	FindOneByID(ctx context.Context, id string) <-chan async.Result[*T]
 	FindOne(ctx context.Context, filters bson.M) <-chan async.Result[*T]
+	// Find is MongoDB only; Postgres collections return errors.ErrUnsupported.
 	Find(ctx context.Context, filters bson.M, sort bson.D, limit, skip int64) <-chan async.Result[[]T]
+	// FindSql is Postgres only; MongoDB collections return errors.ErrUnsupported.
+	FindSql(ctx context.Context, clause string, args ...any) <-chan async.Result[[]T]
 	DeleteByID(ctx context.Context, id string) <-chan async.Result[struct{}]
 	DeleteOne(ctx context.Context, filters bson.M) <-chan async.Result[struct{}]
 	Count(ctx context.Context, filters bson.M) <-chan async.Result[int64]
@@ -111,6 +115,13 @@ func (c *odmCollection[T]) Find(ctx context.Context, filters bson.M, sort bson.D
 		var result []T
 		err = cursor.All(ctx, &result)
 		return result, err
+	})
+}
+
+// FindSql is not supported on MongoDB; use Find.
+func (c *odmCollection[T]) FindSql(ctx context.Context, clause string, args ...any) <-chan async.Result[[]T] {
+	return async.Go(func() ([]T, error) {
+		return nil, fmt.Errorf("%w: FindSql on a MongoDB collection, use Find", errors.ErrUnsupported)
 	})
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"strconv"
 	"strings"
 
@@ -29,9 +28,9 @@ type pgCollection[T DbModel] struct {
 	timer  Timer
 }
 
-// PostgresCollectionOf is CollectionOf for Postgres: the same collection
+// PgCollectionOf is CollectionOf for Postgres: the same collection
 // interface, backed by the table "<tenant>"."<CollectionName()>".
-func PostgresCollectionOf[T DbModel](client PostgresClient, tenant string) OdmCollectionInterface[T] {
+func PgCollectionOf[T DbModel](client PostgresClient, tenant string) OdmCollectionInterface[T] {
 	var zero T
 	return &pgCollection[T]{
 		db:     client,
@@ -57,29 +56,16 @@ func (c *pgCollection[T]) Save(ctx context.Context, model T) <-chan async.Result
 			return struct{}{}, err
 		}
 
-		insertDoc, err := convertToBson(model)
-		if err != nil {
-			return struct{}{}, err
-		}
-		updateDoc := maps.Clone(insertDoc)
-		now := c.timer.Now()
-		insertDoc["_id"], updateDoc["_id"] = model.Id(), model.Id()
-		insertDoc["createdOn"] = now
-		updateDoc["updatedOn"] = now
-
-		insertJSON, err := bsonToJSON(insertDoc)
-		if err != nil {
-			return struct{}{}, err
-		}
-		updateJSON, err := bsonToJSON(updateDoc)
+		doc, err := bsonToJSON(model)
 		if err != nil {
 			return struct{}{}, err
 		}
 
 		_, err = c.db.Exec(ctx,
-			"INSERT INTO "+c.qualified()+" AS t (id, doc) VALUES ($1, $2::jsonb) "+
-				"ON CONFLICT (id) DO UPDATE SET doc = t.doc || $3::jsonb",
-			model.Id(), insertJSON, updateJSON)
+			"INSERT INTO "+c.qualified()+" AS t (id, doc) "+
+				"VALUES ($1, $2::jsonb || jsonb_build_object('_id', $1::text, 'createdOn', $3::bigint)) "+
+				"ON CONFLICT (id) DO UPDATE SET doc = t.doc || $2::jsonb || jsonb_build_object('_id', $1::text, 'updatedOn', $3::bigint)",
+			model.Id(), doc, c.timer.Now())
 		return struct{}{}, err
 	})
 }
@@ -115,24 +101,25 @@ func (c *pgCollection[T]) FindOne(ctx context.Context, filters bson.M) <-chan as
 	})
 }
 
+// Find is not supported on Postgres; use FindSql.
 func (c *pgCollection[T]) Find(ctx context.Context, filters bson.M, sort bson.D, limit, skip int64) <-chan async.Result[[]T] {
+	return async.Go(func() ([]T, error) {
+		return nil, fmt.Errorf("%w: Find on a Postgres collection, use FindSql", errors.ErrUnsupported)
+	})
+}
+
+// FindSql runs "SELECT doc FROM <table> <clause>" and decodes each row into T.
+// The clause may hold WHERE, ORDER BY, LIMIT and OFFSET, with $1, $2, ...
+// bound to args. Rows have two columns: id (text) and doc (jsonb, the
+// document in bson field names), e.g.
+//
+//	FindSql(ctx, "WHERE (doc->>'year')::int >= $1 ORDER BY doc->'year' DESC LIMIT 10", 2020)
+func (c *pgCollection[T]) FindSql(ctx context.Context, clause string, args ...any) <-chan async.Result[[]T] {
 	return async.Go(func() ([]T, error) {
 		if err := c.ensure(ctx); err != nil {
 			return nil, err
 		}
-
-		q := &pgQuery{}
-		where, err := q.where(filters)
-		if err != nil {
-			return nil, err
-		}
-		order, err := orderBy(sort)
-		if err != nil {
-			return nil, err
-		}
-
-		sql := "SELECT doc::text FROM " + c.qualified() + " WHERE " + where + order + limitOffset(limit, skip)
-		return c.queryModels(ctx, sql, q.args)
+		return c.queryModels(ctx, "SELECT doc::text FROM "+c.qualified()+" "+clause, args)
 	})
 }
 

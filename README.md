@@ -369,7 +369,7 @@ for _, hit := range results {
 
 #### Postgres Backend
 
-The same models, filters and `OdmCollectionInterface[T]` work on Postgres. Only the client and constructor change:
+The same models and `OdmCollectionInterface[T]` work on Postgres. Only the client and constructor change, plus listing queries: `Find` is MongoDB only and `FindSql` is Postgres only (each returns `errors.ErrUnsupported` on the other backend).
 
 ```go
 pg := odm.ProvidePostgresClient() // reads POSTGRES_URI
@@ -379,9 +379,10 @@ if err := odm.EnsurePostgresIndexes[Article](ctx, pg, tenant); err != nil {
   log.Fatalf("failed to ensure indexes: %v", err)
 }
 
-articles := odm.PostgresCollectionOf[Article](pg, tenant)
+articles := odm.PgCollectionOf[Article](pg, tenant)
 _, err := async.Await(articles.Save(ctx, article))
-recent, err := async.Await(articles.Find(ctx, bson.M{"year": bson.M{"$gte": 2020}}, bson.D{{Key: "year", Value: -1}}, 10, 0))
+recent, err := async.Await(articles.FindSql(ctx,
+  "WHERE (doc->>'year')::int >= $1 ORDER BY doc->'year' DESC LIMIT 10", 2020))
 hits, err := async.Await(articles.VectorSearch(ctx, embedding, params))
 ```
 
@@ -398,7 +399,9 @@ How it maps:
 
 Every table also gets a GIN index on `doc`, so equality filters on any field are indexed.
 
-Supported in filters: equality (including array membership), `$eq $ne $gt $gte $lt $lte $in $nin $exists $regex $options $size $all $not $elemMatch $and $or $nor`. `Aggregate` accepts `$match`, `$sort`, `$skip` and `$limit` stages. `FindOne` returns `odm.ErrNoDocuments` when nothing matches, on both backends.
+`FindSql(ctx, clause, args...)` runs `SELECT doc FROM <table> <clause>`; the clause can hold `WHERE`, `ORDER BY`, `LIMIT` and `OFFSET` over the columns `id` (text) and `doc` (jsonb, keyed by bson field names), with `$1, $2, ...` bound to `args`.
+
+`FindOne`, `Count`, `DeleteOne`, `DistinctInto`, `Aggregate` and the search filters still take `bson` filters. Supported in filters: equality (including array membership), `$eq $ne $gt $gte $lt $lte $in $nin $exists $regex $options $size $all $not $elemMatch $and $or $nor`. `Aggregate` accepts `$match`, `$sort`, `$skip` and `$limit` stages. `FindOne` returns `odm.ErrNoDocuments` when nothing matches, on both backends.
 
 Differences from MongoDB:
 

@@ -2,6 +2,7 @@ package odm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -470,4 +471,10 @@ func toInterface[T any](models []T) []interface{} {
 		out[i] = m
 	}
 	return out
+}
+
+func TestFindSql_UnsupportedOnMongo(t *testing.T) {
+	repo := odmCollection[testModel]{col: &MockCollection{}, timer: &MockTimer{}}
+	_, err := async.Await(repo.FindSql(context.Background(), "WHERE true"))
+	assert.ErrorIs(t, err, errors.ErrUnsupported)
 }

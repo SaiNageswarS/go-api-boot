@@ -8,6 +8,7 @@
 package odm
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -76,7 +77,7 @@ func TestPostgresCollection(t *testing.T) {
 	require.NoError(t, EnsurePostgresIndexes[pgMovie](ctx, client, tenant))
 	require.NoError(t, EnsurePostgresIndexes[pgMovie](ctx, client, tenant), "must be idempotent")
 
-	col := PostgresCollectionOf[pgMovie](client, tenant)
+	col := PgCollectionOf[pgMovie](client, tenant)
 	date := func(y int) time.Time { return time.Date(y, 6, 1, 0, 0, 0, 0, time.UTC) }
 	movies := []pgMovie{
 		{ID: "m1", Title: "Alien", Plot: "A crew aboard a spaceship meets a deadly alien creature.", Year: 1979, Genres: []string{"horror", "sci-fi"}, Released: date(1979), Embedding: bson.NewVector([]float32{1, 0, 0})},
@@ -118,9 +119,37 @@ func TestPostgresCollection(t *testing.T) {
 		assert.ErrorIs(t, err, ErrNoDocuments)
 	})
 
-	t.Run("Find filters", func(t *testing.T) {
+	t.Run("Find is unsupported, FindSql", func(t *testing.T) {
+		_, err := async.Await(col.Find(ctx, bson.M{}, nil, 0, 0))
+		assert.ErrorIs(t, err, errors.ErrUnsupported)
+
+		res, err := async.Await(col.FindSql(ctx, "WHERE (doc->>'year')::int >= $1 ORDER BY doc->'year' DESC LIMIT 2", 1986))
+		require.NoError(t, err)
+		require.Len(t, res, 2)
+		assert.Equal(t, "m4", res[0].ID)
+		assert.Equal(t, "m3", res[1].ID)
+		assert.Equal(t, 7.2, res[0].Rating.Imdb)
+
+		res, err = async.Await(col.FindSql(ctx, ""))
+		require.NoError(t, err)
+		assert.Len(t, res, 4)
+	})
+
+	t.Run("filters", func(t *testing.T) {
+		// Filters are compiled for FindOne, Count, DeleteOne and Aggregate;
+		// exercise them through Aggregate, which also takes sort, limit and skip.
 		ids := func(filter bson.M, sort bson.D, limit, skip int64) []string {
-			res, err := async.Await(col.Find(ctx, filter, sort, limit, skip))
+			pipeline := mongo.Pipeline{{{Key: "$match", Value: filter}}}
+			if sort != nil {
+				pipeline = append(pipeline, bson.D{{Key: "$sort", Value: sort}})
+			}
+			if skip > 0 {
+				pipeline = append(pipeline, bson.D{{Key: "$skip", Value: skip}})
+			}
+			if limit > 0 {
+				pipeline = append(pipeline, bson.D{{Key: "$limit", Value: limit}})
+			}
+			res, err := async.Await(col.Aggregate(ctx, pipeline))
 			require.NoError(t, err, "%v", filter)
 			out := []string{}
 			for _, m := range res {

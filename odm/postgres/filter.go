@@ -1,4 +1,4 @@
-package odm
+package postgres
 
 import (
 	"errors"
@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/SaiNageswarS/go-api-boot/odm"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
@@ -22,9 +23,13 @@ import (
 //   - equality with a sub-document is containment (the stored sub-document
 //     may have extra fields);
 //   - dotted paths do not reach into arrays of sub-documents (use $elemMatch);
-//   - $gt/$lt only compare values of the same JSON type.
+//   - $gt/$lt only compare values of the same JSON type;
+//   - $regex doesn't match inside arrays.
 type pgQuery struct {
 	args []any
+	// depth > 0 inside $elemMatch, where "doc" is an array element and _id
+	// is an ordinary field, not the row's id column.
+	depth int
 }
 
 func (q *pgQuery) arg(v any) string {
@@ -173,7 +178,7 @@ func (q *pgQuery) eq(path []string, v any) (string, error) {
 	if re, ok := v.(bson.Regex); ok {
 		return q.regex(path, re.Pattern, re.Options)
 	}
-	if s, ok := v.(string); ok && isIDPath(path) {
+	if s, ok := v.(string); ok && q.isRowID(path) {
 		return "(id = " + q.arg(s) + ")", nil
 	}
 	if v == nil {
@@ -181,32 +186,82 @@ func (q *pgQuery) eq(path []string, v any) (string, error) {
 		return fmt.Sprintf("(%s IS NULL OR %s = 'null'::jsonb)", p, p), nil
 	}
 
+	variants, err := containmentVariants(path, v)
+	if err != nil {
+		return "", err
+	}
+	parts := make([]string, len(variants))
+	for i, variant := range variants {
+		parts[i] = "doc @> " + q.arg(variant) + "::jsonb"
+	}
+	return "(" + strings.Join(parts, " OR ") + ")", nil
+}
+
+// maxArrayPathDepth bounds how many leading path segments may pass through
+// arrays: each one doubles the number of containment checks.
+const maxArrayPathDepth = 3
+
+// containmentVariants returns the JSON documents that, contained in doc, mean
+// path equals v the way MongoDB matches it: any segment may be an array of
+// sub-documents, and a scalar also matches an array holding it. For
+// {"cast.name": "Al"} that is {"cast":{"name":"Al"}}, {"cast":{"name":["Al"]}},
+// {"cast":[{"name":"Al"}]} and {"cast":[{"name":["Al"]}]}. Each variant is
+// served by the GIN index on doc.
+func containmentVariants(path []string, v any) ([]string, error) {
 	whole, err := jsonValue(v)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	contained, err := nestUnder(path, v)
-	if err != nil {
-		return "", err
+	if len(path) == 0 { // inside $elemMatch: the element itself
+		return []string{whole}, nil
 	}
-	clause := "doc @> " + q.arg(contained) + "::jsonb"
+	leaves := []any{v}
+	if !strings.HasPrefix(whole, "{") && !strings.HasPrefix(whole, "[") {
+		leaves = append(leaves, bson.A{v})
+	}
 
-	// Like MongoDB, a scalar also matches an array field holding it.
-	if len(path) > 0 && !strings.HasPrefix(whole, "{") && !strings.HasPrefix(whole, "[") {
-		inArray, err := nestUnder(path, bson.A{v})
-		if err != nil {
-			return "", err
+	var out []string
+	for _, leaf := range leaves {
+		for _, doc := range nestings(path, leaf) {
+			js, err := bsonToJSON(doc)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, js)
 		}
-		clause += " OR doc @> " + q.arg(inArray) + "::jsonb"
 	}
-	return "(" + clause + ")", nil
+	return out, nil
+}
+
+// nestings wraps leaf under path, once per choice of which of the first
+// maxArrayPathDepth segments hold an array of sub-documents.
+func nestings(path []string, leaf any) []bson.D {
+	values := []any{leaf}
+	for i := len(path) - 1; i >= 0; i-- {
+		next := make([]any, 0, 2*len(values))
+		for _, inner := range values {
+			next = append(next, bson.D{{Key: path[i], Value: inner}})
+		}
+		if i > 0 && i <= maxArrayPathDepth {
+			// path[i-1] may hold an array of these sub-documents.
+			for _, obj := range next[:len(values)] {
+				next = append(next, bson.A{obj})
+			}
+		}
+		values = next
+	}
+	docs := make([]bson.D, len(values))
+	for i, v := range values {
+		docs[i] = v.(bson.D)
+	}
+	return docs
 }
 
 var pgComparison = map[string]string{"$gt": ">", "$gte": ">=", "$lt": "<", "$lte": "<="}
 
 func (q *pgQuery) cmp(path []string, op string, v any) (string, error) {
 	sqlOp := pgComparison[op]
-	if s, ok := v.(string); ok && isIDPath(path) {
+	if s, ok := v.(string); ok && q.isRowID(path) {
 		return fmt.Sprintf("(id %s %s)", sqlOp, q.arg(s)), nil
 	}
 	val, err := jsonValue(v)
@@ -226,7 +281,7 @@ func (q *pgQuery) in(path []string, v any) (string, error) {
 		return "FALSE", nil
 	}
 
-	if isIDPath(path) {
+	if q.isRowID(path) {
 		ids := make([]string, 0, len(vals))
 		for _, val := range vals {
 			if s, ok := val.(string); ok {
@@ -250,7 +305,7 @@ func (q *pgQuery) in(path []string, v any) (string, error) {
 }
 
 func (q *pgQuery) exists(path []string, want bool) string {
-	if isIDPath(path) {
+	if q.isRowID(path) {
 		return strings.ToUpper(fmt.Sprint(want))
 	}
 	if want {
@@ -259,22 +314,35 @@ func (q *pgQuery) exists(path []string, want bool) string {
 	return "(" + jsonbExpr(path) + " IS NULL)"
 }
 
-// regex maps MongoDB options to Postgres embedded options: i (case-insensitive),
-// m (^ and $ match at line breaks -> w), x (extended). s is the Postgres default.
+// regex maps MongoDB regex options to Postgres embedded options. Postgres's
+// default lets "." match newlines and anchors match only at the ends;
+// MongoDB's default keeps "." off newlines. So:
+//
+//	(none) -> p    m -> n    s -> (none)    m+s -> w    i -> i    x -> x
 func (q *pgQuery) regex(path []string, pattern, options string) (string, error) {
+	var multiline, dotAll bool
 	flags := ""
 	for _, o := range options {
 		switch o {
 		case 'i':
 			flags += "i"
-		case 'm':
-			flags += "w"
 		case 'x':
 			flags += "x"
+		case 'm':
+			multiline = true
 		case 's':
+			dotAll = true
 		default:
 			return "", errUnsupported("regex option %q", o)
 		}
+	}
+	switch {
+	case multiline && dotAll:
+		flags += "w"
+	case multiline:
+		flags += "n"
+	case !dotAll:
+		flags += "p"
 	}
 	if flags != "" {
 		pattern = "(?" + flags + ")" + pattern
@@ -299,11 +367,22 @@ func (q *pgQuery) all(path []string, v any) (string, error) {
 	if len(vals) == 0 {
 		return "FALSE", nil
 	}
-	contained, err := nestUnder(path, bson.A(vals))
-	if err != nil {
-		return "", err
+	if len(path) == 0 {
+		js, err := jsonValue(bson.A(vals))
+		if err != nil {
+			return "", err
+		}
+		return "(doc @> " + q.arg(js) + "::jsonb)", nil
 	}
-	return "(doc @> " + q.arg(contained) + "::jsonb)", nil
+	var parts []string
+	for _, doc := range nestings(path, bson.A(vals)) {
+		js, err := bsonToJSON(doc)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, "doc @> "+q.arg(js)+"::jsonb")
+	}
+	return "(" + strings.Join(parts, " OR ") + ")", nil
 }
 
 // elemMatch evaluates the sub-filter against each array element, rebinding
@@ -313,11 +392,13 @@ func (q *pgQuery) elemMatch(path []string, v any) (string, error) {
 		sub string
 		err error
 	)
+	q.depth++
 	if _, isOps := operatorPairs(v); isOps {
 		sub, err = q.field(nil, v) // conditions on the element itself
 	} else {
 		sub, err = q.where(v) // conditions on fields of the element
 	}
+	q.depth--
 	if err != nil {
 		return "", err
 	}
@@ -327,39 +408,38 @@ func (q *pgQuery) elemMatch(path []string, v any) (string, error) {
 		p, p, sub), nil
 }
 
-// orderBy compiles a sort document. Like MongoDB, missing values sort first
-// ascending and last descending.
-func orderBy(sortDoc any) (string, error) {
-	pairs, ok := toPairs(sortDoc)
-	if !ok {
-		return "", errUnsupported("sort type %T", sortDoc)
+// orderBy compiles a sort. Like MongoDB, missing values sort first ascending
+// and last descending.
+func orderBy(fields []odm.SortField) string {
+	if len(fields) == 0 {
+		return ""
 	}
-	if len(pairs) == 0 {
-		return "", nil
-	}
-	parts := make([]string, len(pairs))
-	for i, e := range pairs {
-		dir, ok := toInt64(e.Value)
-		if !ok || (dir != 1 && dir != -1) {
-			return "", fmt.Errorf("odm/postgres: sort direction for %s must be 1 or -1", e.Key)
-		}
-		path := strings.Split(e.Key, ".")
-		expr := jsonbExpr(path)
-		if isIDPath(path) {
-			expr = "id"
-		}
-		if dir == 1 {
-			parts[i] = expr + " ASC NULLS FIRST"
+	parts := make([]string, len(fields))
+	for i, f := range fields {
+		parts[i] = sortExpr(f.Field)
+		if f.Desc {
+			parts[i] += " DESC NULLS LAST"
 		} else {
-			parts[i] = expr + " DESC NULLS LAST"
+			parts[i] += " ASC NULLS FIRST"
 		}
 	}
-	return " ORDER BY " + strings.Join(parts, ", "), nil
+	return " ORDER BY " + strings.Join(parts, ", ")
+}
+
+// sortExpr is the column or jsonb expression a field sorts and indexes on.
+func sortExpr(field string) string {
+	if field == "_id" {
+		return "id"
+	}
+	return jsonbExpr(strings.Split(field, "."))
 }
 
 /* ── path expressions ── */
 
-func isIDPath(path []string) bool { return len(path) == 1 && path[0] == "_id" }
+// isRowID reports a top-level _id, which compiles to the indexed id column.
+func (q *pgQuery) isRowID(path []string) bool {
+	return q.depth == 0 && len(path) == 1 && path[0] == "_id"
+}
 
 // pathLiteral renders a path as a quoted SQL text[] literal: '{"a","b"}'.
 // Index definitions and queries use the same form so the planner matches them.
@@ -391,18 +471,6 @@ func quoteLiteral(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
-// nestUnder builds {"a":{"b":v}} for path a.b, as JSON.
-func nestUnder(path []string, v any) (string, error) {
-	if len(path) == 0 {
-		return jsonValue(v)
-	}
-	var nested any = v
-	for i := len(path) - 1; i >= 0; i-- {
-		nested = bson.D{{Key: path[i], Value: nested}}
-	}
-	return bsonToJSON(nested)
-}
-
 // errUnsupported reports a query or index feature the Postgres backend can't
 // translate. It wraps errors.ErrUnsupported.
 func errUnsupported(format string, args ...any) error {
@@ -419,6 +487,8 @@ func toPairs(v any) ([]bson.E, bool) {
 	switch x := v.(type) {
 	case nil:
 		return nil, true
+	case odm.M:
+		return sortedPairs(x), true
 	case bson.D:
 		return x, true
 	case bson.M:
@@ -459,6 +529,8 @@ func operatorPairs(v any) ([]bson.E, bool) {
 
 func toSlice(v any) ([]any, bool) {
 	switch x := v.(type) {
+	case odm.A:
+		return x, true
 	case bson.A:
 		return x, true
 	case []any:

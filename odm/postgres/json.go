@@ -1,4 +1,4 @@
-package odm
+package postgres
 
 import (
 	"encoding/json"
@@ -12,7 +12,7 @@ import (
 // Documents are stored in Postgres as relaxed Extended JSON produced from the
 // model's bson encoding. Two values are rewritten on the way in:
 //   - bson vectors become plain number arrays, so pgvector can cast them;
-//   - dates get a fixed-width millisecond format, so they compare in order.
+//   - dates get one fixed-width millisecond format, so they compare in order.
 // On the way out, arrays are turned back into bson.Vector for model fields of
 // that type.
 
@@ -83,8 +83,11 @@ func normalizeForPg(v any) any {
 		}
 		return x
 	case bson.DateTime:
+		// One fixed-width ISO format for every year bson's parser accepts, so
+		// jsonb compares and sorts dates in time order (relaxed Extended JSON
+		// would switch to {"$numberLong"} before 1970).
 		t := x.Time().UTC()
-		if t.Year() < 1970 || t.Year() > 9999 {
+		if t.Year() < 0 || t.Year() > 9999 {
 			return x
 		}
 		return bson.D{{Key: "$date", Value: t.Format(pgDateLayout)}}

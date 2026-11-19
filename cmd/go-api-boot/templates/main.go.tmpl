@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/SaiNageswarS/go-api-boot/dotenv"
+	"github.com/SaiNageswarS/go-api-boot/odm/mongodb"
 	"github.com/SaiNageswarS/go-api-boot/server"
 	"github.com/rs/cors"
 )
@@ -20,10 +21,12 @@ func main() {
 	ccfg := &AppConfig{} 
 	config.LoadConfig("config.ini", ccfg)
 
-	mongoClient, err := odm.GetClient(ccfg.MongoURI)
+	mongoClient, err := mongodb.Connect(context.Background(), ccfg.MongoURI)
 	if err != nil {
 		logger.Fatal("Failed to connect to MongoDB", zap.Error(err))
 	}
+	// Create collections and indexes, e.g. once per tenant:
+	// err = mongodb.EnsureCollection[db.LoginModel](ctx, mongoClient, tenant)
 
 	boot, err := server.New().
 		GRPCPort(":50051").        // or ":0" for dynamic
@@ -32,7 +35,7 @@ func main() {
 		// Dependency injection
 		Provide(ccfg).
 		ProvideAs(cloudFns, (*cloud.Cloud)(nil)).
-		ProvideAs(mongoClient, (*odm.MongoClient)(nil)).
+		Provide(mongoClient).
 		// Register gRPC service impls
 		RegisterService(server.Adapt(pb.RegisterLoginServer), ProvideLoginService).
 		Build()

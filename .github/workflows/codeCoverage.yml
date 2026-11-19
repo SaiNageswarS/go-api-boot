@@ -12,9 +12,23 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    services:
+      # Postgres with ParadeDB (pg_search) and pgvector, for odm/postgres.
+      postgres:
+        image: paradedb/paradedb:latest
+        env:
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
         # Environment variables for the integration tests.
         MONGO_URI: ${{ secrets.MONGO_URI }}
+        POSTGRES_URI: postgres://postgres:test@localhost:5432/postgres
         JINA_AI_API_KEY: ${{ secrets.JINA_AI_API_KEY }}
     strategy:
       matrix:

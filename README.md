@@ -7,11 +7,11 @@
 [![Go version](https://img.shields.io/github/go-mod/go-version/SaiNageswarS/go-api-boot)](https://github.com/SaiNageswarS/go-api-boot)
 [![License](https://img.shields.io/github/license/SaiNageswarS/go-api-boot.svg)](https://github.com/SaiNageswarS/go-api-boot/blob/master/LICENSE)
 
-> **Batteries‑included Go framework for building production‑grade gRPC + HTTP APIs – with generics, MongoDB ODM, cloud utilities, zero‑config HTTPS, Temporal workers, and a one‑line bootstrap CLI.**
+> **Batteries‑included Go framework for building production‑grade gRPC + HTTP APIs – with generics, a MongoDB & Postgres ODM, cloud utilities, zero‑config HTTPS, Temporal workers, and a one‑line bootstrap CLI.**
 
 > 🚀 **Featured in [Awesome Go](https://github.com/avelino/awesome-go)** — the curated list of high-quality Go frameworks.
 
-**🎯 Keywords**: Go API framework, gRPC Go, HTTP server Go, MongoDB ODM Go, Go microservices, Go web framework, production Go APIs, Go cloud native, Temporal Go workers, Go dependency injection
+**🎯 Keywords**: Go API framework, gRPC Go, HTTP server Go, MongoDB ODM Go, Postgres ODM Go, Go microservices, Go web framework, production Go APIs, Go cloud native, Temporal Go workers, Go dependency injection
 
 ---
 
@@ -25,13 +25,13 @@
 
    * [Server](#server)
    * [REST Controllers](#rest-controllers)
-   * [ODM (MongoDB)](#odm-mongodb)
+   * [ODM (MongoDB & Postgres)](#odm-mongodb--postgres)
 
-        * [Generic CRUD](#generic-crud)
-        * [Creating & Ensuring Indexes](#creating--ensuring-indexes)
-        * [Vector Search](#vector-search)
-        * [Text Search](#text-search)
-        * [Postgres Backend](#postgres-backend)
+        * [Models & CRUD](#models--crud)
+        * [Indexes & EnsureCollection](#indexes--ensurecollection)
+        * [Vector & Text Search](#vector--text-search)
+        * [MongoDB backend](#mongodb-backend)
+        * [Postgres backend](#postgres-backend)
    * [Auth & JWT](#auth--jwt)
    * [Cloud Abstractions](#cloud-abstractions)
    * [Zero‑Config SSL/TLS](#zero-config-ssltls)
@@ -50,7 +50,7 @@
 
 * A fully wired **gRPC** server that also serves **gRPC‑Web** and **REST** gateways – no Envoy sidecars or extra proxies.
 * **Temporal workflow support** for long-running background jobs.
-* **Generic ODM** for MongoDB with multi‑tenant support.
+* **Generic ODM** for MongoDB and Postgres with multi‑tenant support.
 * Opinionated middlewares (JWT auth, logging, panic recovery) that you can opt out of per‑method.
 * A relocatable **cloud toolkit** (Azure / GCP) for signed URLs, blob storage, secret resolution, etc.  
 * **Zero-configuration HTTPS** – serve valid TLS certificates on day 0. 
@@ -63,9 +63,9 @@ The result: you write business logic, not boilerplate.
 ## Key Features
 
 * **First‑class gRPC & gRPC‑Web** – serve browsers natively without Envoy.
-* **Generic ODM for MongoDB** – type‑safe generic multi-tenant Object Model - (`CollectionOf[T](client, tenant).FindOneById(id)`) with async helpers.
-* **Vector & Text Search** – built‑in support for Atlas Vector Search and Atlas Search.
-* **Index Management** – auto‑create and ensure classic, search, and vector indexes via `EnsureIndexes[T]`.
+* **Generic ODM for MongoDB and Postgres** – type‑safe, multi-tenant, async (`mongodb.CollectionOf[T](client, tenant).FindByID(ctx, id)`); the same code runs on either backend.
+* **Vector & Text Search** – Atlas Vector Search and Atlas Search on MongoDB; pgvector and ParadeDB (BM25) on Postgres.
+* **Index Management** – declare indexes on the model; `EnsureCollection[T]` creates (and on Postgres reconciles) them.
 * **JWT Auth & Middleware Stack** – observability, logging, panic recovery pre‑wired.
 * **Cloud Providers** – interchangeable Azure / GCP helpers for storage & secrets.
 * **Zero‑Config SSL** – automatic Let’s Encrypt certificates with exponential back‑off and optional cloud-backed cache (SslCloudCache) for stateless containers.
@@ -134,7 +134,7 @@ func main() {
     var ccfg *config.AppConfig 
     config.LoadConfig("config.ini", ccfg) // loads [dev] or [prod] section based on env var - `ENV=dev` or `ENV=prod`
 
-    mongo, _ := odm.GetClient()
+    mongo, _ := mongodb.ConnectFromEnv(context.Background()) // MONGO_URI
     // Pick a cloud provider – all implement cloud.Cloud
     cloudFns := cloud.ProvideAzure(ccfg) // or cloud.ProvideGCP(cfg)
     // load secrets from Keyvault/SecretManader
@@ -239,196 +239,113 @@ boot, _ := server.New().
 * **CORS Support** – All REST routes are automatically wrapped with the configured CORS handler.
 * **Multiple Controllers** – Register as many controllers as needed; each gets its own DI resolution.
 
-### ODM (MongoDB)
+### ODM (MongoDB & Postgres)
 
-#### Generic CRUD
+One generic, multi-tenant ODM with two backends. Application code is written against `odm.Collection[T]`; only the client and constructors are backend-specific.
 
-```go
-// Model
-type Profile struct {
-    ID    string `bson:"_id"`
-    Name  string `bson:"name"`
-}
-func (p Profile) Id() string { return p.ID }
-func (p Profile) CollectionName() string { return "profile" }
-
-// Query
-client, err := odm.GetClient(ccfg)
-profile, err := async.Await(odm.CollectionOf[Profile](client, tenant).FindOneById(context.Background(), id))
-```
-* Additionally use helpers like `HashedKey` to generate _id, `NewModelFrom[T any](proto interface{})` to copy values from proto to the model.
----
-
-#### Creating & Ensuring Indexes
-
-Use `EnsureIndexes[T]` at startup or in integration tests to:
-
-1. **Create the collection** if missing.
-2. **Apply classic MongoDB indexes** (B-tree, compound).
-3. **Apply Atlas Search** (text) and **Atlas Vector Search** indexes.
-
-```go
-// In your setup code
-if err := odm.EnsureIndexes[Profile](ctx, mongoClient, tenant); err != nil {
-  log.Fatalf("failed to ensure indexes: %v", err)
-}
-```
-
-This idempotent helper safely creates all indexes advertised by your models:
-
-* Implement `Indexed` for classic indexes.
-* Implement `SearchIndexed` for text search (TermSearchIndexSpec).
-* Implement `VectorIndexed` for vector search (VectorIndexSpec).
-* Refer [github.com/SaiNageswarS/go-api-boot/odm/odm_atlas_test.go](https://github.com/SaiNageswarS/go-api-boot/blob/master/odm/odm_atlas_test.go) for examples.
-
----
-
-#### Vector Search
-
-Built‑in support for **Atlas Vector Search**. Define vector index specs on your model:
-
-```go
-type Article struct {
-    ID        string      `bson:"_id"`
-    Title     string      `bson:"title"`
-    Content   string      `bson:"content"`
-    Embedding bson.Vector `bson:"embedding"` // 768-dim vector
-}
-
-func (a Article) Id() string { return a.ID }
-func (a Article) CollectionName() string { return "articles" }
-
-// Specify vector index on field "embedding"
-// odm.EnsureIndexes would create this index automatically.
-func (m Article) VectorIndexSpecs() []odm.VectorIndexSpec {
-  return []odm.VectorIndexSpec{{
-    Name: "contentVecIdx", Path: "embedding", Type: "vector", NumDimensions: 768,
-    Similarity: "cosine",
-  }}
-}
-```
-
-Perform vector search:
-
-```go
-embedding := getEmbedding(...) // []float32
-params := odm.VectorSearchParams{
-  IndexName:     "contentVecIdx",
-  Path:          "embedding",
-  K:             5,
-  NumCandidates: 20,
-}
-results, _ := async.Await(repo.VectorSearch(ctx, embedding, params))
-for _, hit := range results {
-  fmt.Println(hit.Doc, hit.Score)
-}
-```
-
----
-
-#### Text Search
-
-Leverage **Atlas Search** for full‑text queries. Register term search specs:
-
-```go
-type Article struct {
-    ID        string      `bson:"_id"`
-    Title     string      `bson:"title"`
-    Content   string      `bson:"content"`
-    Embedding bson.Vector `bson:"embedding"` // 768-dim vector
-}
-
-func (a Article) Id() string { return a.ID }
-func (a Article) CollectionName() string { return "articles" }
-
-// Specify term index on field "content" and "title".
-// This allows full‑text search across "content" and "title" fields.
-// odm.EnsureIndexes would create this index automatically.
-func (m Article) TermSearchIndexSpecs() []odm.TermSearchIndexSpec {
-  return []odm.TermSearchIndexSpec{{
-    Name: "contentTextIdx", Paths: []string {"content", "title"},
-  }}
-}
-```
-
-Execute text search:
-
-```go
-params := odm.TermSearchParams{
-  IndexName: "contentTextIdx",
-  Path:      []string {"content", "title"},
-  Limit:     10,
-}
-results, _ := async.Await(repo.TermSearch(ctx, "golang guides", params))
-for _, hit := range results {
-  fmt.Println(hit.Doc, hit.Score)
-}
-```
-
----
-
-#### Postgres Backend
-
-The same models, `bson` filters and `OdmCollectionInterface[T]` work on Postgres. Only the client and the constructors change:
-
-```go
-pg := odm.ProvidePgClient() // reads POSTGRES_URI
-defer pg.Close()
-
-if err := odm.EnsurePgIndexes[Article](ctx, pg, tenant); err != nil {
-  log.Fatalf("failed to ensure indexes: %v", err)
-}
-
-articles := odm.PgCollectionOf[Article](pg, tenant)
-_, err := async.Await(articles.Save(ctx, article))
-recent, err := async.Await(articles.Find(ctx, bson.M{"year": bson.M{"$gte": 2020}}, bson.D{{Key: "year", Value: -1}}, 10, 0))
-hits, err := async.Await(articles.VectorSearch(ctx, embedding, params))
-```
-
-How it maps:
-
-| MongoDB | Postgres |
+| Package | Purpose |
 |---|---|
-| database (tenant) | schema |
-| collection | table `(id TEXT PRIMARY KEY, doc JSONB)`, created on first use |
-| document | `doc`, encoded with the model's `bson` tags |
-| `IndexModels()` | btree indexes on the fields |
-| `TermSearchIndexSpecs()` | one [ParadeDB](https://www.paradedb.com/docs) BM25 index over all their paths (requires `pg_search`) |
-| `VectorIndexSpecs()` | [pgvector](https://github.com/pgvector/pgvector) HNSW index (`halfvec` for scalar quantization or > 2000 dims); `filter` specs become btree indexes |
+| `odm` | shared: `Model`, `Collection[T]`, filters (`odm.M`, `odm.A`), sorts, index specs, errors |
+| `odm/mongodb` | MongoDB / Atlas backend (Atlas Search, Atlas Vector Search) |
+| `odm/postgres` | Postgres backend (JSONB documents, pgvector, ParadeDB BM25 search) |
 
-Every table also gets a GIN index on `doc`, so equality filters on any field are indexed.
+Every IO method is asynchronous and returns a channel with an `async.Result`, so independent queries run concurrently. Await one with `async.Await`, or several with `async.AwaitAll`.
 
-##### Term search needs ParadeDB
-
-`TermSearch` uses [ParadeDB](https://www.paradedb.com/docs)'s `pg_search` extension for BM25 ranking, the same scoring Atlas Search uses. Run the `paradedb/paradedb` image (it includes pgvector), or install `pg_search` and add it to `shared_preload_libraries`. Without it, `EnsurePgIndexes` (for models with `TermSearchIndexSpecs`) and `TermSearch` return `odm.ErrPgSearchNotInstalled`; everything else works on plain Postgres with pgvector.
-
-ParadeDB allows one index per table, so all the paths in a model's `TermSearchIndexSpecs` share one index, `<collection>_search`. Each path is stored in a generated column, `search_<path>`, which Postgres keeps up to date on every write. Adding a path later needs the old index dropped first; `EnsurePgIndexes` says so when it finds one that doesn't cover every path.
-
-##### Raw SQL with `FindSql`
-
-`PgCollectionOf` returns a `PgCollection[T]`: the portable interface plus `FindSql`, for queries `bson` filters can't express. It runs `SELECT doc FROM <table> <clause>` over the columns `id` (text) and `doc` (jsonb, keyed by bson field names):
+#### Models & CRUD
 
 ```go
-top, err := async.Await(articles.FindSql(ctx,
-  "WHERE (doc->>'year')::int >= $1 ORDER BY (doc->'rating'->>'imdb')::float DESC LIMIT 10", 2020))
+type Movie struct {
+    ID     string   `bson:"_id"`
+    Title  string   `bson:"title"`
+    Year   int      `bson:"year"`
+    Genres []string `bson:"genres"`
+}
+func (m Movie) Id() string             { return m.ID }
+func (m Movie) CollectionName() string { return "movies" }
+
+client, err := mongodb.Connect(ctx, os.Getenv("MONGO_URI"))  // or postgres.Open(ctx, os.Getenv("POSTGRES_URI"))
+movies := mongodb.CollectionOf[Movie](client, tenant)        // or postgres.CollectionOf[Movie](db, tenant)
+
+_, err = async.Await(movies.Save(ctx, movie))               // upsert by Id()
+m, err := async.Await(movies.FindByID(ctx, id))             // odm.ErrNotFound when missing
+recent, err := async.Await(movies.Find(ctx,
+    odm.M{"year": odm.M{"$gte": 2020}, "genres": "drama"},
+    odm.WithSort(odm.Desc("year")), odm.WithLimit(10)))
+genres, err := async.Await(odm.DistinctAs[string](ctx, movies, "genres", nil))
 ```
 
-The clause is executed as SQL, so it must be trusted code; pass user values as `args` (`$1, $2, ...`). Code holding the portable `OdmCollectionInterface[T]` can reach it with a type assertion: `pg, ok := col.(odm.PgCollection[T])`.
+* **Filters** use MongoDB query syntax with `odm.M` / `odm.A`, on both backends.
+* **Save** is an upsert: top-level fields replace the stored ones, fields absent from the model are kept. It stamps `createdOn` on insert and `updatedOn` on every save (set the clock with `WithTimer`).
+* **Errors**: `odm.ErrNotFound`, `odm.ErrDuplicateKey` (unique index), and `errors.ErrUnsupported` for anything a backend can't translate.
+* `HashedKey` derives ids from data fields; `NewModelFrom[T]` copies a proto into a model.
 
-##### Postgres query semantics
+#### Indexes & EnsureCollection
 
-| | Postgres behaviour |
+Models declare indexes; `EnsureCollection` creates the collection and its indexes. Schema changes are a deployment step (startup, migration, tenant onboarding), never a side effect of runtime calls.
+
+```go
+func (m Movie) Indexes() []odm.IndexSpec {
+    return []odm.IndexSpec{
+        {Keys: []odm.IndexKey{odm.Key("title")}, Unique: true},
+        {Keys: []odm.IndexKey{odm.DescKey("year"), odm.Key("rating")}},
+    }
+}
+func (m Movie) TermSearchIndexes() []odm.TermSearchIndexSpec {
+    return []odm.TermSearchIndexSpec{{Name: "plotIndex", Paths: []string{"title", "plot"}}}
+}
+func (m Movie) VectorIndexes() []odm.VectorIndexSpec {
+    return []odm.VectorIndexSpec{{
+        Name: "plotEmbedding", Path: "embedding", Dimensions: 768,
+        Similarity: odm.Cosine, FilterPaths: []string{"year"},
+    }}
+}
+
+err := mongodb.EnsureCollection[Movie](ctx, client, tenant)  // or postgres.EnsureCollection[Movie](ctx, db, tenant)
+```
+
+#### Vector & Text Search
+
+```go
+hits, err := async.Await(movies.VectorSearch(ctx, embedding, odm.VectorSearchParams{
+    IndexName: "plotEmbedding", K: 5, Filter: odm.M{"year": odm.M{"$gte": 2000}},
+}))
+hits, err = async.Await(movies.TermSearch(ctx, "space crew", odm.TermSearchParams{
+    IndexName: "plotIndex", Limit: 10,
+}))
+for _, hit := range hits {
+    fmt.Println(hit.Score, hit.Doc.Title)
+}
+```
+
+The index name selects the field(s) and similarity; an unknown name is an error. Scores are comparable across backends: cosine and dotProduct give `(1 + similarity) / 2`, euclidean `1 / (1 + distance)`; text search scores are BM25.
+
+#### MongoDB backend
+
+* A tenant is a database. `mongodb.Collection[T]` adds `Aggregate(ctx, mongo.Pipeline)` and `Raw()` (the driver collection).
+* Search needs Atlas, or the local Atlas image (`mongodb/mongodb-atlas-local`). Atlas builds search indexes asynchronously: `mongodb.WaitForSearchIndexes[T]` waits until they serve queries.
+* `EnsureCollection` recreates regular indexes whose definition changed, and creates missing search indexes (to change a search index, give it a new name).
+
+#### Postgres backend
+
+* A tenant is a schema; a collection is a table `(id TEXT PRIMARY KEY, doc JSONB)` with a GIN index on `doc`, so equality filters on any field are indexed.
+* Reads of a collection that doesn't exist find nothing; writes to it fail with a hint to run `EnsureCollection`.
+* `EnsureCollection` reconciles indexes: their names carry a hash of the definition, so a changed definition replaces the old index, and indexes no longer declared are dropped (only ones the ODM created).
+* **Vector search** uses [pgvector](https://github.com/pgvector/pgvector) HNSW (`halfvec` for scalar quantization or more than 2000 dimensions). Documents whose embedding is missing or has another length are stored but not searchable. Filtered searches use iterative scans (pgvector 0.8+) so they still return K hits.
+* **Text search** needs [ParadeDB](https://www.paradedb.com/docs)'s `pg_search`: run the `paradedb/paradedb` image (it includes pgvector), or install `pg_search` with `shared_preload_libraries`. Without it, `EnsureCollection` and `TermSearch` return `postgres.ErrPgSearchNotInstalled`. Searched paths are kept in generated `search_<path>` columns under one ParadeDB index per table (a ParadeDB limit). Words are stemmed in English by default (`postgres.WithStemmer`).
+* `postgres.Collection[T]` adds `FindSql(ctx, clause, args...)`, which runs `SELECT doc FROM <table> <clause>` over the columns `id` and `doc`. The clause is executed as SQL: it must be trusted code, with user values passed as `args`.
+
+Filter semantics on Postgres, where they differ from MongoDB:
+
+| | Postgres |
 |---|---|
-| Filter operators | equality (including array membership), `$eq $ne $gt $gte $lt $lte $in $nin $exists $regex $options $size $all $not $elemMatch $and $or $nor` |
+| Operators | equality, `$eq $ne $gt $gte $lt $lte $in $nin $exists $regex $options $size $all $not $elemMatch $and $or $nor` |
 | Equality with a sub-document | matches when the stored sub-document contains it (extra fields allowed) |
-| Dotted paths | don't traverse arrays of sub-documents; use `$elemMatch` |
+| Dotted paths through arrays | supported for equality, `$in` and `$all` up to 3 levels deep; use `$elemMatch` for other operators |
 | `$gt` / `$lt` / sort | compare values of the same JSON type only; missing values sort first ascending, last descending |
-| `Aggregate` | `$match`, `$sort`, `$skip` and `$limit` stages |
-| `IndexModels()` | 1 / -1 keys with `Name`, `Unique` and `Sparse`; unique indexes allow many documents missing the field |
-| `TermSearch` | ParadeDB BM25: matches any word of the query, stemmed with `odm.PgSearchStemmer` (default `english`); every `Path` must be in the model's `TermSearchIndexSpecs` |
-| `VectorSearch` | needs the `vector` extension (created by `EnsurePgIndexes`). Scores follow Atlas: cosine and dotProduct give `(1 + similarity) / 2`, euclidean gives `1 / (1 + distance)` |
+| `$regex` | doesn't match inside arrays |
+| Index options | `TTL` is unsupported |
 
-Anything else (other operators, stages, index key types or index options such as TTL and partial filters) returns an error wrapping `errors.ErrUnsupported`; nothing is silently ignored. `FindOne` returns `odm.ErrNoDocuments` when nothing matches, on both backends.
+Code holding the portable interface reaches a backend's extras with a type assertion: `pg, ok := col.(postgres.Collection[Movie])`.
 
 ---
 

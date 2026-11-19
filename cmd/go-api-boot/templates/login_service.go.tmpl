@@ -3,18 +3,19 @@ package services
 import (
     "{{.ProjectPath}}/db"
     pb "{{.ProjectPath}}/generated/pb"
+    "github.com/SaiNageswarS/go-api-boot/odm/mongodb"
     "github.com/SaiNageswarS/go-api-boot/auth"
-    "github.com/SaiNageswarS/go-api-boot/async"
+    "github.com/SaiNageswarS/go-collection-boot/async"
     "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type LoginService struct {
     pb.UnimplementedLoginServer
-    mongo odm.MongoClient
+    mongo *mongodb.Client
 }
 
-func ProvideLoginService(mongo odm.MongoClient) *LoginService {
+func ProvideLoginService(mongo *mongodb.Client) *LoginService {
     return &LoginService {
         mongo: mongo,
     }
@@ -26,7 +27,7 @@ func (u *LoginService) AuthFuncOverride(ctx context.Context, fullMethodName stri
 }
 
 func (s *LoginService) Login(ctx context.Context, req *pb.LoginRequest) (*pb.StatusResponse, error) {
-    loginInfo, err := async.Await(odm.CollectionOf[LoginModel](mongo, req.Tenant).FindOneByID(ctx, req.Id))
+    loginInfo, err := async.Await(mongodb.CollectionOf[db.LoginModel](s.mongo, req.Tenant).FindByID(ctx, req.Id))
     if err != nil || loginInfo == nil {
 		return nil, status.Error(codes.NotFound, "User not found")
 	}

@@ -12,21 +12,44 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    services:
+      # Postgres with ParadeDB (pg_search) and pgvector, for odm/postgres.
+      postgres:
+        image: paradedb/paradedb:latest
+        env:
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      # MongoDB with Atlas Search and Vector Search, for odm/mongodb.
+      mongodb:
+        image: mongodb/mongodb-atlas-local:latest
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "/usr/local/bin/runner healthcheck"
+          --health-interval 5s
+          --health-timeout 10s
+          --health-start-period 10s
+          --health-retries 30
     env:
         # Environment variables for the integration tests.
-        MONGO_URI: ${{ secrets.MONGO_URI }}
+        MONGO_URI: mongodb://localhost:27017/?directConnection=true
+        POSTGRES_URI: postgres://postgres:test@localhost:5432/postgres
         JINA_AI_API_KEY: ${{ secrets.JINA_AI_API_KEY }}
-    strategy:
-      matrix:
-        go: [1.24]
-
     steps:
     - uses: actions/checkout@v4
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: ${{ matrix.go }}
+        # The Go version go.mod requires. An older Go would download that
+        # toolchain at run time, and it lacks the covdata tool coverage needs.
+        go-version-file: go.mod
 
     - name: Install dependencies
       run: go mod download

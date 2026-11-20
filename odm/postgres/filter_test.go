@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/SaiNageswarS/go-api-boot/odm"
-	"github.com/SaiNageswarS/go-api-boot/odm/internal/conformance"
+	"github.com/SaiNageswarS/go-api-boot/odm/internal/integtest"
 	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -113,7 +113,7 @@ func (noPgSearchPool) Exec(context.Context, string, ...any) (pgconn.CommandTag, 
 }
 func (noPgSearchPool) QueryRow(context.Context, string, ...any) pgx.Row { return boolRow(false) }
 
-type searchOnly struct{ conformance.Movie }
+type searchOnly struct{ integtest.Movie }
 
 func (searchOnly) Indexes() []odm.IndexSpec             { return nil }
 func (searchOnly) VectorIndexes() []odm.VectorIndexSpec { return nil }

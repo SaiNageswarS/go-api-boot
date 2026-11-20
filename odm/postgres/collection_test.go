@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/SaiNageswarS/go-api-boot/odm"
-	"github.com/SaiNageswarS/go-api-boot/odm/internal/conformance"
+	"github.com/SaiNageswarS/go-api-boot/odm/internal/integtest"
 	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
@@ -48,27 +48,27 @@ func dropSchema(db *DB, tenant string) {
 }
 
 func TestConformance(t *testing.T) {
-	clock := &conformance.Clock{}
+	clock := &integtest.Clock{}
 	db := openTestDB(t, WithTimer(clock))
-	conformance.Run(t, conformance.Backend{
+	integtest.Run(t, integtest.Backend{
 		Clock: clock,
-		Collection: func(tenant string) odm.Collection[conformance.Movie] {
-			return CollectionOf[conformance.Movie](db, tenant)
+		Collection: func(tenant string) odm.Collection[integtest.Movie] {
+			return CollectionOf[integtest.Movie](db, tenant)
 		},
 		Ensure: func(ctx context.Context, tenant string) error {
-			return EnsureCollection[conformance.Movie](ctx, db, tenant)
+			return EnsureCollection[integtest.Movie](ctx, db, tenant)
 		},
 		Drop: func(_ context.Context, tenant string) { dropSchema(db, tenant) },
 	}, testTenant("conformance"))
 }
 
-func seed(t *testing.T, db *DB, tenant string) Collection[conformance.Movie] {
+func seed(t *testing.T, db *DB, tenant string) Collection[integtest.Movie] {
 	t.Helper()
 	ctx := t.Context()
 	t.Cleanup(func() { dropSchema(db, tenant) })
-	require.NoError(t, EnsureCollection[conformance.Movie](ctx, db, tenant))
-	col := CollectionOf[conformance.Movie](db, tenant)
-	for _, m := range conformance.Fixtures() {
+	require.NoError(t, EnsureCollection[integtest.Movie](ctx, db, tenant))
+	col := CollectionOf[integtest.Movie](db, tenant)
+	for _, m := range integtest.Fixtures() {
 		_, err := async.Await(col.Save(ctx, m))
 		require.NoError(t, err)
 	}
@@ -87,8 +87,8 @@ func TestPostgresSpecifics(t *testing.T) {
 		assert.Equal(t, "m4", res[0].ID)
 		assert.Equal(t, "m3", res[1].ID)
 
-		var portable odm.Collection[conformance.Movie] = col
-		_, ok := portable.(Collection[conformance.Movie])
+		var portable odm.Collection[integtest.Movie] = col
+		_, ok := portable.(Collection[integtest.Movie])
 		assert.True(t, ok, "reachable by type assertion")
 	})
 
@@ -106,15 +106,15 @@ func TestPostgresSpecifics(t *testing.T) {
 	})
 
 	t.Run("writes to a collection that doesn't exist fail clearly", func(t *testing.T) {
-		missing := CollectionOf[conformance.Movie](db, testTenant("missing"))
-		_, err := async.Await(missing.Save(ctx, conformance.Fixtures()[0]))
+		missing := CollectionOf[integtest.Movie](db, testTenant("missing"))
+		_, err := async.Await(missing.Save(ctx, integtest.Fixtures()[0]))
 		assert.ErrorContains(t, err, "EnsureCollection")
 	})
 }
 
 /* ── index reconciliation ── */
 
-type movieV2 struct{ conformance.Movie }
+type movieV2 struct{ integtest.Movie }
 
 func (m movieV2) Indexes() []odm.IndexSpec {
 	// title is no longer unique; byYear is gone; a new index on rating.
@@ -161,15 +161,15 @@ func TestEnsureCollectionReconciles(t *testing.T) {
 	assert.Len(t, hits, 2)
 
 	// Duplicate titles are allowed now.
-	dup := movieV2{conformance.Fixtures()[2]}
+	dup := movieV2{integtest.Fixtures()[2]}
 	dup.ID = "dup"
 	_, err = async.Await(col.Save(ctx, dup))
 	assert.NoError(t, err)
 
 	// Back to the original: same index names as before.
-	require.NoError(t, EnsureCollection[conformance.Movie](ctx, db, tenant))
+	require.NoError(t, EnsureCollection[integtest.Movie](ctx, db, tenant))
 	_, _ = async.Await(col.DeleteByID(ctx, "dup"))
-	require.NoError(t, EnsureCollection[conformance.Movie](ctx, db, tenant))
+	require.NoError(t, EnsureCollection[integtest.Movie](ctx, db, tenant))
 	assert.Equal(t, before, managedIndexes(t, db, tenant))
 }
 
@@ -197,6 +197,6 @@ func TestVectorIndexSkipsBadEmbeddings(t *testing.T) {
 	col := seed(t, db, testTenant("vectors"))
 	// The partial index skips documents without a 3-number embedding instead
 	// of failing their writes.
-	_, err := async.Await(col.Save(ctx, conformance.Movie{ID: "x", Title: "X", Embedding: bson.NewVector([]float32{1, 2, 3, 4})}))
+	_, err := async.Await(col.Save(ctx, integtest.Movie{ID: "x", Title: "X", Embedding: bson.NewVector([]float32{1, 2, 3, 4})}))
 	assert.NoError(t, err)
 }

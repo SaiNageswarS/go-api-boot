@@ -1,6 +1,7 @@
-// Package conformance is a test suite every odm backend must pass, so that
-// code written against odm.Collection behaves the same on each.
-package conformance
+// Package integtest is the integration test suite every odm backend must
+// pass, so that code written against odm.Collection behaves the same on each.
+// The backends' _test.go files import it; it is not part of any build.
+package integtest
 
 import (
 	"context"

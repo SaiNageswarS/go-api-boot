@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/SaiNageswarS/go-api-boot/odm"
-	"github.com/SaiNageswarS/go-api-boot/odm/internal/conformance"
+	"github.com/SaiNageswarS/go-api-boot/odm/internal/integtest"
 	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -43,20 +43,20 @@ func testTenant(name string) string {
 }
 
 func TestConformance(t *testing.T) {
-	clock := &conformance.Clock{}
+	clock := &integtest.Clock{}
 	c := connectTest(t, WithTimer(clock))
-	conformance.Run(t, conformance.Backend{
+	integtest.Run(t, integtest.Backend{
 		Clock: clock,
-		Collection: func(tenant string) odm.Collection[conformance.Movie] {
-			return CollectionOf[conformance.Movie](c, tenant)
+		Collection: func(tenant string) odm.Collection[integtest.Movie] {
+			return CollectionOf[integtest.Movie](c, tenant)
 		},
 		Ensure: func(ctx context.Context, tenant string) error {
-			if err := EnsureCollection[conformance.Movie](ctx, c, tenant); err != nil {
+			if err := EnsureCollection[integtest.Movie](ctx, c, tenant); err != nil {
 				return err
 			}
 			waitCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 			defer cancel()
-			return WaitForSearchIndexes[conformance.Movie](waitCtx, c, tenant)
+			return WaitForSearchIndexes[integtest.Movie](waitCtx, c, tenant)
 		},
 		Drop: func(ctx context.Context, tenant string) { _ = c.Mongo().Database(tenant).Drop(ctx) },
 		// Atlas Search indexes documents asynchronously.
@@ -70,9 +70,9 @@ func TestMongoSpecifics(t *testing.T) {
 	tenant := testTenant("specifics")
 	t.Cleanup(func() { _ = c.Mongo().Database(tenant).Drop(context.Background()) })
 
-	require.NoError(t, EnsureCollection[conformance.Movie](ctx, c, tenant))
-	col := CollectionOf[conformance.Movie](c, tenant)
-	for _, m := range conformance.Fixtures() {
+	require.NoError(t, EnsureCollection[integtest.Movie](ctx, c, tenant))
+	col := CollectionOf[integtest.Movie](c, tenant)
+	for _, m := range integtest.Fixtures() {
 		_, err := async.Await(col.Save(ctx, m))
 		require.NoError(t, err)
 	}
@@ -87,8 +87,8 @@ func TestMongoSpecifics(t *testing.T) {
 		require.Len(t, res, 1)
 		assert.Equal(t, "m2", res[0].ID)
 
-		var portable odm.Collection[conformance.Movie] = col
-		_, ok := portable.(Collection[conformance.Movie])
+		var portable odm.Collection[integtest.Movie] = col
+		_, ok := portable.(Collection[integtest.Movie])
 		assert.True(t, ok, "reachable by type assertion")
 	})
 
@@ -100,14 +100,14 @@ func TestMongoSpecifics(t *testing.T) {
 
 	t.Run("EnsureCollection replaces a changed index", func(t *testing.T) {
 		require.NoError(t, EnsureCollection[movieV2](ctx, c, tenant))
-		dup := conformance.Fixtures()[2]
+		dup := integtest.Fixtures()[2]
 		dup.ID = "dup"
 		_, err := async.Await(CollectionOf[movieV2](c, tenant).Save(ctx, movieV2{dup}))
 		assert.NoError(t, err, "title is no longer unique")
 	})
 }
 
-type movieV2 struct{ conformance.Movie }
+type movieV2 struct{ integtest.Movie }
 
 func (m movieV2) Indexes() []odm.IndexSpec {
 	return []odm.IndexSpec{{Keys: []odm.IndexKey{odm.Key("title")}}}

@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/SaiNageswarS/go-api-boot/odm"
-	"github.com/SaiNageswarS/go-api-boot/odm/internal/asyncx"
 	"github.com/SaiNageswarS/go-collection-boot/async"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -43,7 +42,7 @@ func (c *collection[T]) Raw() *mongo.Collection { return c.col }
 // Save upserts in one atomic update: model's fields and updatedOn are $set,
 // createdOn is set only on insert.
 func (c *collection[T]) Save(ctx context.Context, model T) <-chan async.Result[struct{}] {
-	return asyncx.Go(func() (struct{}, error) {
+	return async.Go(func() (struct{}, error) {
 		id := model.Id()
 		if err := odm.CheckID(id); err != nil {
 			return struct{}{}, err
@@ -75,7 +74,7 @@ func (c *collection[T]) FindByID(ctx context.Context, id string) <-chan async.Re
 }
 
 func (c *collection[T]) FindOne(ctx context.Context, filter odm.M) <-chan async.Result[*T] {
-	return asyncx.Go(func() (*T, error) {
+	return async.Go(func() (*T, error) {
 		res := c.col.FindOne(ctx, filterDoc(filter))
 		if err := res.Err(); err != nil {
 			return nil, mapErr(err)
@@ -86,7 +85,7 @@ func (c *collection[T]) FindOne(ctx context.Context, filter odm.M) <-chan async.
 }
 
 func (c *collection[T]) Find(ctx context.Context, filter odm.M, opts ...odm.FindOption) <-chan async.Result[[]T] {
-	return asyncx.Go(func() ([]T, error) {
+	return async.Go(func() ([]T, error) {
 		o, err := odm.ResolveFindOptions(opts...)
 		if err != nil {
 			return nil, err
@@ -108,20 +107,20 @@ func (c *collection[T]) Find(ctx context.Context, filter odm.M, opts ...odm.Find
 }
 
 func (c *collection[T]) Count(ctx context.Context, filter odm.M) <-chan async.Result[int64] {
-	return asyncx.Go(func() (int64, error) {
+	return async.Go(func() (int64, error) {
 		return c.col.CountDocuments(ctx, filterDoc(filter))
 	})
 }
 
 func (c *collection[T]) Exists(ctx context.Context, id string) <-chan async.Result[bool] {
-	return asyncx.Go(func() (bool, error) {
+	return async.Go(func() (bool, error) {
 		n, err := c.col.CountDocuments(ctx, bson.M{"_id": id}, options.Count().SetLimit(1))
 		return n > 0, err
 	})
 }
 
 func (c *collection[T]) Distinct(ctx context.Context, field string, filter odm.M) <-chan async.Result[[]any] {
-	return asyncx.Go(func() ([]any, error) {
+	return async.Go(func() ([]any, error) {
 		res := c.col.Distinct(ctx, field, filterDoc(filter))
 		if err := res.Err(); err != nil {
 			return nil, err
@@ -136,7 +135,7 @@ func (c *collection[T]) DeleteByID(ctx context.Context, id string) <-chan async.
 }
 
 func (c *collection[T]) DeleteOne(ctx context.Context, filter odm.M) <-chan async.Result[struct{}] {
-	return asyncx.Go(func() (struct{}, error) {
+	return async.Go(func() (struct{}, error) {
 		if filter == nil {
 			return struct{}{}, errors.New("odm/mongodb: DeleteOne needs a filter")
 		}
@@ -146,7 +145,7 @@ func (c *collection[T]) DeleteOne(ctx context.Context, filter odm.M) <-chan asyn
 }
 
 func (c *collection[T]) Aggregate(ctx context.Context, pipeline mongo.Pipeline) <-chan async.Result[[]T] {
-	return asyncx.Go(func() ([]T, error) {
+	return async.Go(func() ([]T, error) {
 		cursor, err := c.col.Aggregate(ctx, pipeline)
 		if err != nil {
 			return nil, err
@@ -158,7 +157,7 @@ func (c *collection[T]) Aggregate(ctx context.Context, pipeline mongo.Pipeline) 
 
 // VectorSearch runs Atlas Vector Search ($vectorSearch).
 func (c *collection[T]) VectorSearch(ctx context.Context, embedding []float32, params odm.VectorSearchParams) <-chan async.Result[[]odm.SearchHit[T]] {
-	return asyncx.Go(func() ([]odm.SearchHit[T], error) {
+	return async.Go(func() ([]odm.SearchHit[T], error) {
 		if err := params.Validate(embedding); err != nil {
 			return nil, err
 		}
@@ -196,7 +195,7 @@ func (c *collection[T]) VectorSearch(ctx context.Context, embedding []float32, p
 
 // TermSearch runs Atlas Search ($search) over the index's paths.
 func (c *collection[T]) TermSearch(ctx context.Context, query string, params odm.TermSearchParams) <-chan async.Result[[]odm.SearchHit[T]] {
-	return asyncx.Go(func() ([]odm.SearchHit[T], error) {
+	return async.Go(func() ([]odm.SearchHit[T], error) {
 		if err := params.Validate(query); err != nil {
 			return nil, err
 		}

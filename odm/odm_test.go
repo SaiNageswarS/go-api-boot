@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/SaiNageswarS/go-api-boot/odm/internal/asyncx"
 	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -71,11 +70,6 @@ func TestSearchParamsValidate(t *testing.T) {
 	assert.Error(t, VectorSearchParams{IndexName: "v", K: 1}.Validate(nil))
 	assert.NoError(t, TermSearchParams{IndexName: "t", Limit: 1}.Validate("q"))
 	assert.Error(t, TermSearchParams{IndexName: "t", Limit: 1}.Validate(""))
-}
-
-func TestAsyncPanicBecomesError(t *testing.T) {
-	_, err := async.Await(asyncx.Go(func() (int, error) { panic("boom") }))
-	assert.ErrorContains(t, err, "odm: panic: boom")
 }
 
 // fakeDistinct implements just Distinct, for DistinctAs.

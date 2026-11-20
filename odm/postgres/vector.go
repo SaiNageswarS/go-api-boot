@@ -7,14 +7,13 @@ import (
 	"strings"
 
 	"github.com/SaiNageswarS/go-api-boot/odm"
-	"github.com/SaiNageswarS/go-api-boot/odm/internal/asyncx"
 	"github.com/SaiNageswarS/go-collection-boot/async"
 )
 
 // VectorSearch runs a pgvector HNSW search. Scores follow Atlas: cosine and
 // dotProduct give (1 + similarity) / 2, euclidean gives 1 / (1 + distance).
 func (c *collection[T]) VectorSearch(ctx context.Context, embedding []float32, params odm.VectorSearchParams) <-chan async.Result[[]odm.SearchHit[T]] {
-	return asyncx.Go(func() ([]odm.SearchHit[T], error) {
+	return async.Go(func() ([]odm.SearchHit[T], error) {
 		if err := params.Validate(embedding); err != nil {
 			return nil, err
 		}

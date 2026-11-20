@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/SaiNageswarS/go-api-boot/odm"
-	"github.com/SaiNageswarS/go-api-boot/odm/internal/asyncx"
 	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/jackc/pgx/v5"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -52,7 +51,7 @@ func (c *collection[T]) qualified() string {
 // Save upserts in one statement: model's top-level fields replace the stored
 // ones, createdOn is set on insert, updatedOn on every save.
 func (c *collection[T]) Save(ctx context.Context, model T) <-chan async.Result[struct{}] {
-	return asyncx.Go(func() (struct{}, error) {
+	return async.Go(func() (struct{}, error) {
 		id := model.Id()
 		if err := odm.CheckID(id); err != nil {
 			return struct{}{}, err
@@ -78,7 +77,7 @@ func (c *collection[T]) FindByID(ctx context.Context, id string) <-chan async.Re
 }
 
 func (c *collection[T]) FindOne(ctx context.Context, filter odm.M) <-chan async.Result[*T] {
-	return asyncx.Go(func() (*T, error) {
+	return async.Go(func() (*T, error) {
 		q := &pgQuery{}
 		where, err := q.where(filter)
 		if err != nil {
@@ -97,7 +96,7 @@ func (c *collection[T]) FindOne(ctx context.Context, filter odm.M) <-chan async.
 }
 
 func (c *collection[T]) Find(ctx context.Context, filter odm.M, opts ...odm.FindOption) <-chan async.Result[[]T] {
-	return asyncx.Go(func() ([]T, error) {
+	return async.Go(func() ([]T, error) {
 		o, err := odm.ResolveFindOptions(opts...)
 		if err != nil {
 			return nil, err
@@ -113,13 +112,13 @@ func (c *collection[T]) Find(ctx context.Context, filter odm.M, opts ...odm.Find
 }
 
 func (c *collection[T]) FindSql(ctx context.Context, clause string, args ...any) <-chan async.Result[[]T] {
-	return asyncx.Go(func() ([]T, error) {
+	return async.Go(func() ([]T, error) {
 		return queryDocs[T](ctx, c.db.pool, "SELECT doc::text FROM "+c.qualified()+" "+clause, args)
 	})
 }
 
 func (c *collection[T]) Count(ctx context.Context, filter odm.M) <-chan async.Result[int64] {
-	return asyncx.Go(func() (int64, error) {
+	return async.Go(func() (int64, error) {
 		q := &pgQuery{}
 		where, err := q.where(filter)
 		if err != nil {
@@ -135,7 +134,7 @@ func (c *collection[T]) Count(ctx context.Context, filter odm.M) <-chan async.Re
 }
 
 func (c *collection[T]) Exists(ctx context.Context, id string) <-chan async.Result[bool] {
-	return asyncx.Go(func() (bool, error) {
+	return async.Go(func() (bool, error) {
 		var ok bool
 		err := c.db.pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM "+c.qualified()+" WHERE id = $1)", id).Scan(&ok)
 		if isMissing(err) {
@@ -147,7 +146,7 @@ func (c *collection[T]) Exists(ctx context.Context, id string) <-chan async.Resu
 
 // Distinct unwinds array values, like MongoDB.
 func (c *collection[T]) Distinct(ctx context.Context, field string, filter odm.M) <-chan async.Result[[]any] {
-	return asyncx.Go(func() ([]any, error) {
+	return async.Go(func() ([]any, error) {
 		q := &pgQuery{}
 		where, err := q.where(filter)
 		if err != nil {
@@ -183,7 +182,7 @@ func (c *collection[T]) DeleteByID(ctx context.Context, id string) <-chan async.
 }
 
 func (c *collection[T]) DeleteOne(ctx context.Context, filter odm.M) <-chan async.Result[struct{}] {
-	return asyncx.Go(func() (struct{}, error) {
+	return async.Go(func() (struct{}, error) {
 		if filter == nil {
 			return struct{}{}, errors.New("odm/postgres: DeleteOne needs a filter")
 		}

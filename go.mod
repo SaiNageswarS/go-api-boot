@@ -8,7 +8,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.9.0
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets v1.3.1
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.6.1
-	github.com/SaiNageswarS/go-collection-boot v1.0.5
+	github.com/SaiNageswarS/go-collection-boot v1.0.8-0.20261120221448-f53728a23f5d
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/googleapis/gax-go/v2 v2.13.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0

@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/SaiNageswarS/go-api-boot/odm"
-	"github.com/SaiNageswarS/go-api-boot/odm/internal/asyncx"
 	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/jackc/pgx/v5"
 )
@@ -25,7 +24,7 @@ import (
 // TermSearch matches any word of the query in the index's paths, ranked by BM25.
 // Other filters run as row filters inside ParadeDB's top-K scan.
 func (c *collection[T]) TermSearch(ctx context.Context, query string, params odm.TermSearchParams) <-chan async.Result[[]odm.SearchHit[T]] {
-	return asyncx.Go(func() ([]odm.SearchHit[T], error) {
+	return async.Go(func() ([]odm.SearchHit[T], error) {
 		if err := params.Validate(query); err != nil {
 			return nil, err
 		}

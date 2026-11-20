@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -35,7 +36,11 @@ func connectTest(t *testing.T, opts ...Option) *Client {
 	return c
 }
 
-func testTenant(name string) string { return fmt.Sprintf("odm_%s_%d", name, time.Now().UnixNano()) }
+// testTenant returns a unique tenant name. It stays short: Atlas caps
+// database names at 38 bytes.
+func testTenant(name string) string {
+	return fmt.Sprintf("%s_%s", name, strconv.FormatInt(time.Now().UnixNano(), 36))
+}
 
 func TestConformance(t *testing.T) {
 	clock := &conformance.Clock{}

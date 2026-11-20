@@ -25,9 +25,20 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      # MongoDB with Atlas Search and Vector Search, for odm/mongodb.
+      mongodb:
+        image: mongodb/mongodb-atlas-local:latest
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "/usr/local/bin/runner healthcheck"
+          --health-interval 5s
+          --health-timeout 10s
+          --health-start-period 10s
+          --health-retries 30
     env:
         # Environment variables for the integration tests.
-        MONGO_URI: ${{ secrets.MONGO_URI }}
+        MONGO_URI: mongodb://localhost:27017/?directConnection=true
         POSTGRES_URI: postgres://postgres:test@localhost:5432/postgres
         JINA_AI_API_KEY: ${{ secrets.JINA_AI_API_KEY }}
     strategy:

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -36,7 +37,11 @@ func openTestDB(t *testing.T, opts ...Option) *DB {
 	return db
 }
 
-func testTenant(name string) string { return fmt.Sprintf("odm_%s_%d", name, time.Now().UnixNano()) }
+// testTenant returns a unique tenant name. It stays short: Atlas caps
+// database names at 38 bytes.
+func testTenant(name string) string {
+	return fmt.Sprintf("%s_%s", name, strconv.FormatInt(time.Now().UnixNano(), 36))
+}
 
 func dropSchema(db *DB, tenant string) {
 	_, _ = db.pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+pgx.Identifier{tenant}.Sanitize()+" CASCADE")

@@ -27,9 +27,7 @@
    * [REST Controllers](#rest-controllers)
    * [ODM (MongoDB & Postgres)](#odm-mongodb--postgres)
 
-        * [Models & CRUD](#models--crud)
-        * [Indexes & EnsureCollection](#indexes--ensurecollection)
-        * [Vector & Text Search](#vector--text-search)
+        * [Indexes](#indexes)
         * [MongoDB backend](#mongodb-backend)
         * [Postgres backend](#postgres-backend)
    * [Auth & JWT](#auth--jwt)
@@ -63,7 +61,7 @@ The result: you write business logic, not boilerplate.
 ## Key Features
 
 * **First‑class gRPC & gRPC‑Web** – serve browsers natively without Envoy.
-* **Generic ODM for MongoDB and Postgres** – type‑safe, multi-tenant, async (`mongodb.CollectionOf[T](client, tenant).FindByID(ctx, id)`); the same code runs on either backend.
+* **MongoDB ODM and Postgres ORM** – type‑safe, multi-tenant and async, each native to its database: `mongodb.CollectionOf[T](client, tenant).Find(ctx, bson.M{...})` and `postgres.TableOf[T](db, tenant).Where("score > ?", 89).Find(ctx)`.
 * **Vector & Text Search** – Atlas Vector Search and Atlas Search on MongoDB; pgvector and ParadeDB (BM25) on Postgres.
 * **Index Management** – declare indexes on the model; `EnsureCollection[T]` creates (and on Postgres reconciles) them.
 * **JWT Auth & Middleware Stack** – observability, logging, panic recovery pre‑wired.
@@ -241,47 +239,25 @@ boot, _ := server.New().
 
 ### ODM (MongoDB & Postgres)
 
-One generic, multi-tenant ODM with two backends. Application code is written against `odm.Collection[T]`; only the client and constructors are backend-specific.
+Two multi-tenant data backends, each with an API native to its database: MongoDB collections queried with filter documents, and Postgres tables queried with SQL.
 
 | Package | Purpose |
 |---|---|
-| `odm` | shared: `Model`, `Collection[T]`, filters (`odm.M`, `odm.A`), sorts, index specs, errors |
-| `odm/mongodb` | MongoDB / Atlas backend (Atlas Search, Atlas Vector Search) |
-| `odm/postgres` | Postgres backend (JSONB documents, pgvector, ParadeDB BM25 search) |
+| `odm` | shared: `Model`, index specs, `SearchHit`, errors |
+| `odm/mongodb` | MongoDB / Atlas: filter documents (`bson.M`), aggregation, Atlas Search, Atlas Vector Search |
+| `odm/postgres` | Postgres: typed tables, SQL conditions, pgvector, ParadeDB BM25 search |
 
 Every IO method is asynchronous and returns a channel with an `async.Result`, so independent queries run concurrently. Await one with `async.Await`, or several with `async.AwaitAll`.
 
-#### Models & CRUD
+Both backends share:
 
-```go
-type Movie struct {
-    ID     string   `bson:"_id"`
-    Title  string   `bson:"title"`
-    Year   int      `bson:"year"`
-    Genres []string `bson:"genres"`
-}
-func (m Movie) Id() string             { return m.ID }
-func (m Movie) CollectionName() string { return "movies" }
+* **Models:** a struct with `Id()` and `CollectionName()` (the collection or table name).
+* **`EnsureCollection[T]`:** creates the collection or table and its declared indexes. Schema changes are a deployment step (startup, migration, tenant onboarding), never a side effect of runtime calls.
+* **`Save`:** an upsert by `Id()` that stamps creation and update times (set the clock with `WithTimer`).
+* **Errors:** `odm.ErrNotFound`, `odm.ErrDuplicateKey` (unique index), and `errors.ErrUnsupported` for index features a backend lacks.
+* **Helpers:** `HashedKey` derives ids from data fields; `NewModelFrom[T]` copies a proto into a model.
 
-client, err := mongodb.Connect(ctx, os.Getenv("MONGO_URI"))  // or postgres.Open(ctx, os.Getenv("POSTGRES_URI"))
-movies := mongodb.CollectionOf[Movie](client, tenant)        // or postgres.CollectionOf[Movie](db, tenant)
-
-_, err = async.Await(movies.Save(ctx, movie))               // upsert by Id()
-m, err := async.Await(movies.FindByID(ctx, id))             // odm.ErrNotFound when missing
-recent, err := async.Await(movies.Find(ctx,
-    odm.M{"year": odm.M{"$gte": 2020}, "genres": "drama"},
-    odm.WithSort(odm.Desc("year")), odm.WithLimit(10)))
-genres, err := async.Await(odm.DistinctAs[string](ctx, movies, "genres", nil))
-```
-
-* **Filters** use MongoDB query syntax with `odm.M` / `odm.A`, on both backends.
-* **Save** is an upsert: top-level fields replace the stored ones, fields absent from the model are kept. It stamps `createdOn` on insert and `updatedOn` on every save (set the clock with `WithTimer`).
-* **Errors**: `odm.ErrNotFound`, `odm.ErrDuplicateKey` (unique index), and `errors.ErrUnsupported` for anything a backend can't translate.
-* `HashedKey` derives ids from data fields; `NewModelFrom[T]` copies a proto into a model.
-
-#### Indexes & EnsureCollection
-
-Models declare indexes; `EnsureCollection` creates the collection and its indexes. Schema changes are a deployment step (startup, migration, tenant onboarding), never a side effect of runtime calls.
+#### Indexes
 
 ```go
 func (m Movie) Indexes() []odm.IndexSpec {
@@ -294,58 +270,95 @@ func (m Movie) TermSearchIndexes() []odm.TermSearchIndexSpec {
     return []odm.TermSearchIndexSpec{{Name: "plotIndex", Paths: []string{"title", "plot"}}}
 }
 func (m Movie) VectorIndexes() []odm.VectorIndexSpec {
-    return []odm.VectorIndexSpec{{
-        Name: "plotEmbedding", Path: "embedding", Dimensions: 768,
-        Similarity: odm.Cosine, FilterPaths: []string{"year"},
-    }}
-}
-
-err := mongodb.EnsureCollection[Movie](ctx, client, tenant)  // or postgres.EnsureCollection[Movie](ctx, db, tenant)
-```
-
-#### Vector & Text Search
-
-```go
-hits, err := async.Await(movies.VectorSearch(ctx, embedding, odm.VectorSearchParams{
-    IndexName: "plotEmbedding", K: 5, Filter: odm.M{"year": odm.M{"$gte": 2000}},
-}))
-hits, err = async.Await(movies.TermSearch(ctx, "space crew", odm.TermSearchParams{
-    IndexName: "plotIndex", Limit: 10,
-}))
-for _, hit := range hits {
-    fmt.Println(hit.Score, hit.Doc.Title)
+    return []odm.VectorIndexSpec{{Name: "plotEmbedding", Path: "embedding", Dimensions: 768, Similarity: odm.Cosine}}
 }
 ```
 
-The index name selects the field(s) and similarity; an unknown name is an error. Scores are comparable across backends: cosine and dotProduct give `(1 + similarity) / 2`, euclidean `1 / (1 + distance)`; text search scores are BM25.
+Keys and paths name fields on MongoDB and columns on Postgres. Search scores are comparable across backends: cosine and dotProduct give `(1 + similarity) / 2`, euclidean `1 / (1 + distance)`; text search scores are BM25.
 
 #### MongoDB backend
 
-* A tenant is a database. `mongodb.Collection[T]` adds `Aggregate(ctx, mongo.Pipeline)` and `Raw()` (the driver collection).
-* Search needs Atlas, or the local Atlas image (`mongodb/mongodb-atlas-local`). Atlas builds search indexes asynchronously: `mongodb.WaitForSearchIndexes[T]` waits until they serve queries.
-* `EnsureCollection` recreates regular indexes whose definition changed, and creates missing search indexes (to change a search index, give it a new name).
+```go
+type Movie struct {
+    ID     string   `bson:"_id"`
+    Title  string   `bson:"title"`
+    Year   int      `bson:"year"`
+    Genres []string `bson:"genres"`
+}
+func (m Movie) Id() string             { return m.ID }
+func (m Movie) CollectionName() string { return "movies" }
+
+client, err := mongodb.Connect(ctx, os.Getenv("MONGO_URI"))
+err = mongodb.EnsureCollection[Movie](ctx, client, tenant)
+movies := mongodb.CollectionOf[Movie](client, tenant)
+
+_, err = async.Await(movies.Save(ctx, movie))
+m, err := async.Await(movies.FindByID(ctx, id))
+recent, err := async.Await(movies.Find(ctx,
+    bson.M{"year": bson.M{"$gte": 2020}, "genres": "drama"},
+    mongodb.WithSort(mongodb.Desc("year")), mongodb.WithLimit(10)))
+genres, err := async.Await(mongodb.DistinctAs[string](ctx, movies, "genres", nil))
+
+hits, err := async.Await(movies.VectorSearch(ctx, embedding, mongodb.VectorSearchParams{
+    IndexName: "plotEmbedding", K: 5, Filter: bson.M{"year": bson.M{"$gte": 2000}},
+}))
+hits, err = async.Await(movies.TermSearch(ctx, "space crew", mongodb.TermSearchParams{IndexName: "plotIndex", Limit: 10}))
+```
+
+* **Tenants:** a tenant is a database.
+* **Save:** top-level fields replace the stored ones, and fields absent from the model are kept. It stamps `createdOn` on insert and `updatedOn` on every save, atomically.
+* **Raw access:** `Aggregate(ctx, mongo.Pipeline)` runs a pipeline, and `Raw()` returns the driver collection.
+* **Search:** needs Atlas, or the local Atlas image (`mongodb/mongodb-atlas-local`). Atlas builds search indexes asynchronously; `mongodb.WaitForSearchIndexes[T]` waits until they serve queries. `VectorIndexSpec.FilterPaths` declares the fields a vector search may pre-filter on.
+* **Index changes:** `EnsureCollection` recreates regular indexes whose definition changed, and creates missing search indexes. To change a search index, give it a new name.
 
 #### Postgres backend
 
-* A tenant is a schema; a collection is a table `(id TEXT PRIMARY KEY, doc JSONB)` with a GIN index on `doc`, so equality filters on any field are indexed.
-* Reads of a collection that doesn't exist find nothing; writes to it fail with a hint to run `EnsureCollection`.
-* `EnsureCollection` reconciles indexes: their names carry a hash of the definition, so a changed definition replaces the old index, and indexes no longer declared are dropped (only ones the ODM created).
-* **Vector search** uses [pgvector](https://github.com/pgvector/pgvector) HNSW (`halfvec` for scalar quantization or more than 2000 dimensions). Documents whose embedding is missing or has another length are stored but not searchable. Filtered searches use iterative scans (pgvector 0.8+) so they still return K hits.
-* **Text search** needs [ParadeDB](https://www.paradedb.com/docs)'s `pg_search`: run the `paradedb/paradedb` image (it includes pgvector), or install `pg_search` with `shared_preload_libraries`. Without it, `EnsureCollection` and `TermSearch` return `postgres.ErrPgSearchNotInstalled`. Searched paths are kept in generated `search_<path>` columns under one ParadeDB index per table (a ParadeDB limit). Words are stemmed in English by default (`postgres.WithStemmer`).
-* `postgres.Collection[T]` adds `FindSql(ctx, clause, args...)`, which runs `SELECT doc FROM <table> <clause>` over the columns `id` and `doc`. The clause is executed as SQL: it must be trusted code, with user values passed as `args`.
+```go
+type Profile struct {
+    ID        string    `db:"id"`
+    Name      string    `db:"name"`
+    City      string    `db:"city"`
+    Score     float64   `db:"score"`
+    Tags      []string  `db:"tags"`      // text[]
+    Address   Address   `db:"address"`   // jsonb
+    Embedding []float32 `db:"embedding"` // vector(N), from its VectorIndexSpec
+    UpdatedOn int64     `db:"updated_on"`
+}
+func (p Profile) Id() string             { return p.ID }
+func (p Profile) CollectionName() string { return "profiles" }
 
-Filter semantics on Postgres, where they differ from MongoDB:
+db, err := postgres.Open(ctx, os.Getenv("POSTGRES_URI"))
+err = postgres.EnsureCollection[Profile](ctx, db, tenant)
+profiles := postgres.TableOf[Profile](db, tenant)
 
-| | Postgres |
-|---|---|
-| Operators | equality, `$eq $ne $gt $gte $lt $lte $in $nin $exists $regex $options $size $all $not $elemMatch $and $or $nor` |
-| Equality with a sub-document | matches when the stored sub-document contains it (extra fields allowed) |
-| Dotted paths through arrays | supported for equality, `$in` and `$all` up to 3 levels deep; use `$elemMatch` for other operators |
-| `$gt` / `$lt` / sort | compare values of the same JSON type only; missing values sort first ascending, last descending |
-| `$regex` | doesn't match inside arrays |
-| Index options | `TTL` is unsupported |
+top, err := async.Await(profiles.
+    Where("score > ?", 89).
+    Where("city = ?", city).
+    OrderBy("score DESC").
+    Limit(10).
+    Find(ctx))
 
-Code holding the portable interface reaches a backend's extras with a type assertion: `pg, ok := col.(postgres.Collection[Movie])`.
+_, err = async.Await(profiles.Save(ctx, profile))
+p, err := async.Await(profiles.FindByID(ctx, id))
+n, err := async.Await(profiles.Where("? = ANY(tags)", "vip").Count(ctx))
+hits, err := async.Await(profiles.Where("city = ?", city).VectorSearch(ctx, "byEmbedding", embedding, 5))
+```
+
+* **Tables:** a tenant is a schema, and a model is a table whose columns are its fields. A column is named by the field's `db` tag, or else the field name in snake_case. Fields of embedded structs are flattened in.
+* **Column types:** Go types map to SQL types: strings, numbers, booleans and `time.Time` to scalar columns, slices of them to arrays, `[]float32` with a vector index to `vector(N)`, and anything else to `jsonb` (via `encoding/json`). Non-pointer columns are `NOT NULL` with the type's zero value as default.
+* **Queries:**
+  * `Where`, `OrderBy`, `Limit` and `Offset` build an immutable query, so a base query can be shared and extended. `Find`, `First`, `Count`, `Exists`, `Delete`, `VectorSearch` and `TermSearch` run it.
+  * Conditions are SQL with `?` placeholders bound to arguments; write `??` for a literal `?` (the jsonb key operator). Pass a slice to match a list: `Where("city = ANY(?)", cities)`.
+  * The SQL in `Where` and `OrderBy` runs as written, so it must come from your code; pass user values as arguments.
+* **Save:** replaces the row with the same `Id()`, and stamps int64 `created_on` (on insert) and `updated_on` columns if the model has them.
+* **EnsureCollection:**
+  * Creates the table, and adds the columns of new fields.
+  * Refuses to change an existing column's type, since that needs a data migration.
+  * Reconciles indexes: their names carry a hash of the definition, so a changed definition replaces the old index, and indexes no longer declared are dropped (only ones it created).
+* **Missing tables:** reads of a table that doesn't exist find nothing; writes to it fail with a hint to run `EnsureCollection`.
+* **Vector search:** uses [pgvector](https://github.com/pgvector/pgvector) HNSW (`halfvec` for scalar quantization or more than 2000 dimensions). Rows without an embedding aren't searched. With `Where` conditions, it scans the index iteratively (pgvector 0.8+) so it still returns k rows.
+* **Text search:** needs [ParadeDB](https://www.paradedb.com/docs)'s `pg_search`. Run the `paradedb/paradedb` image (it includes pgvector), or install `pg_search` with `shared_preload_libraries`. Without it, `EnsureCollection` and `TermSearch` return `postgres.ErrPgSearchNotInstalled`. One ParadeDB index per table covers every searched text column, and words are stemmed in English by default (`postgres.WithStemmer`).
+* **Unsupported:** `TTL` indexes.
 
 ---
 

@@ -14,7 +14,8 @@ type Indexed interface {
 	Indexes() []IndexSpec
 }
 
-// IndexSpec is a regular index over one or more fields.
+// IndexSpec is a regular index over one or more fields (MongoDB) or columns
+// (Postgres).
 type IndexSpec struct {
 	Name   string     // optional; derived from the keys when empty
 	Keys   []IndexKey // at least one
@@ -58,7 +59,8 @@ type TermSearchIndexed interface {
 	TermSearchIndexes() []TermSearchIndexSpec
 }
 
-// TermSearchIndexSpec is a full-text index over string fields.
+// TermSearchIndexSpec is a full-text index over string fields (MongoDB) or
+// text columns (Postgres).
 type TermSearchIndexSpec struct {
 	Name  string
 	Paths []string
@@ -78,15 +80,15 @@ const (
 	Euclidean  Similarity = "euclidean"
 )
 
-// VectorIndexSpec is a vector index over an embedding field (stored as
-// bson.Vector or []float32).
+// VectorIndexSpec is a vector index over an embedding: a bson.Vector or
+// []float32 field on MongoDB, a []float32 field (a vector column) on Postgres.
 type VectorIndexSpec struct {
 	Name         string
-	Path         string
+	Path         string // the field (MongoDB) or column (Postgres)
 	Dimensions   int
 	Similarity   Similarity // Cosine when empty
 	Quantization string     // "", "scalar" or "binary" (MongoDB); "scalar" stores half precision on Postgres
-	FilterPaths  []string   // fields VectorSearch filters on
+	FilterPaths  []string   // MongoDB: fields VectorSearch may pre-filter on
 }
 
 // SimilarityOrDefault is Similarity, or Cosine when unset.

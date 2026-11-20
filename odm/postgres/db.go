@@ -1,18 +1,47 @@
-// Package postgres is the Postgres backend of odm.
+// Package postgres is go-api-boot's Postgres ORM: typed tables with SQL
+// queries, plus vector search (pgvector) and BM25 term search (ParadeDB).
 //
 //	db, err := postgres.Open(ctx, os.Getenv("POSTGRES_URI"))
-//	err = postgres.EnsureCollection[Movie](ctx, db, tenant) // at deploy / startup
-//	movies := postgres.CollectionOf[Movie](db, tenant)
-//	movie, err := async.Await(movies.FindByID(ctx, id))
+//	err = postgres.EnsureCollection[Profile](ctx, db, tenant) // at deploy / startup
 //
-// Storage: a tenant is a schema; a collection is a table
-// "<tenant>"."<collection>" (id TEXT PRIMARY KEY, doc JSONB) holding the
-// model's bson encoding. Filters in MongoDB syntax are compiled to SQL over doc.
-// Vector search uses pgvector; term search uses ParadeDB's pg_search (BM25).
+//	profiles := postgres.TableOf[Profile](db, tenant)
+//	top, err := async.Await(profiles.
+//	    Where("score > ?", 89).
+//	    Where("city = ?", city).
+//	    OrderBy("score DESC").
+//	    Limit(10).
+//	    Find(ctx))
 //
-// Collections never change the schema at runtime: EnsureCollection creates
-// tables and indexes. Reads of a collection that doesn't exist find nothing;
-// writes to it fail.
+// Storage: a tenant is a schema and a model is a table "<tenant>"."<name>"
+// (the model's CollectionName). Queries are SQL over its columns.
+//
+// Columns: a model's exported struct fields map to columns.
+//
+//   - the column name is the field's `db` tag, or the field name in
+//     snake_case; `db:"-"` skips the field;
+//   - fields of embedded structs without a tag are flattened in;
+//   - the table must have an "id" text column (the primary key, written from
+//     the model's Id());
+//   - int64 "created_on" and "updated_on" columns, if present, are stamped by
+//     Save.
+//
+// Go types map to SQL types:
+//
+//	string text · bool boolean · int, int64, uint* bigint · int32 integer
+//	int16, int8 smallint · float64 double precision · float32 real
+//	time.Time timestamp with time zone · []byte bytea
+//	slices of those scalars: arrays (text[], bigint[], ...)
+//	[]float32 named by a VectorIndexSpec: vector(N) (halfvec(N) for scalar
+//	quantization or more than 2000 dimensions)
+//	anything else (structs, maps, other slices): jsonb, via encoding/json
+//
+// Columns are NOT NULL with the type's zero value as default, so adding a
+// field to a model adds a column existing rows can be read from. Pointer
+// fields and vector columns are nullable.
+//
+// Tables never change the schema at runtime: EnsureCollection creates and
+// migrates tables and indexes. Reads of a table that doesn't exist find
+// nothing; writes to it fail.
 package postgres
 
 import (
@@ -189,9 +218,19 @@ func writeErr(err error, schema, table string) error {
 	case err == nil:
 		return nil
 	case isMissing(err):
-		return fmt.Errorf("odm/postgres: collection %s.%s doesn't exist; create it with postgres.EnsureCollection: %w", schema, table, err)
+		return fmt.Errorf("odm/postgres: table %s.%s doesn't exist; create it with postgres.EnsureCollection: %w", schema, table, err)
 	case errors.As(err, &pgErr) && pgErr.Code == "23505":
 		return fmt.Errorf("%w: %s", odm.ErrDuplicateKey, pgErr.Message)
 	}
 	return err
+}
+
+// errUnsupported reports a feature the Postgres backend doesn't support. It
+// wraps errors.ErrUnsupported.
+func errUnsupported(format string, args ...any) error {
+	return fmt.Errorf("odm/postgres: %w: "+format, append([]any{errors.ErrUnsupported}, args...)...)
+}
+
+func quoteLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

@@ -2,22 +2,33 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/SaiNageswarS/go-api-boot/odm"
 	"github.com/SaiNageswarS/go-collection-boot/async"
+	"github.com/jackc/pgx/v5"
 )
 
-// VectorSearch runs a pgvector HNSW search. Scores follow Atlas: cosine and
-// dotProduct give (1 + similarity) / 2, euclidean gives 1 / (1 + distance).
-func (c *collection[T]) VectorSearch(ctx context.Context, embedding []float32, params odm.VectorSearchParams) <-chan async.Result[[]odm.SearchHit[T]] {
+// VectorSearch returns the k rows nearest to embedding by the model's
+// VectorIndexSpec named index, best first, among the rows matching t's
+// conditions. It runs a pgvector HNSW search; with conditions it scans the
+// index iteratively (pgvector 0.8+) so that filtering doesn't return fewer
+// than k rows. OrderBy, Limit and Offset don't apply.
+//
+// Scores follow Atlas: cosine and dotProduct give (1 + similarity) / 2,
+// euclidean gives 1 / (1 + distance).
+func (t Table[T]) VectorSearch(ctx context.Context, index string, embedding []float32, k int) <-chan async.Result[[]odm.SearchHit[T]] {
 	return async.Go(func() ([]odm.SearchHit[T], error) {
-		if err := params.Validate(embedding); err != nil {
+		if len(embedding) == 0 || k <= 0 {
+			return nil, errors.New("odm/postgres: VectorSearch needs an embedding and k > 0")
+		}
+		if err := t.searchOnly("VectorSearch"); err != nil {
 			return nil, err
 		}
-		spec, err := odm.VectorIndexOf[T](params.IndexName)
+		spec, err := odm.VectorIndexOf[T](index)
 		if err != nil {
 			return nil, err
 		}
@@ -28,62 +39,101 @@ func (c *collection[T]) VectorSearch(ctx context.Context, embedding []float32, p
 		if err != nil {
 			return nil, err
 		}
-
-		q := &pgQuery{}
-		where, err := q.where(params.Filter)
+		s, err := schemaOf[T]()
 		if err != nil {
 			return nil, err
 		}
-		distance := vec.expr + " " + vec.operator + " " + q.arg(vectorLiteral(embedding)) + "::" + vec.sqlType
-		sql := "SELECT doc::text, " + distance + " AS distance FROM " + c.qualified() +
-			" WHERE " + vec.predicate + " AND " + where +
-			" ORDER BY distance LIMIT " + strconv.Itoa(params.K)
+
+		col := pgx.Identifier{spec.Path}.Sanitize()
+		where, args := t.whereSQL([]any{vectorLiteral(embedding)})
+		if where == "" {
+			where = " WHERE " + col + " IS NOT NULL"
+		} else {
+			where += " AND " + col + " IS NOT NULL"
+		}
+		distance := col + " " + vec.operator + " $1::" + vec.sqlType
+		sql := "SELECT " + selectList(s) + ", " + distance + " AS distance FROM " + t.qualified() + where +
+			" ORDER BY distance LIMIT " + strconv.Itoa(k)
 
 		// Session settings for this query only, applied in a transaction.
 		var settings []string
-		if params.NumCandidates > 0 {
-			settings = append(settings, "SET LOCAL hnsw.ef_search = "+strconv.Itoa(min(max(params.NumCandidates, params.K), 1000)))
+		if k > 40 { // hnsw.ef_search defaults to 40, which caps the results
+			settings = append(settings, "SET LOCAL hnsw.ef_search = "+strconv.Itoa(min(k, 1000)))
 		}
-		if len(params.Filter) > 0 && c.db.iterativeScans(ctx) {
-			// Keep scanning the index until K rows pass the filter. relaxed_order
-			// may return rows slightly out of order, so re-sort them.
+		if len(t.where) > 0 && t.db.iterativeScans(ctx) {
+			// Keep scanning the index until k rows pass the conditions.
+			// relaxed_order may return rows slightly out of order, so re-sort.
 			settings = append(settings, "SET LOCAL hnsw.iterative_scan = relaxed_order")
 			sql = "SELECT * FROM (" + sql + ") AS s ORDER BY distance"
 		}
 		if len(settings) == 0 {
-			return queryHits[T](ctx, c.db.pool, sql, q.args, vec.score)
+			return t.queryHits(ctx, t.db.pool, s, sql, args, vec.score)
 		}
 
-		tx, err := c.db.pool.Begin(ctx)
+		tx, err := t.db.pool.Begin(ctx)
 		if err != nil {
 			return nil, err
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
-		for _, s := range settings {
-			if _, err := tx.Exec(ctx, s); err != nil {
+		for _, setting := range settings {
+			if _, err := tx.Exec(ctx, setting); err != nil {
 				return nil, err
 			}
 		}
-		return queryHits[T](ctx, tx, sql, q.args, vec.score)
+		return t.queryHits(ctx, tx, s, sql, args, vec.score)
 	})
 }
 
-// pgVector describes how a vector field is cast, compared and indexed. Index
-// definitions and queries share it so the planner matches them.
+// searchOnly rejects paging on a search, which orders by relevance itself.
+func (t Table[T]) searchOnly(method string) error {
+	if t.err != nil {
+		return t.err
+	}
+	if len(t.order) > 0 || t.limit >= 0 || t.offset > 0 {
+		return fmt.Errorf("odm/postgres: %s orders by relevance and takes its own limit; drop OrderBy, Limit and Offset", method)
+	}
+	return nil
+}
+
+type querier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+// queryHits runs a search whose rows are the model's columns plus a
+// distance or score, turned into a hit score by score.
+func (t Table[T]) queryHits(ctx context.Context, q querier, s *tableSchema, sql string, args []any, score func(float64) float64) ([]odm.SearchHit[T], error) {
+	rows, err := q.Query(ctx, sql, args...)
+	if isMissing(err) {
+		return []odm.SearchHit[T]{}, nil
+	}
+	if err != nil {
+		return nil, t.queryErr(err, sql)
+	}
+	var raw []float64
+	models, err := scanRows[T](rows, s, &raw)
+	if err != nil {
+		return nil, t.queryErr(err, sql)
+	}
+	hits := make([]odm.SearchHit[T], len(models))
+	for i, m := range models {
+		hits[i] = odm.SearchHit[T]{Score: score(raw[i]), Doc: m}
+	}
+	return hits, nil
+}
+
+// pgVector describes how a vector column is typed, compared and indexed.
 type pgVector struct {
-	expr      string // ((doc #>> '{path}')::vector(N))
-	predicate string // rows the (partial) index covers: arrays of N numbers
-	sqlType   string // vector(N) or halfvec(N)
-	operator  string // <=>, <#>, <->
-	opClass   string // HNSW operator class
-	score     func(distance float64) float64
+	sqlType  string // vector(N) or halfvec(N)
+	operator string // <=>, <#>, <->
+	opClass  string // HNSW operator class
+	score    func(distance float64) float64
 }
 
 // pgVectorFor maps a spec onto pgvector. Scalar quantization, or more than
 // 2000 dimensions (the HNSW limit for vector), uses halfvec.
 func pgVectorFor(spec odm.VectorIndexSpec) (pgVector, error) {
 	if spec.Path == "" || spec.Dimensions <= 0 {
-		return pgVector{}, fmt.Errorf("odm/postgres: vector index %q needs a path and dimensions", spec.Name)
+		return pgVector{}, fmt.Errorf("odm/postgres: vector index %q needs a path (the column) and dimensions", spec.Name)
 	}
 	base := "vector"
 	switch {
@@ -95,13 +145,7 @@ func pgVectorFor(spec odm.VectorIndexSpec) (pgVector, error) {
 		return pgVector{}, errUnsupported("vector index %s: quantization %q", spec.Name, spec.Quantization)
 	}
 
-	path := strings.Split(spec.Path, ".")
-	p := jsonbExpr(path)
 	v := pgVector{sqlType: fmt.Sprintf("%s(%d)", base, spec.Dimensions)}
-	v.expr = "(" + textExpr(path) + "::" + v.sqlType + ")"
-	// Documents without a usable embedding stay out of the index (and out of
-	// results) instead of failing the write.
-	v.predicate = fmt.Sprintf("(jsonb_typeof(%s) = 'array' AND jsonb_array_length(%s) = %d)", p, p, spec.Dimensions)
 
 	switch spec.SimilarityOrDefault() {
 	case odm.Cosine: // <=> is 1 - cosine similarity

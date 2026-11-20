@@ -13,10 +13,45 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-// Collection is a MongoDB collection: the portable odm.Collection plus
-// aggregation pipelines and the raw driver collection.
+// Collection is a typed MongoDB collection of T in one tenant (a database).
+// Filters are MongoDB query documents (bson.M or bson.D).
+//
+// Every method runs asynchronously and delivers one async.Result, so
+// independent queries run concurrently.
 type Collection[T odm.Model] interface {
-	odm.Collection[T]
+	// Save upserts model: its fields replace the stored ones, fields absent
+	// from model are kept. It stamps createdOn on insert and updatedOn on
+	// every save, atomically.
+	Save(ctx context.Context, model T) <-chan async.Result[struct{}]
+
+	// FindByID returns the document with id, or odm.ErrNotFound.
+	FindByID(ctx context.Context, id string) <-chan async.Result[*T]
+	// FindOne returns a document matching filter, or odm.ErrNotFound. A nil
+	// filter matches every document.
+	FindOne(ctx context.Context, filter bson.M) <-chan async.Result[*T]
+	// Find returns the documents matching filter. A nil filter matches all.
+	Find(ctx context.Context, filter bson.M, opts ...FindOption) <-chan async.Result[[]T]
+	// Count counts the documents matching filter.
+	Count(ctx context.Context, filter bson.M) <-chan async.Result[int64]
+	// Exists reports whether a document with id exists.
+	Exists(ctx context.Context, id string) <-chan async.Result[bool]
+	// Distinct returns the distinct values of field among documents matching
+	// filter; array fields contribute their elements. Use DistinctAs for
+	// typed values.
+	Distinct(ctx context.Context, field string, filter bson.M) <-chan async.Result[[]any]
+
+	// DeleteByID deletes the document with id, if any.
+	DeleteByID(ctx context.Context, id string) <-chan async.Result[struct{}]
+	// DeleteOne deletes one document matching filter, if any. filter must
+	// not be nil.
+	DeleteOne(ctx context.Context, filter bson.M) <-chan async.Result[struct{}]
+
+	// VectorSearch runs Atlas Vector Search with the model's VectorIndexSpec
+	// named params.IndexName.
+	VectorSearch(ctx context.Context, embedding []float32, params VectorSearchParams) <-chan async.Result[[]odm.SearchHit[T]]
+	// TermSearch runs Atlas Search (any of the query's words) over the paths
+	// of the model's TermSearchIndexSpec named params.IndexName.
+	TermSearch(ctx context.Context, query string, params TermSearchParams) <-chan async.Result[[]odm.SearchHit[T]]
 
 	// Aggregate runs pipeline and decodes each output document into T.
 	Aggregate(ctx context.Context, pipeline mongo.Pipeline) <-chan async.Result[[]T]
@@ -70,10 +105,10 @@ func (c *collection[T]) Save(ctx context.Context, model T) <-chan async.Result[s
 }
 
 func (c *collection[T]) FindByID(ctx context.Context, id string) <-chan async.Result[*T] {
-	return c.FindOne(ctx, odm.M{"_id": id})
+	return c.FindOne(ctx, bson.M{"_id": id})
 }
 
-func (c *collection[T]) FindOne(ctx context.Context, filter odm.M) <-chan async.Result[*T] {
+func (c *collection[T]) FindOne(ctx context.Context, filter bson.M) <-chan async.Result[*T] {
 	return async.Go(func() (*T, error) {
 		res := c.col.FindOne(ctx, filterDoc(filter))
 		if err := res.Err(); err != nil {
@@ -84,18 +119,18 @@ func (c *collection[T]) FindOne(ctx context.Context, filter odm.M) <-chan async.
 	})
 }
 
-func (c *collection[T]) Find(ctx context.Context, filter odm.M, opts ...odm.FindOption) <-chan async.Result[[]T] {
+func (c *collection[T]) Find(ctx context.Context, filter bson.M, opts ...FindOption) <-chan async.Result[[]T] {
 	return async.Go(func() ([]T, error) {
-		o, err := odm.ResolveFindOptions(opts...)
+		o, err := resolveFindOptions(opts...)
 		if err != nil {
 			return nil, err
 		}
-		findOpts := options.Find().SetSkip(o.Skip)
-		if o.Limit > 0 {
-			findOpts.SetLimit(o.Limit)
+		findOpts := options.Find().SetSkip(o.skip)
+		if o.limit > 0 {
+			findOpts.SetLimit(o.limit)
 		}
-		if len(o.Sort) > 0 {
-			findOpts.SetSort(sortDoc(o.Sort))
+		if len(o.sort) > 0 {
+			findOpts.SetSort(sortDoc(o.sort))
 		}
 		cursor, err := c.col.Find(ctx, filterDoc(filter), findOpts)
 		if err != nil {
@@ -106,7 +141,7 @@ func (c *collection[T]) Find(ctx context.Context, filter odm.M, opts ...odm.Find
 	})
 }
 
-func (c *collection[T]) Count(ctx context.Context, filter odm.M) <-chan async.Result[int64] {
+func (c *collection[T]) Count(ctx context.Context, filter bson.M) <-chan async.Result[int64] {
 	return async.Go(func() (int64, error) {
 		return c.col.CountDocuments(ctx, filterDoc(filter))
 	})
@@ -119,7 +154,7 @@ func (c *collection[T]) Exists(ctx context.Context, id string) <-chan async.Resu
 	})
 }
 
-func (c *collection[T]) Distinct(ctx context.Context, field string, filter odm.M) <-chan async.Result[[]any] {
+func (c *collection[T]) Distinct(ctx context.Context, field string, filter bson.M) <-chan async.Result[[]any] {
 	return async.Go(func() ([]any, error) {
 		res := c.col.Distinct(ctx, field, filterDoc(filter))
 		if err := res.Err(); err != nil {
@@ -131,10 +166,10 @@ func (c *collection[T]) Distinct(ctx context.Context, field string, filter odm.M
 }
 
 func (c *collection[T]) DeleteByID(ctx context.Context, id string) <-chan async.Result[struct{}] {
-	return c.DeleteOne(ctx, odm.M{"_id": id})
+	return c.DeleteOne(ctx, bson.M{"_id": id})
 }
 
-func (c *collection[T]) DeleteOne(ctx context.Context, filter odm.M) <-chan async.Result[struct{}] {
+func (c *collection[T]) DeleteOne(ctx context.Context, filter bson.M) <-chan async.Result[struct{}] {
 	return async.Go(func() (struct{}, error) {
 		if filter == nil {
 			return struct{}{}, errors.New("odm/mongodb: DeleteOne needs a filter")
@@ -156,9 +191,9 @@ func (c *collection[T]) Aggregate(ctx context.Context, pipeline mongo.Pipeline) 
 }
 
 // VectorSearch runs Atlas Vector Search ($vectorSearch).
-func (c *collection[T]) VectorSearch(ctx context.Context, embedding []float32, params odm.VectorSearchParams) <-chan async.Result[[]odm.SearchHit[T]] {
+func (c *collection[T]) VectorSearch(ctx context.Context, embedding []float32, params VectorSearchParams) <-chan async.Result[[]odm.SearchHit[T]] {
 	return async.Go(func() ([]odm.SearchHit[T], error) {
-		if err := params.Validate(embedding); err != nil {
+		if err := params.validate(embedding); err != nil {
 			return nil, err
 		}
 		spec, err := odm.VectorIndexOf[T](params.IndexName)
@@ -194,9 +229,9 @@ func (c *collection[T]) VectorSearch(ctx context.Context, embedding []float32, p
 }
 
 // TermSearch runs Atlas Search ($search) over the index's paths.
-func (c *collection[T]) TermSearch(ctx context.Context, query string, params odm.TermSearchParams) <-chan async.Result[[]odm.SearchHit[T]] {
+func (c *collection[T]) TermSearch(ctx context.Context, query string, params TermSearchParams) <-chan async.Result[[]odm.SearchHit[T]] {
 	return async.Go(func() ([]odm.SearchHit[T], error) {
-		if err := params.Validate(query); err != nil {
+		if err := params.validate(query); err != nil {
 			return nil, err
 		}
 		spec, err := odm.TermSearchIndexOf[T](params.IndexName)
@@ -233,14 +268,14 @@ func (c *collection[T]) search(ctx context.Context, pipeline mongo.Pipeline) ([]
 	return hits, cursor.All(ctx, &hits)
 }
 
-func filterDoc(filter odm.M) any {
+func filterDoc(filter bson.M) any {
 	if filter == nil {
 		return bson.M{}
 	}
 	return filter
 }
 
-func sortDoc(fields []odm.SortField) bson.D {
+func sortDoc(fields []SortField) bson.D {
 	d := make(bson.D, len(fields))
 	for i, f := range fields {
 		dir := 1

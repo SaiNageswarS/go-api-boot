@@ -1,20 +1,17 @@
-// Package odm is a generic, multi-tenant object-document mapper with two
-// backends: MongoDB (package odm/mongodb) and Postgres (package odm/postgres).
+// Package odm holds what go-api-boot's two data backends share: the Model
+// contract, index declarations, search hits and errors.
 //
-// This package holds what both backends share: the Model contract, the
-// Collection interface, the filter, sort and index types, and the errors.
-// Application code written against odm.Collection[T] runs on either backend.
+// Each backend has its own API, native to its database:
 //
-// Filters use MongoDB's query syntax with this package's types:
+//   - odm/mongodb: collections queried with MongoDB filter documents (bson.M),
+//     with Atlas Search and Vector Search;
+//   - odm/postgres: typed tables queried with SQL conditions, with pgvector
+//     and ParadeDB search.
 //
-//	odm.M{"year": odm.M{"$gte": 2020}, "genres": odm.M{"$in": odm.A{"drama", "crime"}}}
-//
-// Every IO method returns a channel carrying an async.Result, so independent
-// queries run concurrently:
+// Every IO method in both returns a channel carrying an async.Result, so
+// independent queries run concurrently:
 //
 //	movie, err := async.Await(movies.FindByID(ctx, id))
-//
-// Documents are encoded with the model's bson struct tags on both backends.
 package odm
 
 import (

@@ -16,21 +16,32 @@ import (
 // managedComment marks the indexes EnsureCollection owns.
 const managedComment = "odm"
 
-// EnsureCollection creates T's table in tenant and reconciles its indexes with
-// the ones T declares. Run it when deploying or onboarding a tenant; it is
-// idempotent and runs in one transaction.
+// EnsureCollection creates T's table in tenant and reconciles it with the
+// model. Run it when deploying or onboarding a tenant; it is idempotent and
+// runs in one transaction.
 //
-//   - IndexSpecs become btree indexes (TTL is unsupported);
-//   - TermSearchIndexSpecs become one ParadeDB index over all their paths
-//     (needs pg_search, else ErrPgSearchNotInstalled);
-//   - VectorIndexSpecs become pgvector HNSW indexes over documents whose
-//     embedding has the declared dimensions (needs pgvector, else
-//     ErrVectorNotInstalled); their FilterPaths get btree indexes.
+// Columns: missing ones are added (NOT NULL with the zero value as default,
+// so existing rows stay readable). A column whose type no longer matches its
+// field is an error, since changing it needs a data migration. Columns the
+// model no longer has are left in place.
+//
+// Indexes:
+//   - IndexSpecs become btree indexes over their key columns (TTL is
+//     unsupported);
+//   - TermSearchIndexSpecs become one ParadeDB index over all their text
+//     columns (needs pg_search, else ErrPgSearchNotInstalled);
+//   - VectorIndexSpecs become pgvector HNSW indexes on their vector column
+//     (needs pgvector, else ErrVectorNotInstalled). FilterPaths are MongoDB
+//     only; on Postgres, declare IndexSpecs for the columns you filter on.
 //
 // Index names end in a hash of their definition. A changed definition creates
 // a new index and drops the old one; indexes no longer declared are dropped.
 // Indexes EnsureCollection didn't create are left alone.
 func EnsureCollection[T odm.Model](ctx context.Context, db *DB, tenant string) error {
+	s, err := schemaOf[T]()
+	if err != nil {
+		return err
+	}
 	var zero T
 	table := zero.CollectionName()
 	qualified := pgx.Identifier{tenant, table}.Sanitize()
@@ -42,9 +53,6 @@ func EnsureCollection[T odm.Model](ctx context.Context, db *DB, tenant string) e
 		indexes = append(indexes, index{name, "CREATE " + unique + "INDEX " + pgx.Identifier{name}.Sanitize() + " " + def})
 	}
 
-	// Every equality filter compiles to doc @> ..., served by this index.
-	add("doc", "", "ON "+qualified+" USING gin (doc jsonb_path_ops)")
-
 	for _, spec := range odm.IndexesOf[T]() {
 		if len(spec.Keys) == 0 {
 			return fmt.Errorf("odm/postgres: index %q has no keys", spec.Name)
@@ -54,11 +62,12 @@ func EnsureCollection[T odm.Model](ctx context.Context, db *DB, tenant string) e
 		}
 		cols := make([]string, len(spec.Keys))
 		for i, k := range spec.Keys {
-			cols[i] = sortExpr(k.Field)
+			if _, ok := s.byName[k.Field]; !ok {
+				return fmt.Errorf("odm/postgres: index %s: model has no column %q", spec.DisplayName(), k.Field)
+			}
+			cols[i] = pgx.Identifier{k.Field}.Sanitize()
 			if k.Desc {
-				cols[i] += " DESC NULLS LAST"
-			} else {
-				cols[i] += " ASC NULLS FIRST"
+				cols[i] += " DESC"
 			}
 		}
 		unique := ""
@@ -74,22 +83,15 @@ func EnsureCollection[T odm.Model](ctx context.Context, db *DB, tenant string) e
 		if err != nil {
 			return err
 		}
-		add(spec.Name, "", "ON "+qualified+" USING hnsw ("+vec.expr+" "+vec.opClass+") WHERE "+vec.predicate)
-		for _, p := range spec.FilterPaths {
-			add(spec.Name+"_"+p, "", "ON "+qualified+" ("+sortExpr(p)+")")
-		}
+		add(spec.Name, "", "ON "+qualified+" USING hnsw ("+pgx.Identifier{spec.Path}.Sanitize()+" "+vec.opClass+")")
 	}
 
-	var searchPaths []string
-	for _, spec := range odm.TermSearchIndexesOf[T]() {
-		for _, p := range spec.Paths {
-			if !slices.Contains(searchPaths, p) {
-				searchPaths = append(searchPaths, p)
-			}
-		}
+	searchCols, err := searchColumns(s, odm.TermSearchIndexesOf[T]())
+	if err != nil {
+		return err
 	}
-	if len(searchPaths) > 0 {
-		add("search", "", searchIndexSQL(qualified, searchPaths, db.stemmer))
+	if len(searchCols) > 0 {
+		add("search", "", searchIndexSQL(qualified, searchCols, db.stemmer))
 	}
 
 	// Extensions can't be created inside the transaction below without
@@ -99,7 +101,7 @@ func EnsureCollection[T odm.Model](ctx context.Context, db *DB, tenant string) e
 			return err
 		}
 	}
-	if len(searchPaths) > 0 {
+	if len(searchCols) > 0 {
 		if err := db.installExtension(ctx, "pg_search", ErrPgSearchNotInstalled); err != nil {
 			return err
 		}
@@ -123,8 +125,40 @@ func EnsureCollection[T odm.Model](ctx context.Context, db *DB, tenant string) e
 	if err := exec("CREATE SCHEMA IF NOT EXISTS " + pgx.Identifier{tenant}.Sanitize()); err != nil {
 		return err
 	}
-	if err := exec("CREATE TABLE IF NOT EXISTS " + qualified + " (id TEXT PRIMARY KEY, doc JSONB NOT NULL)"); err != nil {
+	defs := make([]string, len(s.columns))
+	for i, c := range s.columns {
+		defs[i] = c.definition()
+	}
+	if err := exec("CREATE TABLE IF NOT EXISTS " + qualified + " (" + strings.Join(defs, ", ") + ")"); err != nil {
 		return err
+	}
+
+	// Reconcile columns with the model.
+	rows, err := tx.Query(ctx,
+		`SELECT attname, format_type(atttypid, atttypmod) FROM pg_attribute
+		  WHERE attrelid = $1::regclass AND attnum > 0 AND NOT attisdropped`, qualified)
+	if err != nil {
+		return err
+	}
+	existingCols := map[string]string{}
+	var name, typ string
+	if _, err := pgx.ForEachRow(rows, []any{&name, &typ}, func() error {
+		existingCols[name] = typ
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, c := range s.columns {
+		typ, ok := existingCols[c.name]
+		switch {
+		case !ok:
+			if err := exec("ALTER TABLE " + qualified + " ADD COLUMN " + c.definition()); err != nil {
+				return err
+			}
+		case typ != c.sqlType:
+			return fmt.Errorf("odm/postgres: column %s.%s is %s but the model needs %s; migrate it, then run EnsureCollection again",
+				table, c.name, typ, c.sqlType)
+		}
 	}
 
 	// Drop managed indexes that are no longer wanted (first: ParadeDB allows
@@ -145,36 +179,6 @@ func EnsureCollection[T odm.Model](ctx context.Context, db *DB, tenant string) e
 			if err := exec("DROP INDEX " + pgx.Identifier{tenant, name}.Sanitize()); err != nil {
 				return err
 			}
-		}
-	}
-
-	// Reconcile the generated search columns.
-	columns, err := queryStrings(ctx, tx,
-		`SELECT attname FROM pg_attribute
-		  WHERE attrelid = $1::regclass AND attnum > 0 AND NOT attisdropped AND attname LIKE 'search\_%'`,
-		qualified)
-	if err != nil {
-		return err
-	}
-	wantedColumns := map[string]string{}
-	for _, p := range searchPaths {
-		wantedColumns[searchColumn(p)] = p
-	}
-	for _, col := range columns {
-		if _, ok := wantedColumns[col]; !ok {
-			if err := exec("ALTER TABLE " + qualified + " DROP COLUMN " + pgx.Identifier{col}.Sanitize()); err != nil {
-				return err
-			}
-		}
-	}
-	for _, p := range searchPaths {
-		col := searchColumn(p)
-		if slices.Contains(columns, col) {
-			continue
-		}
-		if err := exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s text GENERATED ALWAYS AS (%s) STORED",
-			qualified, pgx.Identifier{col}.Sanitize(), textExpr(strings.Split(p, ".")))); err != nil {
-			return err
 		}
 	}
 

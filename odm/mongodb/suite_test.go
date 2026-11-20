@@ -1,7 +1,9 @@
-// Package integtest is the integration test suite every odm backend must
-// pass, so that code written against odm.Collection behaves the same on each.
-// The backends' _test.go files import it; it is not part of any build.
-package integtest
+// The MongoDB backend's integration suite: CRUD, upsert and timestamp
+// semantics, filters, sorting, pagination, distinct, duplicate keys,
+// not-found, missing collections, crash safety, and Atlas Search and Vector
+// Search.
+
+package mongodb
 
 import (
 	"context"
@@ -59,18 +61,18 @@ func (m Movie) VectorIndexes() []odm.VectorIndexSpec {
 	}}
 }
 
-// Clock is a settable odm.Timer.
-type Clock struct{ now atomic.Int64 }
+// clock is a settable odm.Timer.
+type clock struct{ now atomic.Int64 }
 
-func (c *Clock) Now() int64     { return c.now.Load() }
-func (c *Clock) Set(unix int64) { c.now.Store(unix) }
+func (c *clock) Now() int64     { return c.now.Load() }
+func (c *clock) Set(unix int64) { c.now.Store(unix) }
 
-// Backend adapts one odm backend to the suite.
-type Backend struct {
+// backend adapts the client under test to the suite.
+type backend struct {
 	// Clock must be the Timer of the client Collection uses.
-	Clock *Clock
+	Clock *clock
 	// Collection returns the Movie collection of tenant.
-	Collection func(tenant string) odm.Collection[Movie]
+	Collection func(tenant string) Collection[Movie]
 	// Ensure runs the backend's EnsureCollection[Movie].
 	Ensure func(ctx context.Context, tenant string) error
 	// Drop deletes tenant.
@@ -82,8 +84,8 @@ type Backend struct {
 
 func date(year int) time.Time { return time.Date(year, 6, 1, 0, 0, 0, 0, time.UTC) }
 
-// Fixtures are the suite's documents.
-func Fixtures() []Movie {
+// fixtures are the suite's documents.
+func fixtures() []Movie {
 	return []Movie{
 		{ID: "m1", Title: "Alien", Plot: "A crew aboard a spaceship meets a deadly alien creature.", Year: 1979,
 			Genres: []string{"horror", "sci-fi"}, Cast: []Person{{"p1", "Sigourney"}, {"p2", "Tom"}}, Rating: 8.5,
@@ -100,8 +102,8 @@ func Fixtures() []Movie {
 	}
 }
 
-// Run runs the suite. tenant must be unique to this run.
-func Run(t *testing.T, b Backend, tenant string) {
+// runSuite runs the suite. tenant must be unique to this run.
+func runSuite(t *testing.T, b backend, tenant string) {
 	ctx := t.Context()
 	t.Cleanup(func() { b.Drop(context.Background(), tenant) })
 
@@ -125,7 +127,7 @@ func Run(t *testing.T, b Backend, tenant string) {
 
 	col := b.Collection(tenant)
 	b.Clock.Set(100)
-	for _, m := range Fixtures() {
+	for _, m := range fixtures() {
 		_, err := async.Await(col.Save(ctx, m))
 		require.NoError(t, err)
 	}
@@ -141,7 +143,7 @@ func Run(t *testing.T, b Backend, tenant string) {
 		assert.Equal(t, int64(100), m.CreatedOn)
 		assert.Equal(t, int64(100), m.UpdatedOn)
 
-		withNote := Fixtures()[0]
+		withNote := fixtures()[0]
 		withNote.Note = "classic"
 		b.Clock.Set(200)
 		_, err = async.Await(col.Save(ctx, withNote))
@@ -150,7 +152,7 @@ func Run(t *testing.T, b Backend, tenant string) {
 		// Saving without the omitempty field keeps it: Save is an upsert that
 		// merges top-level fields.
 		b.Clock.Set(300)
-		_, err = async.Await(col.Save(ctx, Fixtures()[0]))
+		_, err = async.Await(col.Save(ctx, fixtures()[0]))
 		require.NoError(t, err)
 
 		m, err = async.Await(col.FindByID(ctx, "m1"))
@@ -171,19 +173,19 @@ func Run(t *testing.T, b Backend, tenant string) {
 	t.Run("not found", func(t *testing.T) {
 		_, err := async.Await(col.FindByID(ctx, "nope"))
 		assert.ErrorIs(t, err, odm.ErrNotFound)
-		_, err = async.Await(col.FindOne(ctx, odm.M{"year": 1900}))
+		_, err = async.Await(col.FindOne(ctx, bson.M{"year": 1900}))
 		assert.ErrorIs(t, err, odm.ErrNotFound)
 	})
 
 	t.Run("duplicate key", func(t *testing.T) {
-		dup := Fixtures()[2]
+		dup := fixtures()[2]
 		dup.ID = "dup"
 		_, err := async.Await(col.Save(ctx, dup))
 		assert.ErrorIs(t, err, odm.ErrDuplicateKey)
 	})
 
 	t.Run("Find", func(t *testing.T) {
-		ids := func(t *testing.T, filter odm.M, opts ...odm.FindOption) []string {
+		ids := func(t *testing.T, filter bson.M, opts ...FindOption) []string {
 			t.Helper()
 			res, err := async.Await(col.Find(ctx, filter, opts...))
 			require.NoError(t, err, "%v", filter)
@@ -193,39 +195,39 @@ func Run(t *testing.T, b Backend, tenant string) {
 			}
 			return out
 		}
-		byYear := odm.WithSort(odm.Asc("year"))
+		byYear := WithSort(Asc("year"))
 
 		cases := []struct {
 			name   string
-			filter odm.M
+			filter bson.M
 			want   []string
 		}{
 			{"all", nil, []string{"m1", "m2", "m3", "m4"}},
-			{"equality", odm.M{"year": 1986}, []string{"m2"}},
-			{"array membership", odm.M{"genres": "sci-fi"}, []string{"m1", "m2"}},
-			{"range", odm.M{"year": odm.M{"$gt": 1986, "$lte": 1998}}, []string{"m3", "m4"}},
-			{"float range", odm.M{"rating": odm.M{"$gte": 8.4}}, []string{"m1", "m2"}},
-			{"dates before 1970", odm.M{"released": odm.M{"$lt": date(1990)}}, []string{"m1", "m2"}},
-			{"in", odm.M{"genres": odm.M{"$in": odm.A{"action"}}}, []string{"m2", "m4"}},
-			{"nin", odm.M{"genres": odm.M{"$nin": odm.A{"action", "sci-fi"}}}, []string{"m3"}},
-			{"id in", odm.M{"_id": odm.M{"$in": odm.A{"m1", "m3"}}}, []string{"m1", "m3"}},
-			{"ne", odm.M{"_id": odm.M{"$ne": "m2"}}, []string{"m1", "m3", "m4"}},
-			{"exists", odm.M{"note": odm.M{"$exists": true}}, []string{"m1"}},
-			{"null matches missing", odm.M{"note": nil}, []string{"m2", "m3", "m4"}},
-			{"size", odm.M{"genres": odm.M{"$size": 1}}, []string{"m3"}},
-			{"all", odm.M{"genres": odm.M{"$all": odm.A{"crime", "action"}}}, []string{"m4"}},
-			{"or", odm.M{"$or": odm.A{odm.M{"year": 1979}, odm.M{"title": "Ronin"}}}, []string{"m1", "m4"}},
-			{"nor", odm.M{"$nor": odm.A{odm.M{"year": 1979}, odm.M{"title": "Ronin"}}}, []string{"m2", "m3"}},
-			{"not", odm.M{"year": odm.M{"$not": odm.M{"$gt": 1990}}}, []string{"m1", "m2"}},
-			{"elemMatch scalar", odm.M{"genres": odm.M{"$elemMatch": odm.M{"$eq": "crime"}}}, []string{"m3", "m4"}},
-			{"elemMatch _id is the element's", odm.M{"cast": odm.M{"$elemMatch": odm.M{"_id": "p2"}}}, []string{"m1"}},
-			{"elemMatch _id not the row's", odm.M{"cast": odm.M{"$elemMatch": odm.M{"_id": "m1"}}}, []string{}},
-			{"dotted path in array", odm.M{"cast.name": "Sigourney"}, []string{"m1", "m2"}},
-			{"regex i", odm.M{"title": odm.M{"$regex": "^ali", "$options": "i"}}, []string{"m1", "m2"}},
-			{"regex dot stops at newline", odm.M{"plot": odm.M{"$regex": "hunts.a crew"}}, []string{}},
-			{"regex s", odm.M{"plot": odm.M{"$regex": "hunts.a crew", "$options": "s"}}, []string{"m3"}},
-			{"regex anchors whole string", odm.M{"plot": odm.M{"$regex": "^a crew"}}, []string{}},
-			{"regex m", odm.M{"plot": odm.M{"$regex": "^a crew", "$options": "m"}}, []string{"m3"}},
+			{"equality", bson.M{"year": 1986}, []string{"m2"}},
+			{"array membership", bson.M{"genres": "sci-fi"}, []string{"m1", "m2"}},
+			{"range", bson.M{"year": bson.M{"$gt": 1986, "$lte": 1998}}, []string{"m3", "m4"}},
+			{"float range", bson.M{"rating": bson.M{"$gte": 8.4}}, []string{"m1", "m2"}},
+			{"dates before 1970", bson.M{"released": bson.M{"$lt": date(1990)}}, []string{"m1", "m2"}},
+			{"in", bson.M{"genres": bson.M{"$in": bson.A{"action"}}}, []string{"m2", "m4"}},
+			{"nin", bson.M{"genres": bson.M{"$nin": bson.A{"action", "sci-fi"}}}, []string{"m3"}},
+			{"id in", bson.M{"_id": bson.M{"$in": bson.A{"m1", "m3"}}}, []string{"m1", "m3"}},
+			{"ne", bson.M{"_id": bson.M{"$ne": "m2"}}, []string{"m1", "m3", "m4"}},
+			{"exists", bson.M{"note": bson.M{"$exists": true}}, []string{"m1"}},
+			{"null matches missing", bson.M{"note": nil}, []string{"m2", "m3", "m4"}},
+			{"size", bson.M{"genres": bson.M{"$size": 1}}, []string{"m3"}},
+			{"all", bson.M{"genres": bson.M{"$all": bson.A{"crime", "action"}}}, []string{"m4"}},
+			{"or", bson.M{"$or": bson.A{bson.M{"year": 1979}, bson.M{"title": "Ronin"}}}, []string{"m1", "m4"}},
+			{"nor", bson.M{"$nor": bson.A{bson.M{"year": 1979}, bson.M{"title": "Ronin"}}}, []string{"m2", "m3"}},
+			{"not", bson.M{"year": bson.M{"$not": bson.M{"$gt": 1990}}}, []string{"m1", "m2"}},
+			{"elemMatch scalar", bson.M{"genres": bson.M{"$elemMatch": bson.M{"$eq": "crime"}}}, []string{"m3", "m4"}},
+			{"elemMatch _id is the element's", bson.M{"cast": bson.M{"$elemMatch": bson.M{"_id": "p2"}}}, []string{"m1"}},
+			{"elemMatch _id not the row's", bson.M{"cast": bson.M{"$elemMatch": bson.M{"_id": "m1"}}}, []string{}},
+			{"dotted path in array", bson.M{"cast.name": "Sigourney"}, []string{"m1", "m2"}},
+			{"regex i", bson.M{"title": bson.M{"$regex": "^ali", "$options": "i"}}, []string{"m1", "m2"}},
+			{"regex dot stops at newline", bson.M{"plot": bson.M{"$regex": "hunts.a crew"}}, []string{}},
+			{"regex s", bson.M{"plot": bson.M{"$regex": "hunts.a crew", "$options": "s"}}, []string{"m3"}},
+			{"regex anchors whole string", bson.M{"plot": bson.M{"$regex": "^a crew"}}, []string{}},
+			{"regex m", bson.M{"plot": bson.M{"$regex": "^a crew", "$options": "m"}}, []string{"m3"}},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -233,16 +235,16 @@ func Run(t *testing.T, b Backend, tenant string) {
 			})
 		}
 
-		assert.Equal(t, []string{"m4", "m3", "m2", "m1"}, ids(t, nil, odm.WithSort(odm.Desc("year"))))
-		assert.Equal(t, []string{"m1", "m2", "m3", "m4"}, ids(t, nil, odm.WithSort(odm.Asc("released"))))
-		assert.Equal(t, []string{"m2", "m3"}, ids(t, nil, byYear, odm.WithLimit(2), odm.WithSkip(1)))
+		assert.Equal(t, []string{"m4", "m3", "m2", "m1"}, ids(t, nil, WithSort(Desc("year"))))
+		assert.Equal(t, []string{"m1", "m2", "m3", "m4"}, ids(t, nil, WithSort(Asc("released"))))
+		assert.Equal(t, []string{"m2", "m3"}, ids(t, nil, byYear, WithLimit(2), WithSkip(1)))
 
-		_, err := async.Await(col.Find(ctx, nil, odm.WithLimit(-1)))
+		_, err := async.Await(col.Find(ctx, nil, WithLimit(-1)))
 		assert.Error(t, err)
 	})
 
 	t.Run("Count, Exists, Distinct", func(t *testing.T) {
-		n, err := async.Await(col.Count(ctx, odm.M{"genres": "crime"}))
+		n, err := async.Await(col.Count(ctx, bson.M{"genres": "crime"}))
 		require.NoError(t, err)
 		assert.Equal(t, int64(2), n)
 
@@ -250,11 +252,11 @@ func Run(t *testing.T, b Backend, tenant string) {
 		require.NoError(t, err)
 		assert.True(t, ok)
 
-		genres, err := async.Await(odm.DistinctAs[string](ctx, col, "genres", nil))
+		genres, err := async.Await(DistinctAs[string](ctx, col, "genres", nil))
 		require.NoError(t, err)
 		assert.ElementsMatch(t, []string{"action", "crime", "horror", "sci-fi"}, genres)
 
-		years, err := async.Await(odm.DistinctAs[int](ctx, col, "year", odm.M{"genres": "crime"}))
+		years, err := async.Await(DistinctAs[int](ctx, col, "year", bson.M{"genres": "crime"}))
 		require.NoError(t, err)
 		assert.ElementsMatch(t, []int{1995, 1998}, years)
 	})
@@ -267,7 +269,7 @@ func Run(t *testing.T, b Backend, tenant string) {
 		t.Cleanup(func() { _, _ = async.Await(col.DeleteByID(context.Background(), "short")) })
 
 		eventually(t, b.SearchLag, func(c *assert.CollectT) {
-			hits, err := async.Await(col.VectorSearch(ctx, []float32{1, 0.05, 0}, odm.VectorSearchParams{
+			hits, err := async.Await(col.VectorSearch(ctx, []float32{1, 0.05, 0}, VectorSearchParams{
 				IndexName: "embeddingIndex", K: 2, NumCandidates: 50,
 			}))
 			require.NoError(c, err)
@@ -279,23 +281,23 @@ func Run(t *testing.T, b Backend, tenant string) {
 		})
 
 		eventually(t, b.SearchLag, func(c *assert.CollectT) {
-			hits, err := async.Await(col.VectorSearch(ctx, []float32{1, 0, 0}, odm.VectorSearchParams{
-				IndexName: "embeddingIndex", K: 2, Filter: odm.M{"year": odm.M{"$gt": 1990}},
+			hits, err := async.Await(col.VectorSearch(ctx, []float32{1, 0, 0}, VectorSearchParams{
+				IndexName: "embeddingIndex", K: 2, Filter: bson.M{"year": bson.M{"$gt": 1990}},
 			}))
 			require.NoError(c, err)
 			require.Len(c, hits, 2)
 			assert.ElementsMatch(c, []string{"m3", "m4"}, []string{hits[0].Doc.ID, hits[1].Doc.ID})
 		})
 
-		_, err = async.Await(col.VectorSearch(ctx, []float32{1, 0, 0}, odm.VectorSearchParams{IndexName: "nope", K: 1}))
+		_, err = async.Await(col.VectorSearch(ctx, []float32{1, 0, 0}, VectorSearchParams{IndexName: "nope", K: 1}))
 		assert.ErrorContains(t, err, "no vector index")
-		_, err = async.Await(col.VectorSearch(ctx, []float32{1, 0}, odm.VectorSearchParams{IndexName: "embeddingIndex", K: 1}))
+		_, err = async.Await(col.VectorSearch(ctx, []float32{1, 0}, VectorSearchParams{IndexName: "embeddingIndex", K: 1}))
 		assert.ErrorContains(t, err, "dimensions")
 	})
 
 	t.Run("TermSearch", func(t *testing.T) {
 		eventually(t, b.SearchLag, func(c *assert.CollectT) {
-			hits, err := async.Await(col.TermSearch(ctx, "crew robbers", odm.TermSearchParams{IndexName: "plotIndex", Limit: 10}))
+			hits, err := async.Await(col.TermSearch(ctx, "crew robbers", TermSearchParams{IndexName: "plotIndex", Limit: 10}))
 			require.NoError(c, err)
 			require.Len(c, hits, 2, "any word matches")
 			assert.Equal(c, "m3", hits[0].Doc.ID, "matching both words ranks first")
@@ -303,22 +305,22 @@ func Run(t *testing.T, b Backend, tenant string) {
 		})
 
 		eventually(t, b.SearchLag, func(c *assert.CollectT) {
-			hits, err := async.Await(col.TermSearch(ctx, "crew", odm.TermSearchParams{
-				IndexName: "plotIndex", Limit: 10, Filter: odm.M{"year": 1979},
+			hits, err := async.Await(col.TermSearch(ctx, "crew", TermSearchParams{
+				IndexName: "plotIndex", Limit: 10, Filter: bson.M{"year": 1979},
 			}))
 			require.NoError(c, err)
 			require.Len(c, hits, 1)
 			assert.Equal(c, "m1", hits[0].Doc.ID)
 		})
 
-		_, err := async.Await(col.TermSearch(ctx, "crew", odm.TermSearchParams{IndexName: "nope", Limit: 1}))
+		_, err := async.Await(col.TermSearch(ctx, "crew", TermSearchParams{IndexName: "nope", Limit: 1}))
 		assert.ErrorContains(t, err, "no term search index")
 	})
 
 	t.Run("Delete", func(t *testing.T) {
 		_, err := async.Await(col.DeleteByID(ctx, "m4"))
 		require.NoError(t, err)
-		_, err = async.Await(col.DeleteOne(ctx, odm.M{"genres": "sci-fi"}))
+		_, err = async.Await(col.DeleteOne(ctx, bson.M{"genres": "sci-fi"}))
 		require.NoError(t, err)
 		n, err := async.Await(col.Count(ctx, nil))
 		require.NoError(t, err)

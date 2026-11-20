@@ -2,7 +2,9 @@ package postgres
 
 import (
 	"context"
-	"regexp"
+	"errors"
+	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -12,70 +14,80 @@ import (
 )
 
 // Term search uses ParadeDB's pg_search extension (BM25, like Atlas Search).
-//
-// Each searchable path gets a stored generated column,
-//
-//	search_<path> text GENERATED ALWAYS AS (doc #>> '{path}') STORED
-//
-// and one ParadeDB index (ParadeDB allows one per table) covers all of them.
-// Indexing columns rather than expressions on doc keeps ParadeDB out of
-// ordinary queries that filter on doc. Postgres fills the columns on write.
+// EnsureCollection creates one ParadeDB index over the text columns of all
+// the model's TermSearchIndexSpecs (ParadeDB allows one per table).
 
-// TermSearch matches any word of the query in the index's paths, ranked by BM25.
-// Other filters run as row filters inside ParadeDB's top-K scan.
-func (c *collection[T]) TermSearch(ctx context.Context, query string, params odm.TermSearchParams) <-chan async.Result[[]odm.SearchHit[T]] {
+// TermSearch returns the limit rows best matching query (any of its words)
+// in the columns of the model's TermSearchIndexSpec named index, ranked by
+// BM25, among the rows matching t's conditions. OrderBy, Limit and Offset
+// don't apply.
+func (t Table[T]) TermSearch(ctx context.Context, index, query string, limit int) <-chan async.Result[[]odm.SearchHit[T]] {
 	return async.Go(func() ([]odm.SearchHit[T], error) {
-		if err := params.Validate(query); err != nil {
+		if query == "" || limit <= 0 {
+			return nil, errors.New("odm/postgres: TermSearch needs a query and limit > 0")
+		}
+		if err := t.searchOnly("TermSearch"); err != nil {
 			return nil, err
 		}
-		spec, err := odm.TermSearchIndexOf[T](params.IndexName)
+		spec, err := odm.TermSearchIndexOf[T](index)
 		if err != nil {
 			return nil, err
 		}
-		if err := c.db.requirePgSearch(ctx); err != nil {
+		s, err := schemaOf[T]()
+		if err != nil {
+			return nil, err
+		}
+		if err := t.db.requirePgSearch(ctx); err != nil {
 			return nil, err
 		}
 
-		q := &pgQuery{}
-		where, err := q.where(params.Filter)
-		if err != nil {
-			return nil, err
-		}
-		text := q.arg(query) + "::text"
 		matches := make([]string, len(spec.Paths))
 		for i, p := range spec.Paths {
-			matches[i] = pgx.Identifier{searchColumn(p)}.Sanitize() + " ||| " + text
+			matches[i] = pgx.Identifier{p}.Sanitize() + " ||| $1::text"
 		}
-		sql := "SELECT doc::text, pdb.score(id)::float8 AS score FROM " + c.qualified() +
-			" WHERE (" + strings.Join(matches, " OR ") + ") AND " + where +
-			" ORDER BY score DESC LIMIT " + strconv.Itoa(params.Limit)
-		return queryHits[T](ctx, c.db.pool, sql, q.args, func(s float64) float64 { return s })
+		where, args := t.whereSQL([]any{query})
+		match := "(" + strings.Join(matches, " OR ") + ")"
+		if where == "" {
+			where = " WHERE " + match
+		} else {
+			where += " AND " + match
+		}
+		sql := "SELECT " + selectList(s) + ", pdb.score(id)::float8 AS score FROM " + t.qualified() + where +
+			" ORDER BY score DESC LIMIT " + strconv.Itoa(limit)
+		return t.queryHits(ctx, t.db.pool, s, sql, args, func(score float64) float64 { return score })
 	})
 }
 
-var nonColumnChars = regexp.MustCompile(`[^A-Za-z0-9_]`)
-
-// searchColumn names the generated column holding a path's text, e.g.
-// search_plot. Paths that need sanitising or truncating get a hash suffix, so
-// "a.b" and "a_b" stay distinct.
-func searchColumn(path string) string {
-	clean := nonColumnChars.ReplaceAllString(path, "_")
-	name := "search_" + clean
-	if clean != path || len(name) > 54 {
-		name = truncate(name, 54) + "_" + shortHash(path)
-	}
-	return name
-}
-
-// searchIndexSQL is the definition of the collection's ParadeDB index.
-func searchIndexSQL(qualified string, paths []string, stemmer string) string {
+// searchIndexSQL is the definition of the table's ParadeDB index over
+// columns.
+func searchIndexSQL(qualified string, columns []string, stemmer string) string {
 	tokenizer := "pdb.unicode_words"
 	if stemmer != "" {
 		tokenizer += "(" + quoteLiteral("stemmer="+stemmer) + ")"
 	}
 	fields := []string{"id"}
-	for _, p := range paths {
-		fields = append(fields, "("+pgx.Identifier{searchColumn(p)}.Sanitize()+"::"+tokenizer+")")
+	for _, c := range columns {
+		fields = append(fields, "("+pgx.Identifier{c}.Sanitize()+"::"+tokenizer+")")
 	}
 	return "ON " + qualified + " USING paradedb (" + strings.Join(fields, ", ") + ")"
+}
+
+// searchColumns checks that the term search paths are text columns of s.
+func searchColumns(s *tableSchema, specs []odm.TermSearchIndexSpec) ([]string, error) {
+	var columns []string
+	for _, spec := range specs {
+		if len(spec.Paths) == 0 {
+			return nil, fmt.Errorf("odm/postgres: term search index %s has no paths", spec.Name)
+		}
+		for _, p := range spec.Paths {
+			c, ok := s.byName[p]
+			if !ok || c.sqlType != "text" {
+				return nil, fmt.Errorf("odm/postgres: term search index %s: %q is not a text column", spec.Name, p)
+			}
+			if !slices.Contains(columns, p) {
+				columns = append(columns, p)
+			}
+		}
+	}
+	return columns, nil
 }

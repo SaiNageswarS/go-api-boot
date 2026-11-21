@@ -1,9 +1,9 @@
 package db 
 
-import (
-	"github.com/SaiNageswarS/go-api-boot/odm"
-)
-
+// {{.ModelName}}Model implements odm.Model. Embed odm.Timestamps (with
+// `bson:",inline"` on MongoDB) to read the times Save stamps, and declare
+// indexes by implementing odm.Indexed, odm.TermSearchIndexed or
+// odm.VectorIndexed.
 type {{.ModelName}}Model struct {
 }
 

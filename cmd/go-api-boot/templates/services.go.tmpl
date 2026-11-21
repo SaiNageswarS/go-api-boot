@@ -1,16 +1,16 @@
 package services
 
 import (
-    "{{.ProjectPath}}/db"
     pb "{{.ProjectPath}}/generated/pb"
+    "github.com/SaiNageswarS/go-api-boot/odm/mongodb"
 )
 
 type {{.ServiceName}}Service struct {
     pb.Unimplemented{{.ServiceName}}Server
-    mongo odm.MongoClient
+    mongo *mongodb.Client
 }
 
-func Provide{{.ServiceName}}Service(mongo odm.MongoClient) *{{.ServiceName}}Service {
+func Provide{{.ServiceName}}Service(mongo *mongodb.Client) *{{.ServiceName}}Service {
     return &{{.ServiceName}}Service {
         mongo: mongo,
     }

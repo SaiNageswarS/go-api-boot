@@ -1,47 +1,64 @@
 package main
 
 import (
+	"context"
+	"os"
+	"os/signal"
+	"syscall"
+
+	pb "{{.ProjectPath}}/generated/pb"
+	"{{.ProjectPath}}/services"
+	"github.com/SaiNageswarS/go-api-boot/cloud"
+	"github.com/SaiNageswarS/go-api-boot/config"
 	"github.com/SaiNageswarS/go-api-boot/dotenv"
+	"github.com/SaiNageswarS/go-api-boot/logger"
+	"github.com/SaiNageswarS/go-api-boot/odm/mongodb"
 	"github.com/SaiNageswarS/go-api-boot/server"
-	"github.com/rs/cors"
+	"go.uber.org/zap"
 )
 
 type AppConfig struct {
-	BootConfig  `ini:",extends"`
-	CustomField string `env:"CUSTOM-FIELD" ini:"custom_field"`
+	config.BootConfig `ini:",extends"`
+	MongoURI          string `ini:"mongo_uri"`
 }
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	// Load secrets and config
-	dotenv.LoadEnv()
+	_ = dotenv.LoadEnv()
 
-	// load config file
-	ccfg := &AppConfig{} 
-	config.LoadConfig("config.ini", ccfg)
+	ccfg := &AppConfig{}
+	if err := config.LoadConfig("config.ini", ccfg); err != nil {
+		logger.Fatal("Failed to load config", zap.Error(err))
+	}
 
-	mongoClient, err := odm.GetClient(ccfg.MongoURI)
+	cloudFns := cloud.ProvideAzure(&ccfg.BootConfig)
+
+	mongoClient, err := mongodb.Connect(ctx, ccfg.MongoURI)
 	if err != nil {
 		logger.Fatal("Failed to connect to MongoDB", zap.Error(err))
 	}
+	// Create collections and indexes, e.g. once per tenant:
+	// err = mongodb.EnsureCollection[db.LoginModel](ctx, mongoClient, tenant)
 
 	boot, err := server.New().
-		GRPCPort(":50051").        // or ":0" for dynamic
+		GRPCPort(":50051"). // or ":0" for dynamic
 		HTTPPort(":8080").
-		EnableSSL(server.CloudCacheProvider(cfg, cloudFns)).
-		// Dependency injection
+		EnableSSL(server.CloudCacheProvider(&ccfg.BootConfig, cloudFns)).
+		// Dependency injection
 		Provide(ccfg).
 		ProvideAs(cloudFns, (*cloud.Cloud)(nil)).
-		ProvideAs(mongoClient, (*odm.MongoClient)(nil)).
+		Provide(mongoClient).
 		// Register gRPC service impls
-		RegisterService(server.Adapt(pb.RegisterLoginServer), ProvideLoginService).
+		RegisterService(server.Adapt(pb.RegisterLoginServer), services.ProvideLoginService).
 		Build()
-
 	if err != nil {
 		logger.Fatal("Dependency Injection Failed", zap.Error(err))
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	// catch SIGINT ‑> cancel
-	_ = boot.Serve(ctx)
+	if err := boot.Serve(ctx); err != nil && ctx.Err() == nil {
+		logger.Fatal("Server stopped", zap.Error(err))
+	}
 }

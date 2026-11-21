@@ -180,6 +180,29 @@ custom_field=5
 azure_storage_account=prodaccount
 ```
 
+#### With Postgres
+
+The Postgres ORM queries typed tables with plain SQL conditions:
+
+```go
+profiles := postgres.TableOf[Profile](db, tenant)
+
+top, err := async.Await(profiles.
+    Where("score > ?", 89).
+    Where("city = ?", city).
+    OrderBy("score DESC").
+    Limit(10).
+    Find(ctx))
+```
+
+* **Typed:** a `Table[T]` returns `T` values. Columns come from the struct's fields.
+* **SQL, not a DSL:** conditions and orderings are SQL. Values are bound through `?` placeholders and never become part of the SQL text.
+* **Immutable queries:** each builder call returns a new `Table`, so a base query can be shared and extended safely.
+* **Async:** `Find`, `Count`, `Save` and the other terminal methods return a channel, so independent queries run concurrently.
+* **Schema is a deployment step:** `postgres.EnsureTable[T]` creates and migrates tables and indexes. Runtime calls never change the schema.
+
+See [Postgres backend](#postgres-backend) for more.
+
 * gRPC, gRPC‑Web, and optional REST gateway on the same port.
 * Middleware registry (unary + stream) to plug in OpenTelemetry, Prometheus, etc.
 

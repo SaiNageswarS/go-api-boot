@@ -186,6 +186,21 @@ func (t Table[T]) DeleteByID(ctx context.Context, id string) <-chan async.Result
 // Save inserts model, or replaces the row with the same Id. It sets
 // created_on on insert and updated_on on every save, when the model has those
 // int64 columns. The query built on t doesn't apply.
+//
+// It is a single upsert statement, so concurrent saves can't race. For a
+// movie it runs:
+//
+//	INSERT INTO "tenant"."movies" ("id", "title", "year", ..., "created_on", "updated_on")
+//	VALUES ($1, $2, $3, ..., $9, $10)
+//	ON CONFLICT (id) DO UPDATE SET
+//	  "title" = EXCLUDED."title",
+//	  "year"  = EXCLUDED."year",
+//	  ...,
+//	  "updated_on" = EXCLUDED."updated_on"
+//
+// EXCLUDED is the row that failed to insert. id and created_on are left out
+// of the update list, so created_on keeps its first value. A model with only
+// an id column gets ON CONFLICT (id) DO NOTHING instead.
 func (t Table[T]) Save(ctx context.Context, model T) <-chan async.Result[struct{}] {
 	return async.Go(func() (struct{}, error) {
 		s, err := schemaOf[T]()

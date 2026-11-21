@@ -17,7 +17,8 @@ import (
 // managedComment marks the indexes EnsureTable owns.
 const managedComment = "odm"
 
-// EnsureTable creates T's table in tenant and reconciles it with the model. Run it when deploying or onboarding a tenant; it is idempotent and
+// EnsureTable creates T's table in tenant and reconciles it with the model.
+// Run it when deploying or onboarding a tenant; it is idempotent and
 // runs in one transaction.
 //
 // Columns: missing ones are added (NOT NULL with the zero value as default,
@@ -37,18 +38,15 @@ const managedComment = "odm"
 // Index names end in a hash of their definition. A changed definition creates
 // a new index and drops the old one; indexes no longer declared are dropped.
 // Indexes EnsureTable didn't create are left alone.
-func EnsureTable[T odm.Model](ctx context.Context, db *DB, tenant string) error {
+func EnsureTable[T odm.Model](ctx context.Context, db *DB, tenant string) (err error) {
 	var zero T
-	return core.Wrap(backend, "EnsureTable", tenant+"."+zero.CollectionName(), ensureTable[T](ctx, db, tenant))
-}
+	table := zero.CollectionName()
+	defer annotate(&err, tenant, table)
 
-func ensureTable[T odm.Model](ctx context.Context, db *DB, tenant string) error {
 	s, err := schemaOf[T]()
 	if err != nil {
 		return err
 	}
-	var zero T
-	table := zero.CollectionName()
 	qualified := pgx.Identifier{tenant, table}.Sanitize()
 
 	type index struct{ name, sql string }
@@ -88,7 +86,7 @@ func ensureTable[T odm.Model](ctx context.Context, db *DB, tenant string) error 
 		if err != nil {
 			return err
 		}
-		add(spec.Name, "", "ON "+qualified+" USING hnsw ("+pgx.Identifier{spec.Path}.Sanitize()+" "+vec.opClass+")")
+		add(spec.Name, "", hnswIndexSQL(qualified, spec, vec))
 	}
 
 	searchCols, err := searchColumns(s, core.TermSearchIndexes[T]())

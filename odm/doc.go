@@ -13,7 +13,11 @@
 //
 //	movie, err := async.Await(movies.FindByID(ctx, id))
 //
-// Errors from both backends read "odm/<backend>: <operation> <tenant>.<name>:
-// <cause>" and wrap their cause, so errors.Is matches ErrNotFound,
-// ErrDuplicateKey and the driver's own errors.
+// Search indexes are declared as spec values (see VectorIndexSpec) that the
+// search methods take, so an index is referred to by a Go identifier, not a
+// name string.
+//
+// Errors from both backends read "odm/<backend>: <tenant>.<name>: <cause>"
+// and wrap their cause, so errors.Is matches ErrNotFound, ErrDuplicateKey and
+// the driver's own errors.
 package odm

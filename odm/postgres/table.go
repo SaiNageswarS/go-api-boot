@@ -2,10 +2,13 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 
 	"github.com/SaiNageswarS/go-api-boot/odm"
+	"github.com/SaiNageswarS/go-api-boot/odm/internal/core"
 	"github.com/SaiNageswarS/go-collection-boot/async"
 )
 
@@ -86,42 +89,81 @@ func (t Table[T]) Offset(n int) Table[T] {
 
 // Find returns the matching rows.
 func (t Table[T]) Find(ctx context.Context) <-chan async.Result[[]T] {
-	return run(t, "Find", func() ([]T, error) { return t.find(ctx) })
+	return async.Go(func() (_ []T, err error) {
+		defer annotate(&err, t.schema, t.name)
+		return t.selectRows(ctx)
+	})
 }
 
 // First returns the first matching row, or odm.ErrNotFound.
 func (t Table[T]) First(ctx context.Context) <-chan async.Result[*T] {
-	return run(t, "First", func() (*T, error) { return t.first(ctx) })
+	return async.Go(func() (_ *T, err error) {
+		defer annotate(&err, t.schema, t.name)
+		rows, err := t.Limit(1).selectRows(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) == 0 {
+			return nil, odm.ErrNotFound
+		}
+		return &rows[0], nil
+	})
 }
 
 // FindByID returns the row with id (that also matches t's conditions), or
 // odm.ErrNotFound.
 func (t Table[T]) FindByID(ctx context.Context, id string) <-chan async.Result[*T] {
-	return run(t, "FindByID", func() (*T, error) { return t.Where("id = ?", id).first(ctx) })
+	return t.Where("id = ?", id).First(ctx)
 }
 
 // Count counts the matching rows (within Limit and Offset, if set).
 func (t Table[T]) Count(ctx context.Context) <-chan async.Result[int64] {
-	return run(t, "Count", func() (int64, error) { return t.count(ctx) })
+	return async.Go(func() (n int64, err error) {
+		defer annotate(&err, t.schema, t.name)
+		if t.err != nil {
+			return 0, t.err
+		}
+		sql, args := t.selectSQL("1")
+		err = t.db.pool.QueryRow(ctx, "SELECT count(*) FROM ("+sql+") AS q", args...).Scan(&n)
+		if isMissing(err) {
+			return 0, nil
+		}
+		return n, queryErr(err, sql)
+	})
 }
 
 // Exists reports whether any row matches.
 func (t Table[T]) Exists(ctx context.Context) <-chan async.Result[bool] {
-	return run(t, "Exists", func() (bool, error) { return t.exists(ctx) })
+	return async.Go(func() (ok bool, err error) {
+		defer annotate(&err, t.schema, t.name)
+		if t.err != nil {
+			return false, t.err
+		}
+		sql, args := t.selectSQL("1")
+		err = t.db.pool.QueryRow(ctx, "SELECT EXISTS ("+sql+")", args...).Scan(&ok)
+		if isMissing(err) {
+			return false, nil
+		}
+		return ok, queryErr(err, sql)
+	})
 }
 
 // Delete deletes the matching rows and returns how many it deleted. It needs
 // at least one Where (use Where("true") to delete every row) and no OrderBy,
 // Limit or Offset.
 func (t Table[T]) Delete(ctx context.Context) <-chan async.Result[int64] {
-	return run(t, "Delete", func() (int64, error) { return t.delete(ctx) })
+	return async.Go(func() (_ int64, err error) {
+		defer annotate(&err, t.schema, t.name)
+		return t.deleteRows(ctx)
+	})
 }
 
 // DeleteByID deletes the row with id (that also matches t's conditions), if
 // there is one.
 func (t Table[T]) DeleteByID(ctx context.Context, id string) <-chan async.Result[struct{}] {
-	return run(t, "DeleteByID", func() (struct{}, error) {
-		_, err := t.Where("id = ?", id).delete(ctx)
+	return async.Go(func() (_ struct{}, err error) {
+		defer annotate(&err, t.schema, t.name)
+		_, err = t.Where("id = ?", id).deleteRows(ctx)
 		return struct{}{}, err
 	})
 }
@@ -144,25 +186,177 @@ func (t Table[T]) DeleteByID(ctx context.Context, id string) <-chan async.Result
 // EXCLUDED is the row that failed to insert. id and created_on are left out
 // of the update list, so created_on keeps its first value.
 func (t Table[T]) Save(ctx context.Context, model T) <-chan async.Result[struct{}] {
-	return run(t, "Save", func() (struct{}, error) { return struct{}{}, t.save(ctx, model) })
+	return async.Go(func() (_ struct{}, err error) {
+		defer annotate(&err, t.schema, t.name)
+		s, err := schemaOf[T]()
+		if err != nil {
+			return struct{}{}, err
+		}
+		id := model.Id()
+		if err := core.CheckID(id); err != nil {
+			return struct{}{}, err
+		}
+		args, casts, err := s.row(reflect.ValueOf(model), id, t.db.timer.Now())
+		if err != nil {
+			return struct{}{}, err
+		}
+		_, err = t.db.pool.Exec(ctx, upsertSQL(t.qualified(), s.columns, casts), args...)
+		return struct{}{}, writeErr(err)
+	})
 }
 
-// VectorSearch returns the k rows nearest to embedding by the model's
-// VectorIndexSpec named index, best first, among the rows matching t's
+// VectorSearch returns the k rows nearest to embedding by index, one of the
+// model's VectorIndexSpecs, best first, among the rows matching t's
 // conditions. It runs a pgvector HNSW search; with conditions it scans the
 // index iteratively (pgvector 0.8+) so that filtering doesn't return fewer
 // than k rows. OrderBy, Limit and Offset don't apply.
 //
 // Scores follow Atlas: cosine and dotProduct give (1 + similarity) / 2,
 // euclidean gives 1 / (1 + distance).
-func (t Table[T]) VectorSearch(ctx context.Context, index string, embedding []float32, k int) <-chan async.Result[[]odm.SearchHit[T]] {
-	return run(t, "VectorSearch", func() ([]odm.SearchHit[T], error) { return t.vectorSearch(ctx, index, embedding, k) })
+func (t Table[T]) VectorSearch(ctx context.Context, index odm.VectorIndexSpec, embedding []float32, k int) <-chan async.Result[[]odm.SearchHit[T]] {
+	return async.Go(func() (_ []odm.SearchHit[T], err error) {
+		defer annotate(&err, t.schema, t.name)
+		if err := t.searchable(); err != nil {
+			return nil, err
+		}
+		vec, err := pgVectorFor(index)
+		if err != nil {
+			return nil, err
+		}
+		if err := core.CheckVectorQuery(index, embedding, k); err != nil {
+			return nil, err
+		}
+		s, err := schemaOf[T]()
+		if err != nil {
+			return nil, err
+		}
+		iterative := false
+		if len(t.where) > 0 {
+			if iterative, err = t.db.iterativeScans(ctx); err != nil {
+				return nil, err
+			}
+		}
+		sql, args := t.vectorSearchSQL(s, index, vec, embedding, k, iterative)
+		return t.searchHits(ctx, s, vectorSearchSettings(k, iterative), sql, args, vec.score)
+	})
 }
 
 // TermSearch returns the limit rows best matching query (any of its words)
-// in the columns of the model's TermSearchIndexSpec named index, ranked by
+// in the columns of index, one of the model's TermSearchIndexSpecs, ranked by
 // BM25, among the rows matching t's conditions. It needs ParadeDB's
 // pg_search extension. OrderBy, Limit and Offset don't apply.
-func (t Table[T]) TermSearch(ctx context.Context, index, query string, limit int) <-chan async.Result[[]odm.SearchHit[T]] {
-	return run(t, "TermSearch", func() ([]odm.SearchHit[T], error) { return t.termSearch(ctx, index, query, limit) })
+func (t Table[T]) TermSearch(ctx context.Context, index odm.TermSearchIndexSpec, query string, limit int) <-chan async.Result[[]odm.SearchHit[T]] {
+	return async.Go(func() (_ []odm.SearchHit[T], err error) {
+		defer annotate(&err, t.schema, t.name)
+		if err := t.searchable(); err != nil {
+			return nil, err
+		}
+		if err := core.ValidateTermSearchIndex(index); err != nil {
+			return nil, err
+		}
+		if err := core.CheckTermQuery(query, limit); err != nil {
+			return nil, err
+		}
+		s, err := schemaOf[T]()
+		if err != nil {
+			return nil, err
+		}
+		if err := t.db.requirePgSearch(ctx); err != nil {
+			return nil, err
+		}
+		sql, args := t.termSearchSQL(s, index, query, limit)
+		return t.searchHits(ctx, s, nil, sql, args, func(score float64) float64 { return score })
+	})
+}
+
+// selectRows runs the query; a missing table has no rows.
+func (t Table[T]) selectRows(ctx context.Context) ([]T, error) {
+	if t.err != nil {
+		return nil, t.err
+	}
+	s, err := schemaOf[T]()
+	if err != nil {
+		return nil, err
+	}
+	sql, args := t.selectSQL(s.selectList())
+	rows, err := t.db.pool.Query(ctx, sql, args...)
+	if err == nil {
+		var out []T
+		if out, err = scanRows[T](rows, s, nil); err == nil {
+			return out, nil
+		}
+	}
+	if isMissing(err) {
+		return []T{}, nil
+	}
+	return nil, queryErr(err, sql)
+}
+
+// deleteRows deletes the matching rows; a missing table has none.
+func (t Table[T]) deleteRows(ctx context.Context) (int64, error) {
+	if t.err != nil {
+		return 0, t.err
+	}
+	if len(t.where) == 0 {
+		return 0, errors.New(`Delete needs a Where; use Where("true") to delete every row`)
+	}
+	if t.paged() {
+		return 0, errors.New("Delete doesn't take OrderBy, Limit or Offset")
+	}
+	sql, args := t.deleteSQL()
+	tag, err := t.db.pool.Exec(ctx, sql, args...)
+	if isMissing(err) {
+		return 0, nil
+	}
+	return tag.RowsAffected(), queryErr(err, sql)
+}
+
+// searchable rejects paging on a search, which orders by relevance and takes
+// its own limit.
+func (t Table[T]) searchable() error {
+	if t.err != nil {
+		return t.err
+	}
+	if t.paged() {
+		return errors.New("a search orders by relevance and takes its own limit; drop OrderBy, Limit and Offset")
+	}
+	return nil
+}
+
+// searchHits runs a search whose rows are s's fields plus a distance or
+// score, which score turns into the hit's score. Settings apply to this query
+// only, in a transaction. A missing table has no hits.
+func (t Table[T]) searchHits(ctx context.Context, s *tableSchema, settings []string, sql string, args []any, score func(float64) float64) ([]odm.SearchHit[T], error) {
+	var q querier = t.db.pool
+	if len(settings) > 0 {
+		tx, err := t.db.pool.Begin(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		for _, setting := range settings {
+			if _, err := tx.Exec(ctx, setting); err != nil {
+				return nil, err
+			}
+		}
+		q = tx
+	}
+
+	rows, err := q.Query(ctx, sql, args...)
+	if isMissing(err) {
+		return []odm.SearchHit[T]{}, nil
+	}
+	if err != nil {
+		return nil, queryErr(err, sql)
+	}
+	var raw []float64
+	models, err := scanRows[T](rows, s, &raw)
+	if err != nil {
+		return nil, queryErr(err, sql)
+	}
+	hits := make([]odm.SearchHit[T], len(models))
+	for i, m := range models {
+		hits[i] = odm.SearchHit[T]{Score: score(raw[i]), Doc: m}
+	}
+	return hits, nil
 }

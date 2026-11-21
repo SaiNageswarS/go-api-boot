@@ -83,16 +83,18 @@ func (m Movie) Indexes() []odm.IndexSpec {
 	}
 }
 
-func (m Movie) TermSearchIndexes() []odm.TermSearchIndexSpec {
-	return []odm.TermSearchIndexSpec{{Name: "plotIndex", Paths: []string{"title", "plot"}}}
-}
-
-func (m Movie) VectorIndexes() []odm.VectorIndexSpec {
-	return []odm.VectorIndexSpec{{
+var (
+	moviePlot      = odm.TermSearchIndexSpec{Name: "plotIndex", Paths: []string{"title", "plot"}}
+	movieEmbedding = odm.VectorIndexSpec{
 		Name: "embeddingIndex", Path: "embedding", Dimensions: 3,
 		Similarity: odm.Cosine, FilterPaths: []string{"year"},
-	}}
+	}
+)
+
+func (m Movie) TermSearchIndexes() []odm.TermSearchIndexSpec {
+	return []odm.TermSearchIndexSpec{moviePlot}
 }
+func (m Movie) VectorIndexes() []odm.VectorIndexSpec { return []odm.VectorIndexSpec{movieEmbedding} }
 
 // clock is a settable odm.Timer.
 type clock struct{ now atomic.Int64 }
@@ -289,8 +291,8 @@ func TestCollection(t *testing.T) {
 		t.Cleanup(func() { _, _ = async.Await(col.DeleteByID(context.Background(), "short")) })
 
 		eventually(t, func(c *assert.CollectT) {
-			hits, err := async.Await(col.VectorSearch(ctx, []float32{1, 0.05, 0}, VectorSearchParams{
-				IndexName: "embeddingIndex", K: 2, NumCandidates: 50,
+			hits, err := async.Await(col.VectorSearch(ctx, movieEmbedding, []float32{1, 0.05, 0}, VectorSearchParams{
+				K: 2, NumCandidates: 50,
 			}))
 			require.NoError(c, err)
 			require.Len(c, hits, 2)
@@ -301,23 +303,21 @@ func TestCollection(t *testing.T) {
 		})
 
 		eventually(t, func(c *assert.CollectT) {
-			hits, err := async.Await(col.VectorSearch(ctx, []float32{1, 0, 0}, VectorSearchParams{
-				IndexName: "embeddingIndex", K: 2, Filter: bson.M{"year": bson.M{"$gt": 1990}},
+			hits, err := async.Await(col.VectorSearch(ctx, movieEmbedding, []float32{1, 0, 0}, VectorSearchParams{
+				K: 2, Filter: bson.M{"year": bson.M{"$gt": 1990}},
 			}))
 			require.NoError(c, err)
 			require.Len(c, hits, 2)
 			assert.ElementsMatch(c, []string{"m3", "m4"}, []string{hits[0].Doc.ID, hits[1].Doc.ID})
 		})
 
-		_, err = async.Await(col.VectorSearch(ctx, []float32{1, 0, 0}, VectorSearchParams{IndexName: "nope", K: 1}))
-		assert.ErrorContains(t, err, "no vector index")
-		_, err = async.Await(col.VectorSearch(ctx, []float32{1, 0}, VectorSearchParams{IndexName: "embeddingIndex", K: 1}))
+		_, err = async.Await(col.VectorSearch(ctx, movieEmbedding, []float32{1, 0}, VectorSearchParams{K: 1}))
 		assert.ErrorContains(t, err, "dimensions")
 	})
 
 	t.Run("TermSearch", func(t *testing.T) {
 		eventually(t, func(c *assert.CollectT) {
-			hits, err := async.Await(col.TermSearch(ctx, "crew robbers", TermSearchParams{IndexName: "plotIndex", Limit: 10}))
+			hits, err := async.Await(col.TermSearch(ctx, moviePlot, "crew robbers", TermSearchParams{Limit: 10}))
 			require.NoError(c, err)
 			require.Len(c, hits, 2, "any word matches")
 			assert.Equal(c, "m3", hits[0].Doc.ID, "matching both words ranks first")
@@ -325,16 +325,13 @@ func TestCollection(t *testing.T) {
 		})
 
 		eventually(t, func(c *assert.CollectT) {
-			hits, err := async.Await(col.TermSearch(ctx, "crew", TermSearchParams{
-				IndexName: "plotIndex", Limit: 10, Filter: bson.M{"year": 1979},
+			hits, err := async.Await(col.TermSearch(ctx, moviePlot, "crew", TermSearchParams{
+				Limit: 10, Filter: bson.M{"year": 1979},
 			}))
 			require.NoError(c, err)
 			require.Len(c, hits, 1)
 			assert.Equal(c, "m1", hits[0].Doc.ID)
 		})
-
-		_, err := async.Await(col.TermSearch(ctx, "crew", TermSearchParams{IndexName: "nope", Limit: 1}))
-		assert.ErrorContains(t, err, "no term search index")
 	})
 
 	t.Run("Delete", func(t *testing.T) {

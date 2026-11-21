@@ -5,20 +5,11 @@ import (
 	"testing"
 
 	"github.com/SaiNageswarS/go-api-boot/odm"
-	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestErrors(t *testing.T) {
-	assert.NoError(t, Wrap("pg", "Find", "t.x", nil))
-	err := Wrap("pg", "Find", "t.x", odm.ErrNotFound)
-	assert.EqualError(t, err, "odm/pg: Find t.x: document not found")
-	assert.ErrorIs(t, err, odm.ErrNotFound)
-
-	_, err = async.Await(Go("pg", "Count", "t.x", func() (int, error) { return 0, errors.New("boom") }))
-	assert.EqualError(t, err, "odm/pg: Count t.x: boom")
-
+func TestHelpers(t *testing.T) {
 	assert.ErrorIs(t, Unsupported("TTL on %s", "x"), errors.ErrUnsupported)
 	assert.Error(t, CheckID(""))
 	assert.NoError(t, CheckID("a"))
@@ -32,15 +23,11 @@ func (indexed) VectorIndexes() []odm.VectorIndexSpec {
 	return []odm.VectorIndexSpec{{Name: "v", Path: "e", Dimensions: 3}}
 }
 
-func TestIndexLookup(t *testing.T) {
-	spec, err := VectorIndex[indexed]("v")
-	require.NoError(t, err)
-	assert.Equal(t, odm.Cosine, Similarity(spec))
-
-	_, err = VectorIndex[indexed]("nope")
-	assert.ErrorContains(t, err, `no vector index "nope"`)
-	_, err = TermSearchIndex[indexed]("t")
-	assert.ErrorContains(t, err, `no term search index "t"`)
+func TestDeclaredIndexes(t *testing.T) {
+	vectors := VectorIndexes[indexed]()
+	require.Len(t, vectors, 1)
+	assert.Equal(t, odm.Cosine, Similarity(vectors[0]))
+	assert.Nil(t, TermSearchIndexes[indexed]())
 	assert.Nil(t, Indexes[indexed]())
 }
 

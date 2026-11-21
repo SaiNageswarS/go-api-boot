@@ -9,24 +9,15 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
-// VectorSearchParams configures VectorSearch.
-type VectorSearchParams struct {
-	IndexName     string // a VectorIndexSpec of the model
-	K             int    // number of nearest neighbours to return
-	NumCandidates int    // approximate candidates to consider; 0 picks a default
-	Filter        bson.M // optional pre-filter on the index's FilterPaths
-}
-
-// TermSearchParams configures TermSearch.
-type TermSearchParams struct {
-	IndexName string // a TermSearchIndexSpec of the model
-	Limit     int    // number of results to return
-	Filter    bson.M // optional filter
-}
+// The aggregation pipelines Collection's searches run: pure functions of the
+// search, no database access.
 
 // vectorSearchPipeline is $vectorSearch, then the score and document as a
 // SearchHit.
 func vectorSearchPipeline(spec odm.VectorIndexSpec, embedding []float32, p VectorSearchParams) (mongo.Pipeline, error) {
+	if err := core.ValidateVectorIndex(spec); err != nil {
+		return nil, err
+	}
 	if err := core.CheckVectorQuery(spec, embedding, p.K); err != nil {
 		return nil, err
 	}
@@ -57,6 +48,9 @@ func vectorSearchPipeline(spec odm.VectorIndexSpec, embedding []float32, p Vecto
 // termSearchPipeline is $search over the index's paths, the filter, the
 // limit, then the score and document as a SearchHit.
 func termSearchPipeline(spec odm.TermSearchIndexSpec, query string, p TermSearchParams) (mongo.Pipeline, error) {
+	if err := core.ValidateTermSearchIndex(spec); err != nil {
+		return nil, err
+	}
 	if err := core.CheckTermQuery(query, p.Limit); err != nil {
 		return nil, err
 	}

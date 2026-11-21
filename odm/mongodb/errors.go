@@ -6,28 +6,22 @@ import (
 	"strings"
 
 	"github.com/SaiNageswarS/go-api-boot/odm"
-	"github.com/SaiNageswarS/go-api-boot/odm/internal/core"
-	"github.com/SaiNageswarS/go-collection-boot/async"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
-const backend = "mongodb"
-
-// run runs a collection operation asynchronously. Its error is mapped to the
-// odm errors and wrapped as "odm/mongodb: <op> <target>: <cause>".
-func run[R any](target, op string, fn func() (R, error)) <-chan async.Result[R] {
-	return core.Go(backend, op, target, func() (R, error) {
-		r, err := fn()
-		return r, mapErr(err)
-	})
+// annotate maps a non-nil *err to the odm errors and prefixes it with the
+// collection it happened on: "odm/mongodb: <tenant>.<collection>: <cause>".
+// Public functions defer it.
+func annotate(err *error, target string) {
+	if *err != nil {
+		*err = fmt.Errorf("odm/mongodb: %s: %w", target, mapErr(*err))
+	}
 }
 
 // mapErr turns the driver's not-found and duplicate key errors into the odm
 // ones.
 func mapErr(err error) error {
 	switch {
-	case err == nil:
-		return nil
 	case errors.Is(err, mongo.ErrNoDocuments):
 		return odm.ErrNotFound
 	case mongo.IsDuplicateKeyError(err):

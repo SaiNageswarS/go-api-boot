@@ -132,6 +132,65 @@ func (s *tableSchema) selectList() string {
 	return strings.Join(exprs, ", ")
 }
 
+// row returns the value of every column for model, and each placeholder's
+// cast: id and the timestamps come from the arguments, the rest from fields.
+func (s *tableSchema) row(model reflect.Value, id string, now int64) ([]any, []string, error) {
+	args := make([]any, len(s.columns))
+	casts := make([]string, len(s.columns))
+	for i, c := range s.columns {
+		switch c.name {
+		case idColumn:
+			args[i] = id
+		case createdOnColumn, updatedOnColumn:
+			args[i] = now
+		default:
+			var err error
+			if args[i], casts[i], err = c.arg(model); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	return args, casts, nil
+}
+
+// scanRows decodes rows of s's fields into T. With scores non-nil, each row
+// has one more float8 column, appended to scores.
+func scanRows[T odm.Model](rows pgx.Rows, s *tableSchema, scores *[]float64) ([]T, error) {
+	defer rows.Close()
+	fields := s.fields()
+	out := []T{}
+	for rows.Next() {
+		var model T
+		v := reflect.ValueOf(&model).Elem()
+		targets := make([]any, 0, len(fields)+1)
+		var finish []func() error
+		for _, c := range fields {
+			target, done := c.scanTarget(v)
+			targets = append(targets, target)
+			if done != nil {
+				finish = append(finish, done)
+			}
+		}
+		var score float64
+		if scores != nil {
+			targets = append(targets, &score)
+		}
+		if err := rows.Scan(targets...); err != nil {
+			return nil, err
+		}
+		for _, done := range finish {
+			if err := done(); err != nil {
+				return nil, err
+			}
+		}
+		out = append(out, model)
+		if scores != nil {
+			*scores = append(*scores, score)
+		}
+	}
+	return out, rows.Err()
+}
+
 var schemaCache sync.Map // reflect.Type -> *tableSchema
 
 // schemaOf maps T's fields to columns, plus the timestamp columns the model

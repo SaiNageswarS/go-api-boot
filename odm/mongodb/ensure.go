@@ -21,13 +21,11 @@ import (
 //     builds them asynchronously; WaitForSearchIndexes waits until they serve
 //     queries. Changing an existing search index's definition needs a new name
 //     (or dropping it first).
-func EnsureCollection[T odm.Model](ctx context.Context, c *Client, tenant string) error {
+func EnsureCollection[T odm.Model](ctx context.Context, c *Client, tenant string) (err error) {
 	var zero T
 	name := zero.CollectionName()
-	return core.Wrap(backend, "EnsureCollection", tenant+"."+name, ensureCollection[T](ctx, c.mongo.Database(tenant), name))
-}
+	defer annotate(&err, tenant+"."+name)
 
-func ensureCollection[T odm.Model](ctx context.Context, db *mongo.Database, name string) error {
 	// Build every definition first, so an invalid spec changes nothing.
 	var indexes []odm.IndexSpec
 	for _, spec := range core.Indexes[T]() {
@@ -52,6 +50,7 @@ func ensureCollection[T odm.Model](ctx context.Context, db *mongo.Database, name
 		searchModels[spec.Name] = m
 	}
 
+	db := c.mongo.Database(tenant)
 	if err := db.CreateCollection(ctx, name); err != nil {
 		var cmdErr mongo.CommandError
 		if !errors.As(err, &cmdErr) || cmdErr.Code != 48 { // 48 = NamespaceExists
@@ -89,7 +88,11 @@ func ensureCollection[T odm.Model](ctx context.Context, db *mongo.Database, name
 
 // WaitForSearchIndexes blocks until every Atlas Search / Vector Search index T
 // declares in tenant can serve queries, or ctx ends.
-func WaitForSearchIndexes[T odm.Model](ctx context.Context, c *Client, tenant string) error {
+func WaitForSearchIndexes[T odm.Model](ctx context.Context, c *Client, tenant string) (err error) {
+	var zero T
+	name := zero.CollectionName()
+	defer annotate(&err, tenant+"."+name)
+
 	var names []string
 	for _, s := range core.TermSearchIndexes[T]() {
 		names = append(names, s.Name)
@@ -97,14 +100,12 @@ func WaitForSearchIndexes[T odm.Model](ctx context.Context, c *Client, tenant st
 	for _, s := range core.VectorIndexes[T]() {
 		names = append(names, s.Name)
 	}
-	var zero T
-	name := zero.CollectionName()
 	col := c.collection(tenant, name)
 
 	for {
 		status, err := searchIndexStatus(ctx, col)
 		if err != nil {
-			return core.Wrap(backend, "WaitForSearchIndexes", tenant+"."+name, err)
+			return err
 		}
 		ready := true
 		for _, n := range names {
@@ -115,7 +116,7 @@ func WaitForSearchIndexes[T odm.Model](ctx context.Context, c *Client, tenant st
 		}
 		select {
 		case <-ctx.Done():
-			return core.Wrap(backend, "WaitForSearchIndexes", tenant+"."+name, ctx.Err())
+			return ctx.Err()
 		case <-time.After(time.Second):
 		}
 	}

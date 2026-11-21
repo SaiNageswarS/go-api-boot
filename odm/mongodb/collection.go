@@ -46,12 +46,12 @@ type Collection[T odm.Model] interface {
 	// not be nil.
 	DeleteOne(ctx context.Context, filter bson.M) <-chan async.Result[struct{}]
 
-	// VectorSearch runs Atlas Vector Search with the model's VectorIndexSpec
-	// named params.IndexName.
-	VectorSearch(ctx context.Context, embedding []float32, params VectorSearchParams) <-chan async.Result[[]odm.SearchHit[T]]
+	// VectorSearch runs Atlas Vector Search on index, one of the model's
+	// VectorIndexSpecs.
+	VectorSearch(ctx context.Context, index odm.VectorIndexSpec, embedding []float32, params VectorSearchParams) <-chan async.Result[[]odm.SearchHit[T]]
 	// TermSearch runs Atlas Search (any of the query's words) over the paths
-	// of the model's TermSearchIndexSpec named params.IndexName.
-	TermSearch(ctx context.Context, query string, params TermSearchParams) <-chan async.Result[[]odm.SearchHit[T]]
+	// of index, one of the model's TermSearchIndexSpecs.
+	TermSearch(ctx context.Context, index odm.TermSearchIndexSpec, query string, params TermSearchParams) <-chan async.Result[[]odm.SearchHit[T]]
 
 	// Aggregate runs pipeline and decodes each output document into T.
 	Aggregate(ctx context.Context, pipeline mongo.Pipeline) <-chan async.Result[[]T]
@@ -85,7 +85,8 @@ func (c *collection[T]) Raw() *mongo.Collection { return c.col }
 // Save upserts in one atomic update: model's fields and updatedOn are $set,
 // createdOn is set only on insert.
 func (c *collection[T]) Save(ctx context.Context, model T) <-chan async.Result[struct{}] {
-	return run(c.target, "Save", func() (struct{}, error) {
+	return async.Go(func() (_ struct{}, err error) {
+		defer annotate(&err, c.target)
 		id := model.Id()
 		if err := core.CheckID(id); err != nil {
 			return struct{}{}, err
@@ -108,15 +109,24 @@ func (c *collection[T]) Save(ctx context.Context, model T) <-chan async.Result[s
 }
 
 func (c *collection[T]) FindByID(ctx context.Context, id string) <-chan async.Result[*T] {
-	return run(c.target, "FindByID", func() (*T, error) { return c.findOne(ctx, bson.M{"_id": id}) })
+	return c.FindOne(ctx, bson.M{"_id": id})
 }
 
 func (c *collection[T]) FindOne(ctx context.Context, filter bson.M) <-chan async.Result[*T] {
-	return run(c.target, "FindOne", func() (*T, error) { return c.findOne(ctx, filter) })
+	return async.Go(func() (_ *T, err error) {
+		defer annotate(&err, c.target)
+		res := c.col.FindOne(ctx, filterDoc(filter))
+		if err := res.Err(); err != nil {
+			return nil, err
+		}
+		model := new(T)
+		return model, res.Decode(model)
+	})
 }
 
 func (c *collection[T]) Find(ctx context.Context, filter bson.M, opts ...FindOption) <-chan async.Result[[]T] {
-	return run(c.target, "Find", func() ([]T, error) {
+	return async.Go(func() (_ []T, err error) {
+		defer annotate(&err, c.target)
 		o, err := resolveFindOptions(opts...)
 		if err != nil {
 			return nil, err
@@ -130,20 +140,23 @@ func (c *collection[T]) Find(ctx context.Context, filter bson.M, opts ...FindOpt
 }
 
 func (c *collection[T]) Count(ctx context.Context, filter bson.M) <-chan async.Result[int64] {
-	return run(c.target, "Count", func() (int64, error) {
+	return async.Go(func() (_ int64, err error) {
+		defer annotate(&err, c.target)
 		return c.col.CountDocuments(ctx, filterDoc(filter))
 	})
 }
 
 func (c *collection[T]) Exists(ctx context.Context, id string) <-chan async.Result[bool] {
-	return run(c.target, "Exists", func() (bool, error) {
+	return async.Go(func() (_ bool, err error) {
+		defer annotate(&err, c.target)
 		n, err := c.col.CountDocuments(ctx, bson.M{"_id": id}, options.Count().SetLimit(1))
 		return n > 0, err
 	})
 }
 
 func (c *collection[T]) Distinct(ctx context.Context, field string, filter bson.M) <-chan async.Result[[]any] {
-	return run(c.target, "Distinct", func() ([]any, error) {
+	return async.Go(func() (_ []any, err error) {
+		defer annotate(&err, c.target)
 		res := c.col.Distinct(ctx, field, filterDoc(filter))
 		if err := res.Err(); err != nil {
 			return nil, err
@@ -154,24 +167,23 @@ func (c *collection[T]) Distinct(ctx context.Context, field string, filter bson.
 }
 
 func (c *collection[T]) DeleteByID(ctx context.Context, id string) <-chan async.Result[struct{}] {
-	return run(c.target, "DeleteByID", func() (struct{}, error) {
-		_, err := c.col.DeleteOne(ctx, bson.M{"_id": id})
-		return struct{}{}, err
-	})
+	return c.DeleteOne(ctx, bson.M{"_id": id})
 }
 
 func (c *collection[T]) DeleteOne(ctx context.Context, filter bson.M) <-chan async.Result[struct{}] {
-	return run(c.target, "DeleteOne", func() (struct{}, error) {
+	return async.Go(func() (_ struct{}, err error) {
+		defer annotate(&err, c.target)
 		if filter == nil {
-			return struct{}{}, errors.New("needs a filter")
+			return struct{}{}, errors.New("DeleteOne needs a filter")
 		}
-		_, err := c.col.DeleteOne(ctx, filter)
+		_, err = c.col.DeleteOne(ctx, filter)
 		return struct{}{}, err
 	})
 }
 
 func (c *collection[T]) Aggregate(ctx context.Context, pipeline mongo.Pipeline) <-chan async.Result[[]T] {
-	return run(c.target, "Aggregate", func() ([]T, error) {
+	return async.Go(func() (_ []T, err error) {
+		defer annotate(&err, c.target)
 		cursor, err := c.col.Aggregate(ctx, pipeline)
 		if err != nil {
 			return nil, err
@@ -180,31 +192,33 @@ func (c *collection[T]) Aggregate(ctx context.Context, pipeline mongo.Pipeline) 
 	})
 }
 
-func (c *collection[T]) VectorSearch(ctx context.Context, embedding []float32, params VectorSearchParams) <-chan async.Result[[]odm.SearchHit[T]] {
-	return run(c.target, "VectorSearch", func() ([]odm.SearchHit[T], error) {
-		spec, err := core.VectorIndex[T](params.IndexName)
+func (c *collection[T]) VectorSearch(ctx context.Context, index odm.VectorIndexSpec, embedding []float32, params VectorSearchParams) <-chan async.Result[[]odm.SearchHit[T]] {
+	return async.Go(func() (_ []odm.SearchHit[T], err error) {
+		defer annotate(&err, c.target)
+		pipeline, err := vectorSearchPipeline(index, embedding, params)
 		if err != nil {
 			return nil, err
 		}
-		pipeline, err := vectorSearchPipeline(spec, embedding, params)
+		cursor, err := c.col.Aggregate(ctx, pipeline)
 		if err != nil {
 			return nil, err
 		}
-		return c.search(ctx, pipeline)
+		return decodeAll[odm.SearchHit[T]](ctx, cursor)
 	})
 }
 
-func (c *collection[T]) TermSearch(ctx context.Context, query string, params TermSearchParams) <-chan async.Result[[]odm.SearchHit[T]] {
-	return run(c.target, "TermSearch", func() ([]odm.SearchHit[T], error) {
-		spec, err := core.TermSearchIndex[T](params.IndexName)
+func (c *collection[T]) TermSearch(ctx context.Context, index odm.TermSearchIndexSpec, query string, params TermSearchParams) <-chan async.Result[[]odm.SearchHit[T]] {
+	return async.Go(func() (_ []odm.SearchHit[T], err error) {
+		defer annotate(&err, c.target)
+		pipeline, err := termSearchPipeline(index, query, params)
 		if err != nil {
 			return nil, err
 		}
-		pipeline, err := termSearchPipeline(spec, query, params)
+		cursor, err := c.col.Aggregate(ctx, pipeline)
 		if err != nil {
 			return nil, err
 		}
-		return c.search(ctx, pipeline)
+		return decodeAll[odm.SearchHit[T]](ctx, cursor)
 	})
 }
 
@@ -214,7 +228,7 @@ func DistinctAs[V any, T odm.Model](ctx context.Context, c Collection[T], field 
 	return async.Go(func() ([]V, error) {
 		values, err := async.Await(c.Distinct(ctx, field, filter))
 		if err != nil {
-			return nil, err // already wrapped by Distinct
+			return nil, err // already annotated by Distinct
 		}
 		raw, err := bson.Marshal(bson.D{{Key: "v", Value: bson.A(values)}})
 		if err != nil {
@@ -224,30 +238,13 @@ func DistinctAs[V any, T odm.Model](ctx context.Context, c Collection[T], field 
 			V []V `bson:"v"`
 		}
 		if err := bson.Unmarshal(raw, &out); err != nil {
-			return nil, fmt.Errorf("odm/%s: DistinctAs %s: %w", backend, field, err)
+			return nil, fmt.Errorf("odm/mongodb: decoding distinct %s values: %w", field, err)
 		}
 		if out.V == nil {
 			out.V = []V{}
 		}
 		return out.V, nil
 	})
-}
-
-func (c *collection[T]) findOne(ctx context.Context, filter bson.M) (*T, error) {
-	res := c.col.FindOne(ctx, filterDoc(filter))
-	if err := res.Err(); err != nil {
-		return nil, err
-	}
-	model := new(T)
-	return model, res.Decode(model)
-}
-
-func (c *collection[T]) search(ctx context.Context, pipeline mongo.Pipeline) ([]odm.SearchHit[T], error) {
-	cursor, err := c.col.Aggregate(ctx, pipeline)
-	if err != nil {
-		return nil, err
-	}
-	return decodeAll[odm.SearchHit[T]](ctx, cursor)
 }
 
 func decodeAll[R any](ctx context.Context, cursor *mongo.Cursor) ([]R, error) {

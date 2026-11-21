@@ -60,17 +60,20 @@ type searchOnly struct {
 
 func (s searchOnly) Id() string           { return s.ID }
 func (searchOnly) CollectionName() string { return "movies" }
+
+var searchOnlyPlot = odm.TermSearchIndexSpec{Name: "plotIndex", Paths: []string{"plot"}}
+
 func (searchOnly) TermSearchIndexes() []odm.TermSearchIndexSpec {
-	return []odm.TermSearchIndexSpec{{Name: "plotIndex", Paths: []string{"plot"}}}
+	return []odm.TermSearchIndexSpec{searchOnlyPlot}
 }
 
 func TestPgSearchRequired(t *testing.T) {
 	db := newDB(&fakePool{rows: []fakeRow{{value: false}}})
 	err := EnsureTable[searchOnly](t.Context(), db, "tenant")
 	assert.ErrorIs(t, err, ErrPgSearchNotInstalled)
-	assert.ErrorContains(t, err, "odm/postgres: EnsureTable tenant.movies: term search needs")
+	assert.ErrorContains(t, err, "odm/postgres: tenant.movies: term search needs")
 
-	_, err = async.Await(TableOf[searchOnly](db, "tenant").TermSearch(t.Context(), "plotIndex", "crew", 5))
+	_, err = async.Await(TableOf[searchOnly](db, "tenant").TermSearch(t.Context(), searchOnlyPlot, "crew", 5))
 	assert.ErrorIs(t, err, ErrPgSearchNotInstalled)
 }
 

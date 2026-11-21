@@ -254,7 +254,7 @@ Both backends share:
 * **Models:** a struct with `Id()` and `CollectionName()` (the collection or table name).
 * **Schema setup:** `mongodb.EnsureCollection[T]` and `postgres.EnsureTable[T]` create the collection or table and its declared indexes. Schema changes are a deployment step (startup, migration, tenant onboarding), never a side effect of runtime calls.
 * **`Save`:** an upsert by `Id()` that always stamps creation and update times, in Unix seconds (set the clock with `WithTimer`). Embed `odm.Timestamps` to read them; add `bson:",inline"` on MongoDB.
-* **Errors:** read `odm/<backend>: <operation> <tenant>.<name>: <cause>` and wrap the cause, so `errors.Is` matches `odm.ErrNotFound`, `odm.ErrDuplicateKey` (unique index), `errors.ErrUnsupported` (index features a backend lacks) and driver errors.
+* **Errors:** read `odm/<backend>: <tenant>.<name>: <cause>` and wrap the cause, so `errors.Is` matches `odm.ErrNotFound`, `odm.ErrDuplicateKey` (unique index), `errors.ErrUnsupported` (index features a backend lacks) and driver errors.
 * **Helpers:** `HashedKey` derives ids from data fields; `NewModelFrom[T]` copies a proto into a model.
 
 #### Indexes
@@ -266,15 +266,17 @@ func (m Movie) Indexes() []odm.IndexSpec {
         {Keys: []odm.IndexKey{odm.DescKey("year"), odm.Key("rating")}},
     }
 }
-func (m Movie) TermSearchIndexes() []odm.TermSearchIndexSpec {
-    return []odm.TermSearchIndexSpec{{Name: "plotIndex", Paths: []string{"title", "plot"}}}
-}
-func (m Movie) VectorIndexes() []odm.VectorIndexSpec {
-    return []odm.VectorIndexSpec{{Name: "plotEmbedding", Path: "embedding", Dimensions: 768, Similarity: odm.Cosine}}
-}
+
+// Search indexes are declared as values, which the search methods take.
+var (
+    MoviePlot      = odm.TermSearchIndexSpec{Name: "plotIndex", Paths: []string{"title", "plot"}}
+    MovieEmbedding = odm.VectorIndexSpec{Name: "plotEmbedding", Path: "embedding", Dimensions: 768, Similarity: odm.Cosine}
+)
+func (m Movie) TermSearchIndexes() []odm.TermSearchIndexSpec { return []odm.TermSearchIndexSpec{MoviePlot} }
+func (m Movie) VectorIndexes() []odm.VectorIndexSpec         { return []odm.VectorIndexSpec{MovieEmbedding} }
 ```
 
-Keys and paths name fields on MongoDB and columns on Postgres. Search scores are comparable across backends: cosine and dotProduct give `(1 + similarity) / 2`, euclidean `1 / (1 + distance)`; text search scores are BM25.
+Searches name their index by passing its spec, as in `VectorSearch(ctx, MovieEmbedding, ...)`, so the compiler catches a misspelled index. Keys and paths name fields on MongoDB and columns on Postgres. Search scores are comparable across backends: cosine and dotProduct give `(1 + similarity) / 2`, euclidean `1 / (1 + distance)`; text search scores are BM25.
 
 #### MongoDB backend
 
@@ -300,10 +302,10 @@ recent, err := async.Await(movies.Find(ctx,
     mongodb.WithSort(mongodb.Desc("year")), mongodb.WithLimit(10)))
 genres, err := async.Await(mongodb.DistinctAs[string](ctx, movies, "genres", nil))
 
-hits, err := async.Await(movies.VectorSearch(ctx, embedding, mongodb.VectorSearchParams{
-    IndexName: "plotEmbedding", K: 5, Filter: bson.M{"year": bson.M{"$gte": 2000}},
+hits, err := async.Await(movies.VectorSearch(ctx, MovieEmbedding, embedding, mongodb.VectorSearchParams{
+    K: 5, Filter: bson.M{"year": bson.M{"$gte": 2000}},
 }))
-hits, err = async.Await(movies.TermSearch(ctx, "space crew", mongodb.TermSearchParams{IndexName: "plotIndex", Limit: 10}))
+hits, err = async.Await(movies.TermSearch(ctx, MoviePlot, "space crew", mongodb.TermSearchParams{Limit: 10}))
 ```
 
 * **Tenants:** a tenant is a database.
@@ -328,6 +330,9 @@ type Profile struct {
 func (p Profile) Id() string             { return p.ID }
 func (p Profile) CollectionName() string { return "profiles" }
 
+var ProfileEmbedding = odm.VectorIndexSpec{Name: "byEmbedding", Path: "embedding", Dimensions: 768}
+func (p Profile) VectorIndexes() []odm.VectorIndexSpec { return []odm.VectorIndexSpec{ProfileEmbedding} }
+
 db, err := postgres.Open(ctx, os.Getenv("POSTGRES_URI"))
 err = postgres.EnsureTable[Profile](ctx, db, tenant)
 profiles := postgres.TableOf[Profile](db, tenant)
@@ -342,7 +347,7 @@ top, err := async.Await(profiles.
 _, err = async.Await(profiles.Save(ctx, profile))
 p, err := async.Await(profiles.FindByID(ctx, id))
 n, err := async.Await(profiles.Where("? = ANY(tags)", "vip").Count(ctx))
-hits, err := async.Await(profiles.Where("city = ?", city).VectorSearch(ctx, "byEmbedding", embedding, 5))
+hits, err := async.Await(profiles.Where("city = ?", city).VectorSearch(ctx, ProfileEmbedding, embedding, 5))
 ```
 
 * **Tables:** a tenant is a schema, and a model is a table whose columns are its fields. A column is named by the field's `db` tag, or else the field name in snake_case. Fields of embedded structs are flattened in.

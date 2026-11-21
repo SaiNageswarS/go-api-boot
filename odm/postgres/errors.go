@@ -5,12 +5,8 @@ import (
 	"fmt"
 
 	"github.com/SaiNageswarS/go-api-boot/odm"
-	"github.com/SaiNageswarS/go-api-boot/odm/internal/core"
-	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/jackc/pgx/v5/pgconn"
 )
-
-const backend = "postgres"
 
 var (
 	// ErrPgSearchNotInstalled is returned (wrapped) when term search is used on
@@ -24,10 +20,12 @@ var (
 		"(CREATE EXTENSION vector; see https://github.com/pgvector/pgvector)")
 )
 
-// run runs a table operation asynchronously, wrapping its error as
-// "odm/postgres: <op> <tenant>.<table>: <cause>".
-func run[R any, T odm.Model](t Table[T], op string, fn func() (R, error)) <-chan async.Result[R] {
-	return core.Go(backend, op, t.schema+"."+t.name, fn)
+// annotate prefixes a non-nil *err with the table it happened on:
+// "odm/postgres: <tenant>.<table>: <cause>". Public functions defer it.
+func annotate(err *error, tenant, table string) {
+	if *err != nil {
+		*err = fmt.Errorf("odm/postgres: %s.%s: %w", tenant, table, *err)
+	}
 }
 
 // isMissing reports a query on a schema or table that doesn't exist.

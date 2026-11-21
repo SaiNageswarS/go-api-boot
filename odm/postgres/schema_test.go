@@ -39,8 +39,11 @@ type profile struct {
 
 func (p profile) Id() string             { return p.ID }
 func (p profile) CollectionName() string { return "profiles" }
+
+var profileEmbedding = odm.VectorIndexSpec{Name: "byEmbedding", Path: "embedding", Dimensions: 3}
+
 func (p profile) VectorIndexes() []odm.VectorIndexSpec {
-	return []odm.VectorIndexSpec{{Name: "byEmbedding", Path: "embedding", Dimensions: 3}}
+	return []odm.VectorIndexSpec{profileEmbedding}
 }
 
 func TestSchemaOf(t *testing.T) {

@@ -54,13 +54,15 @@ func (m movie) Indexes() []odm.IndexSpec {
 	}
 }
 
-func (m movie) TermSearchIndexes() []odm.TermSearchIndexSpec {
-	return []odm.TermSearchIndexSpec{{Name: "plotIndex", Paths: []string{"title", "plot"}}}
-}
+var (
+	moviePlot      = odm.TermSearchIndexSpec{Name: "plotIndex", Paths: []string{"title", "plot"}}
+	movieEmbedding = odm.VectorIndexSpec{Name: "embeddingIndex", Path: "embedding", Dimensions: 3, Similarity: odm.Cosine}
+)
 
-func (m movie) VectorIndexes() []odm.VectorIndexSpec {
-	return []odm.VectorIndexSpec{{Name: "embeddingIndex", Path: "embedding", Dimensions: 3, Similarity: odm.Cosine}}
+func (m movie) TermSearchIndexes() []odm.TermSearchIndexSpec {
+	return []odm.TermSearchIndexSpec{moviePlot}
 }
+func (m movie) VectorIndexes() []odm.VectorIndexSpec { return []odm.VectorIndexSpec{movieEmbedding} }
 
 func date(year int) time.Time { return time.Date(year, 6, 1, 0, 0, 0, 0, time.UTC) }
 
@@ -324,7 +326,7 @@ func TestVectorSearch(t *testing.T) {
 	_, err := async.Await(movies.Save(ctx, movie{ID: "none", Title: "No embedding", Year: 2001}))
 	require.NoError(t, err)
 
-	hits, err := async.Await(movies.VectorSearch(ctx, "embeddingIndex", []float32{1, 0.05, 0}, 2))
+	hits, err := async.Await(movies.VectorSearch(ctx, movieEmbedding, []float32{1, 0.05, 0}, 2))
 	require.NoError(t, err)
 	require.Len(t, hits, 2)
 	assert.Equal(t, "m1", hits[0].Doc.ID)
@@ -333,12 +335,12 @@ func TestVectorSearch(t *testing.T) {
 	assert.LessOrEqual(t, hits[0].Score, 1.0)
 	assert.Equal(t, []float32{1, 0, 0}, hits[0].Doc.Embedding)
 
-	hits, err = async.Await(movies.Where("year > ?", 1990).VectorSearch(ctx, "embeddingIndex", []float32{1, 0, 0}, 2))
+	hits, err = async.Await(movies.Where("year > ?", 1990).VectorSearch(ctx, movieEmbedding, []float32{1, 0, 0}, 2))
 	require.NoError(t, err)
 	require.Len(t, hits, 2, "filtering doesn't cut results short")
 	assert.ElementsMatch(t, []string{"m3", "m4"}, []string{hits[0].Doc.ID, hits[1].Doc.ID})
 
-	hits, err = async.Await(movies.VectorSearch(ctx, "embeddingIndex", []float32{1, 0, 0}, 100))
+	hits, err = async.Await(movies.VectorSearch(ctx, movieEmbedding, []float32{1, 0, 0}, 100))
 	require.NoError(t, err)
 	assert.Len(t, hits, 4, "rows without an embedding are skipped")
 }
@@ -348,24 +350,21 @@ func TestTermSearch(t *testing.T) {
 	ctx := t.Context()
 	movies, _ := seed(t, db)
 
-	hits, err := async.Await(movies.TermSearch(ctx, "plotIndex", "crew robbers", 10))
+	hits, err := async.Await(movies.TermSearch(ctx, moviePlot, "crew robbers", 10))
 	require.NoError(t, err)
 	require.Len(t, hits, 2, "any word matches")
 	assert.Equal(t, "m3", hits[0].Doc.ID, "matching both words ranks first")
 	assert.Greater(t, hits[0].Score, hits[1].Score)
 
-	hits, err = async.Await(movies.Where("year = ?", 1979).TermSearch(ctx, "plotIndex", "crew", 10))
+	hits, err = async.Await(movies.Where("year = ?", 1979).TermSearch(ctx, moviePlot, "crew", 10))
 	require.NoError(t, err)
 	require.Len(t, hits, 1)
 	assert.Equal(t, "m1", hits[0].Doc.ID)
 
-	hits, err = async.Await(movies.TermSearch(ctx, "plotIndex", "mercenary", 10))
+	hits, err = async.Await(movies.TermSearch(ctx, moviePlot, "mercenary", 10))
 	require.NoError(t, err)
 	require.Len(t, hits, 1, "stemming")
 	assert.Equal(t, "m4", hits[0].Doc.ID)
-
-	_, err = async.Await(movies.TermSearch(ctx, "nope", "crew", 1))
-	assert.ErrorContains(t, err, "no term search index")
 }
 
 // movieV2 changes the schema: a new column, different indexes.
@@ -378,8 +377,11 @@ func (movieV2) Indexes() []odm.IndexSpec {
 	// title is no longer unique; byYear is gone; a new index on studio.
 	return []odm.IndexSpec{{Keys: []odm.IndexKey{odm.Key("title")}}, {Keys: []odm.IndexKey{odm.Key("studio")}}}
 }
+
+var movieV2Plot = odm.TermSearchIndexSpec{Name: "plotIndex", Paths: []string{"plot", "studio"}}
+
 func (movieV2) TermSearchIndexes() []odm.TermSearchIndexSpec {
-	return []odm.TermSearchIndexSpec{{Name: "plotIndex", Paths: []string{"plot", "studio"}}}
+	return []odm.TermSearchIndexSpec{movieV2Plot}
 }
 func (movieV2) VectorIndexes() []odm.VectorIndexSpec {
 	return []odm.VectorIndexSpec{{Name: "embeddingIndex", Path: "embedding", Dimensions: 3, Similarity: odm.Euclidean}}
@@ -421,7 +423,7 @@ func TestEnsureTableMigrates(t *testing.T) {
 	dup.ID = "dup"
 	_, err = async.Await(v2.Save(ctx, dup))
 	require.NoError(t, err)
-	hits, err := async.Await(v2.TermSearch(ctx, "plotIndex", "warner", 10))
+	hits, err := async.Await(v2.TermSearch(ctx, movieV2Plot, "warner", 10))
 	require.NoError(t, err)
 	require.Len(t, hits, 1)
 	assert.Equal(t, "dup", hits[0].Doc.ID)
@@ -464,4 +466,24 @@ func TestEnsureTableRejects(t *testing.T) {
 	db := openTestDB(t)
 	err := EnsureTable[ttlModel](t.Context(), db, testTenant("ttl"))
 	assert.ErrorIs(t, err, errors.ErrUnsupported)
+}
+
+// TestBuilderErrors needs no database: the errors come before any query.
+func TestBuilderErrors(t *testing.T) {
+	tbl := TableOf[profile](nil, "tenant")
+	_, err := async.Await(tbl.Where("a = ? AND b = ?", 1).Find(t.Context()))
+	assert.EqualError(t, err, `odm/postgres: tenant.profiles: Where("a = ? AND b = ?") has 2 placeholders but 1 arguments`)
+	_, err = async.Await(tbl.Limit(-1).Count(t.Context()))
+	assert.ErrorContains(t, err, "must not be negative")
+	_, err = async.Await(tbl.Offset(-1).Exists(t.Context()))
+	assert.ErrorContains(t, err, "must not be negative")
+
+	_, err = async.Await(tbl.Delete(t.Context()))
+	assert.ErrorContains(t, err, "needs a Where")
+	_, err = async.Await(tbl.Where("true").Limit(1).Delete(t.Context()))
+	assert.ErrorContains(t, err, "doesn't take")
+	_, err = async.Await(tbl.Limit(3).VectorSearch(t.Context(), profileEmbedding, []float32{1, 2, 3}, 3))
+	assert.ErrorContains(t, err, "drop OrderBy, Limit and Offset")
+	_, err = async.Await(tbl.VectorSearch(t.Context(), profileEmbedding, []float32{1, 2}, 3))
+	assert.ErrorContains(t, err, "dimensions")
 }

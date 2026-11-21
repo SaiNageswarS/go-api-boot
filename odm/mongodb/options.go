@@ -9,6 +9,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
+// The options and parameters of Collection's methods, and their driver form.
+
 // SortField orders results by one field.
 type SortField struct {
 	Field string
@@ -39,6 +41,19 @@ func WithLimit(n int64) FindOption { return func(o *findOptions) { o.limit = n }
 
 // WithSkip skips the first n results.
 func WithSkip(n int64) FindOption { return func(o *findOptions) { o.skip = n } }
+
+// VectorSearchParams configures VectorSearch.
+type VectorSearchParams struct {
+	K             int    // number of nearest neighbours to return
+	NumCandidates int    // approximate candidates to consider; 0 picks a default
+	Filter        bson.M // optional pre-filter on the index's FilterPaths
+}
+
+// TermSearchParams configures TermSearch.
+type TermSearchParams struct {
+	Limit  int    // number of results to return
+	Filter bson.M // optional filter
+}
 
 func resolveFindOptions(opts ...FindOption) (findOptions, error) {
 	var o findOptions

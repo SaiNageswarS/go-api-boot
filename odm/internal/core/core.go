@@ -1,6 +1,5 @@
 // Package core is what the odm backends share but don't export: reading a
-// model's declarations, validating them and the queries made with them, and
-// the error convention.
+// model's declarations and validating them and the queries made with them.
 package core
 
 import (
@@ -11,29 +10,7 @@ import (
 	"strings"
 
 	"github.com/SaiNageswarS/go-api-boot/odm"
-	"github.com/SaiNageswarS/go-collection-boot/async"
 )
-
-// Every error a backend returns reads "odm/<backend>: <op> <target>:
-// <cause>". Backend code returns plain causes; Go and Wrap add the prefix
-// once, at the public method.
-
-// Go runs fn asynchronously, wrapping its error as Wrap does.
-func Go[R any](backend, op, target string, fn func() (R, error)) <-chan async.Result[R] {
-	return async.Go(func() (R, error) {
-		r, err := fn()
-		return r, Wrap(backend, op, target, err)
-	})
-}
-
-// Wrap prefixes err with the backend, the operation and its target (tenant
-// and collection or table); nil stays nil.
-func Wrap(backend, op, target string, err error) error {
-	if err == nil {
-		return nil
-	}
-	return fmt.Errorf("odm/%s: %s %s: %w", backend, op, target, err)
-}
 
 // Unsupported reports a feature a backend doesn't support; it wraps
 // errors.ErrUnsupported.
@@ -74,26 +51,6 @@ func VectorIndexes[T odm.Model]() []odm.VectorIndexSpec {
 		return ix.VectorIndexes()
 	}
 	return nil
-}
-
-// VectorIndex finds T's vector index by name.
-func VectorIndex[T odm.Model](name string) (odm.VectorIndexSpec, error) {
-	for _, s := range VectorIndexes[T]() {
-		if s.Name == name {
-			return s, nil
-		}
-	}
-	return odm.VectorIndexSpec{}, fmt.Errorf("model declares no vector index %q", name)
-}
-
-// TermSearchIndex finds T's term search index by name.
-func TermSearchIndex[T odm.Model](name string) (odm.TermSearchIndexSpec, error) {
-	for _, s := range TermSearchIndexes[T]() {
-		if s.Name == name {
-			return s, nil
-		}
-	}
-	return odm.TermSearchIndexSpec{}, fmt.Errorf("model declares no term search index %q", name)
 }
 
 // IndexName is the index's Name, or one derived from its keys, e.g.

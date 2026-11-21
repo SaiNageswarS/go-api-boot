@@ -1,7 +1,6 @@
 package postgres
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -11,70 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Vector search with pgvector: VectorIndexSpecs become vector(N) or
-// halfvec(N) columns with HNSW indexes.
-
-// vectorSearch is VectorSearch.
-func (t Table[T]) vectorSearch(ctx context.Context, index string, embedding []float32, k int) ([]odm.SearchHit[T], error) {
-	if err := t.searchOnly("VectorSearch"); err != nil {
-		return nil, err
-	}
-	spec, err := core.VectorIndex[T](index)
-	if err != nil {
-		return nil, err
-	}
-	if err := core.CheckVectorQuery(spec, embedding, k); err != nil {
-		return nil, err
-	}
-	vec, err := pgVectorFor(spec)
-	if err != nil {
-		return nil, err
-	}
-	s, err := schemaOf[T]()
-	if err != nil {
-		return nil, err
-	}
-
-	col := pgx.Identifier{spec.Path}.Sanitize()
-	where, args := t.whereSQL([]any{vectorLiteral(embedding)})
-	where = andWhere(where, col+" IS NOT NULL")
-	distance := col + " " + vec.operator + " $1::" + vec.sqlType
-	sql := "SELECT " + s.selectList() + ", " + distance + " AS distance FROM " + t.qualified() + where +
-		" ORDER BY distance LIMIT " + strconv.Itoa(k)
-
-	// Session settings for this query only, applied in a transaction.
-	var settings []string
-	if k > 40 { // hnsw.ef_search defaults to 40, which caps the results
-		settings = append(settings, "SET LOCAL hnsw.ef_search = "+strconv.Itoa(min(k, 1000)))
-	}
-	if len(t.where) > 0 {
-		iterative, err := t.db.iterativeScans(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if iterative {
-			// Keep scanning the index until k rows pass the conditions.
-			// relaxed_order may return rows slightly out of order, so re-sort.
-			settings = append(settings, "SET LOCAL hnsw.iterative_scan = relaxed_order")
-			sql = "SELECT * FROM (" + sql + ") AS s ORDER BY distance"
-		}
-	}
-	if len(settings) == 0 {
-		return t.queryHits(ctx, t.db.pool, s, sql, args, vec.score)
-	}
-
-	tx, err := t.db.pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	for _, setting := range settings {
-		if _, err := tx.Exec(ctx, setting); err != nil {
-			return nil, err
-		}
-	}
-	return t.queryHits(ctx, tx, s, sql, args, vec.score)
-}
+// The SQL of vector search with pgvector: VectorIndexSpecs become vector(N)
+// or halfvec(N) columns with HNSW indexes.
 
 // pgVector describes how a vector column is typed, compared and indexed.
 type pgVector struct {
@@ -113,6 +50,39 @@ func pgVectorFor(spec odm.VectorIndexSpec) (pgVector, error) {
 		v.score = func(d float64) float64 { return 1 / (1 + d) }
 	}
 	return v, nil
+}
+
+// hnswIndexSQL is the definition of spec's HNSW index on table.
+func hnswIndexSQL(table string, spec odm.VectorIndexSpec, vec pgVector) string {
+	return "ON " + table + " USING hnsw (" + pgx.Identifier{spec.Path}.Sanitize() + " " + vec.opClass + ")"
+}
+
+// vectorSearchSQL selects the k rows of s nearest to embedding in spec's
+// column, among those matching t's conditions, each followed by its distance.
+// An iterative scan may return rows slightly out of order, so it re-sorts.
+func (t Table[T]) vectorSearchSQL(s *tableSchema, spec odm.VectorIndexSpec, vec pgVector, embedding []float32, k int, iterative bool) (string, []any) {
+	col := pgx.Identifier{spec.Path}.Sanitize()
+	where, args := t.whereSQL([]any{vectorLiteral(embedding)})
+	where = andWhere(where, col+" IS NOT NULL")
+	distance := col + " " + vec.operator + " $1::" + vec.sqlType
+	sql := "SELECT " + s.selectList() + ", " + distance + " AS distance FROM " + t.qualified() + where +
+		" ORDER BY distance LIMIT " + strconv.Itoa(k)
+	if iterative {
+		sql = "SELECT * FROM (" + sql + ") AS s ORDER BY distance"
+	}
+	return sql, args
+}
+
+// vectorSearchSettings are the session settings a search for k rows needs.
+func vectorSearchSettings(k int, iterative bool) []string {
+	var settings []string
+	if k > 40 { // hnsw.ef_search defaults to 40, which caps the results
+		settings = append(settings, "SET LOCAL hnsw.ef_search = "+strconv.Itoa(min(k, 1000)))
+	}
+	if iterative { // keep scanning the index until k rows pass the conditions
+		settings = append(settings, "SET LOCAL hnsw.iterative_scan = relaxed_order")
+	}
+	return settings
 }
 
 // vectorLiteral is v as pgvector's text input, e.g. [1,0.5,0].

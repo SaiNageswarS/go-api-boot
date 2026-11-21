@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/SaiNageswarS/go-api-boot/odm"
 	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,25 +21,6 @@ func TestResolveFindOptions(t *testing.T) {
 	_, err = resolveFindOptions(WithSkip(-1))
 	assert.Error(t, err)
 	_, err = resolveFindOptions(WithSort(Asc("")))
-	assert.Error(t, err)
-}
-
-func TestSearchPipelines(t *testing.T) {
-	vec := odm.VectorIndexSpec{Name: "v", Path: "e", Dimensions: 1}
-	p, err := vectorSearchPipeline(vec, []float32{1}, VectorSearchParams{IndexName: "v", K: 3})
-	require.NoError(t, err)
-	stage := p[0][0].Value.(bson.D)
-	assert.Contains(t, stage, bson.E{Key: "numCandidates", Value: 100}, "default candidates")
-	_, err = vectorSearchPipeline(vec, []float32{1}, VectorSearchParams{IndexName: "v"})
-	assert.Error(t, err, "K is required")
-	_, err = vectorSearchPipeline(vec, []float32{1}, VectorSearchParams{IndexName: "v", K: 1, NumCandidates: -1})
-	assert.Error(t, err)
-
-	term := odm.TermSearchIndexSpec{Name: "t", Paths: []string{"plot"}}
-	p, err = termSearchPipeline(term, "q", TermSearchParams{IndexName: "t", Limit: 1, Filter: bson.M{"year": 1}})
-	require.NoError(t, err)
-	assert.Len(t, p, 4, "search, match, limit, project")
-	_, err = termSearchPipeline(term, "", TermSearchParams{IndexName: "t", Limit: 1})
 	assert.Error(t, err)
 }
 

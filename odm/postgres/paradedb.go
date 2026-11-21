@@ -1,7 +1,6 @@
 package postgres
 
 import (
-	"context"
 	"fmt"
 	"slices"
 	"strconv"
@@ -12,44 +11,26 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Term search with ParadeDB's pg_search extension (BM25, like Atlas Search).
-// EnsureTable creates one ParadeDB index over the text columns of all the
-// model's TermSearchIndexSpecs: ParadeDB allows one per table.
+// The SQL of term search with ParadeDB's pg_search extension (BM25, like
+// Atlas Search). EnsureTable creates one ParadeDB index over the text columns
+// of all the model's TermSearchIndexSpecs: ParadeDB allows one per table.
 
-// termSearch is TermSearch.
-func (t Table[T]) termSearch(ctx context.Context, index, query string, limit int) ([]odm.SearchHit[T], error) {
-	if err := t.searchOnly("TermSearch"); err != nil {
-		return nil, err
-	}
-	if err := core.CheckTermQuery(query, limit); err != nil {
-		return nil, err
-	}
-	spec, err := core.TermSearchIndex[T](index)
-	if err != nil {
-		return nil, err
-	}
-	s, err := schemaOf[T]()
-	if err != nil {
-		return nil, err
-	}
-	if err := t.db.requirePgSearch(ctx); err != nil {
-		return nil, err
-	}
-
+// termSearchSQL selects the limit rows of s best matching query in spec's
+// columns, among those matching t's conditions, each followed by its score.
+func (t Table[T]) termSearchSQL(s *tableSchema, spec odm.TermSearchIndexSpec, query string, limit int) (string, []any) {
 	matches := make([]string, len(spec.Paths))
 	for i, p := range spec.Paths {
 		matches[i] = pgx.Identifier{p}.Sanitize() + " ||| $1::text"
 	}
 	where, args := t.whereSQL([]any{query})
 	where = andWhere(where, "("+strings.Join(matches, " OR ")+")")
-	sql := "SELECT " + s.selectList() + ", pdb.score(" + idColumn + ")::float8 AS score FROM " + t.qualified() + where +
-		" ORDER BY score DESC LIMIT " + strconv.Itoa(limit)
-	return t.queryHits(ctx, t.db.pool, s, sql, args, func(score float64) float64 { return score })
+	return "SELECT " + s.selectList() + ", pdb.score(" + idColumn + ")::float8 AS score FROM " + t.qualified() + where +
+		" ORDER BY score DESC LIMIT " + strconv.Itoa(limit), args
 }
 
 // searchIndexSQL is the definition of the table's ParadeDB index over
 // columns.
-func searchIndexSQL(qualified string, columns []string, stemmer string) string {
+func searchIndexSQL(table string, columns []string, stemmer string) string {
 	tokenizer := "pdb.unicode_words"
 	if stemmer != "" {
 		tokenizer += "(" + quoteLiteral("stemmer="+stemmer) + ")"
@@ -58,7 +39,7 @@ func searchIndexSQL(qualified string, columns []string, stemmer string) string {
 	for _, c := range columns {
 		fields = append(fields, "("+pgx.Identifier{c}.Sanitize()+"::"+tokenizer+")")
 	}
-	return "ON " + qualified + " USING paradedb (" + strings.Join(fields, ", ") + ")"
+	return "ON " + table + " USING paradedb (" + strings.Join(fields, ", ") + ")"
 }
 
 // searchColumns checks that the term search paths are text columns of s, and

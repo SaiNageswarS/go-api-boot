@@ -32,6 +32,11 @@ type pool interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
+// querier is a pool or a transaction.
+type querier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
 // Option configures a DB.
 type Option func(*DB)
 

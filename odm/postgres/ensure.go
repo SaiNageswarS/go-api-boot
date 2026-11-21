@@ -10,14 +10,14 @@ import (
 	"unicode/utf8"
 
 	"github.com/SaiNageswarS/go-api-boot/odm"
+	"github.com/SaiNageswarS/go-api-boot/odm/internal/core"
 	"github.com/jackc/pgx/v5"
 )
 
-// managedComment marks the indexes EnsureCollection owns.
+// managedComment marks the indexes EnsureTable owns.
 const managedComment = "odm"
 
-// EnsureCollection creates T's table in tenant and reconciles it with the
-// model. Run it when deploying or onboarding a tenant; it is idempotent and
+// EnsureTable creates T's table in tenant and reconciles it with the model. Run it when deploying or onboarding a tenant; it is idempotent and
 // runs in one transaction.
 //
 // Columns: missing ones are added (NOT NULL with the zero value as default,
@@ -36,8 +36,13 @@ const managedComment = "odm"
 //
 // Index names end in a hash of their definition. A changed definition creates
 // a new index and drops the old one; indexes no longer declared are dropped.
-// Indexes EnsureCollection didn't create are left alone.
-func EnsureCollection[T odm.Model](ctx context.Context, db *DB, tenant string) error {
+// Indexes EnsureTable didn't create are left alone.
+func EnsureTable[T odm.Model](ctx context.Context, db *DB, tenant string) error {
+	var zero T
+	return core.Wrap(backend, "EnsureTable", tenant+"."+zero.CollectionName(), ensureTable[T](ctx, db, tenant))
+}
+
+func ensureTable[T odm.Model](ctx context.Context, db *DB, tenant string) error {
 	s, err := schemaOf[T]()
 	if err != nil {
 		return err
@@ -53,17 +58,17 @@ func EnsureCollection[T odm.Model](ctx context.Context, db *DB, tenant string) e
 		indexes = append(indexes, index{name, "CREATE " + unique + "INDEX " + pgx.Identifier{name}.Sanitize() + " " + def})
 	}
 
-	for _, spec := range odm.IndexesOf[T]() {
-		if len(spec.Keys) == 0 {
-			return fmt.Errorf("odm/postgres: index %q has no keys", spec.Name)
+	for _, spec := range core.Indexes[T]() {
+		if err := core.ValidateIndex(spec); err != nil {
+			return err
 		}
 		if spec.TTL > 0 {
-			return errUnsupported("index %s: TTL", spec.DisplayName())
+			return core.Unsupported("index %s: TTL", core.IndexName(spec))
 		}
 		cols := make([]string, len(spec.Keys))
 		for i, k := range spec.Keys {
 			if _, ok := s.byName[k.Field]; !ok {
-				return fmt.Errorf("odm/postgres: index %s: model has no column %q", spec.DisplayName(), k.Field)
+				return fmt.Errorf("index %s: model has no column %q", core.IndexName(spec), k.Field)
 			}
 			cols[i] = pgx.Identifier{k.Field}.Sanitize()
 			if k.Desc {
@@ -74,10 +79,10 @@ func EnsureCollection[T odm.Model](ctx context.Context, db *DB, tenant string) e
 		if spec.Unique {
 			unique = "UNIQUE "
 		}
-		add(spec.DisplayName(), unique, "ON "+qualified+" ("+strings.Join(cols, ", ")+")")
+		add(core.IndexName(spec), unique, "ON "+qualified+" ("+strings.Join(cols, ", ")+")")
 	}
 
-	vectorSpecs := odm.VectorIndexesOf[T]()
+	vectorSpecs := core.VectorIndexes[T]()
 	for _, spec := range vectorSpecs {
 		vec, err := pgVectorFor(spec)
 		if err != nil {
@@ -86,7 +91,7 @@ func EnsureCollection[T odm.Model](ctx context.Context, db *DB, tenant string) e
 		add(spec.Name, "", "ON "+qualified+" USING hnsw ("+pgx.Identifier{spec.Path}.Sanitize()+" "+vec.opClass+")")
 	}
 
-	searchCols, err := searchColumns(s, odm.TermSearchIndexesOf[T]())
+	searchCols, err := searchColumns(s, core.TermSearchIndexes[T]())
 	if err != nil {
 		return err
 	}
@@ -115,7 +120,7 @@ func EnsureCollection[T odm.Model](ctx context.Context, db *DB, tenant string) e
 
 	exec := func(sql string, args ...any) error {
 		if _, err := tx.Exec(ctx, sql, args...); err != nil {
-			return fmt.Errorf("odm/postgres: %s: %w", sql, err)
+			return fmt.Errorf("%s: %w", sql, err)
 		}
 		return nil
 	}
@@ -156,7 +161,7 @@ func EnsureCollection[T odm.Model](ctx context.Context, db *DB, tenant string) e
 				return err
 			}
 		case typ != c.sqlType:
-			return fmt.Errorf("odm/postgres: column %s.%s is %s but the model needs %s; migrate it, then run EnsureCollection again",
+			return fmt.Errorf("column %s.%s is %s but the model needs %s; migrate it, then run EnsureTable again",
 				table, c.name, typ, c.sqlType)
 		}
 	}

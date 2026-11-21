@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
 
 	"github.com/SaiNageswarS/go-api-boot/odm"
+	"github.com/SaiNageswarS/go-api-boot/odm/internal/core"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -22,9 +24,16 @@ const (
 	vectorColumn                   // pgvector, written as a literal and read as real[]
 )
 
+// The columns the ORM itself writes.
+const (
+	idColumn        = "id"         // the primary key, from Model.Id()
+	createdOnColumn = "created_on" // stamped by Save on insert
+	updatedOnColumn = "updated_on" // stamped by Save on every save
+)
+
 type column struct {
 	name     string
-	index    []int // reflect field index
+	index    []int // reflect field index; nil for a timestamp the model doesn't map
 	typ      reflect.Type
 	sqlType  string // as format_type reports it, e.g. "bigint", "text[]", "vector(3)"
 	kind     columnKind
@@ -49,7 +58,7 @@ func (c column) selectExpr() string {
 // definition is the column's DDL, as used by CREATE TABLE and ADD COLUMN.
 func (c column) definition() string {
 	def := c.quoted() + " " + c.sqlType
-	if c.name == "id" {
+	if c.name == idColumn {
 		return def + " PRIMARY KEY"
 	}
 	if !c.nullable {
@@ -69,7 +78,7 @@ func (c column) arg(model reflect.Value) (any, string, error) {
 	case jsonColumn:
 		js, err := json.Marshal(v.Interface())
 		if err != nil {
-			return nil, "", fmt.Errorf("odm/postgres: encoding column %s: %w", c.name, err)
+			return nil, "", fmt.Errorf("encoding column %s: %w", c.name, err)
 		}
 		return string(js), "::jsonb", nil
 	case vectorColumn:
@@ -97,34 +106,47 @@ func (c column) scanTarget(model reflect.Value) (any, func() error) {
 			return nil
 		}
 		if err := json.Unmarshal(raw, field.Addr().Interface()); err != nil {
-			return fmt.Errorf("odm/postgres: decoding column %s: %w", c.name, err)
+			return fmt.Errorf("decoding column %s: %w", c.name, err)
 		}
 		return nil
 	}
 }
 
 type tableSchema struct {
-	columns   []column
-	byName    map[string]*column
-	createdOn *column
-	updatedOn *column
+	columns []column // every column of the table, in DDL order
+	byName  map[string]*column
+}
+
+// fields are the columns mapped to model fields: what reads select and scan.
+func (s *tableSchema) fields() []column {
+	return slices.DeleteFunc(slices.Clone(s.columns), func(c column) bool { return c.index == nil })
+}
+
+// selectList is the SELECT list that reads a model.
+func (s *tableSchema) selectList() string {
+	fields := s.fields()
+	exprs := make([]string, len(fields))
+	for i, c := range fields {
+		exprs[i] = c.selectExpr()
+	}
+	return strings.Join(exprs, ", ")
 }
 
 var schemaCache sync.Map // reflect.Type -> *tableSchema
 
-// schemaOf maps T's fields to columns, failing on models the backend can't
-// store.
+// schemaOf maps T's fields to columns, plus the timestamp columns the model
+// doesn't map, failing on models the backend can't store.
 func schemaOf[T odm.Model]() (*tableSchema, error) {
 	t := reflect.TypeFor[T]()
 	if cached, ok := schemaCache.Load(t); ok {
 		return cached.(*tableSchema), nil
 	}
 	if t.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("odm/postgres: model %s must be a struct", t)
+		return nil, fmt.Errorf("model %s must be a struct", t)
 	}
 
 	vectors := map[string]odm.VectorIndexSpec{}
-	for _, spec := range odm.VectorIndexesOf[T]() {
+	for _, spec := range core.VectorIndexes[T]() {
 		vectors[spec.Path] = spec
 	}
 
@@ -153,11 +175,11 @@ func schemaOf[T odm.Model]() (*tableSchema, error) {
 				name = snakeCase(f.Name)
 			}
 			if _, dup := s.byName[name]; dup {
-				return fmt.Errorf("odm/postgres: model %s maps two fields to column %q", reflect.TypeFor[T](), name)
+				return fmt.Errorf("model %s maps two fields to column %q", t, name)
 			}
 			col, err := columnFor(name, f.Type, vectors)
 			if err != nil {
-				return fmt.Errorf("odm/postgres: model %s, field %s: %w", reflect.TypeFor[T](), f.Name, err)
+				return fmt.Errorf("model %s, field %s: %w", t, f.Name, err)
 			}
 			col.index = idx
 			s.columns = append(s.columns, col)
@@ -168,25 +190,28 @@ func schemaOf[T odm.Model]() (*tableSchema, error) {
 	if err := walk(t, nil); err != nil {
 		return nil, err
 	}
+	for _, name := range []string{createdOnColumn, updatedOnColumn} {
+		if c, ok := s.byName[name]; ok {
+			if c.typ.Kind() != reflect.Int64 {
+				return nil, fmt.Errorf("model %s: column %q is stamped by Save and must be an int64 field, not %s", t, name, c.typ)
+			}
+			continue
+		}
+		s.columns = append(s.columns, column{name: name, typ: reflect.TypeFor[int64](), sqlType: "bigint", dflt: "0"})
+	}
 	// Rebuild the pointers: appending may have moved the slice.
 	for i := range s.columns {
 		s.byName[s.columns[i].name] = &s.columns[i]
 	}
 
-	id, ok := s.byName["id"]
+	id, ok := s.byName[idColumn]
 	if !ok || id.typ.Kind() != reflect.String {
-		return nil, fmt.Errorf("odm/postgres: model %s needs a string field for the \"id\" column", t)
+		return nil, fmt.Errorf("model %s needs a string field for the %q column", t, idColumn)
 	}
 	for path, spec := range vectors {
 		if c, ok := s.byName[path]; !ok || c.kind != vectorColumn {
-			return nil, fmt.Errorf("odm/postgres: vector index %s: model %s has no []float32 column %q", spec.Name, t, path)
+			return nil, fmt.Errorf("vector index %s: model %s has no []float32 column %q", spec.Name, t, path)
 		}
-	}
-	if c, ok := s.byName["created_on"]; ok && c.typ.Kind() == reflect.Int64 {
-		s.createdOn = c
-	}
-	if c, ok := s.byName["updated_on"]; ok && c.typ.Kind() == reflect.Int64 {
-		s.updatedOn = c
 	}
 
 	cached, _ := schemaCache.LoadOrStore(t, s)

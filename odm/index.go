@@ -1,15 +1,14 @@
 package odm
 
-import (
-	"fmt"
-	"time"
-)
+import "time"
 
-// A model declares its indexes by implementing any of Indexed,
-// TermSearchIndexed and VectorIndexed. Each backend's EnsureCollection creates
-// them; it is a deployment step, not something collections do at runtime.
-
-// Indexed declares regular (b-tree) indexes.
+// Indexed declares regular (b-tree) indexes. A model declares its indexes by
+// implementing any of Indexed, TermSearchIndexed and VectorIndexed; each
+// backend's ensure function (mongodb.EnsureCollection, postgres.EnsureTable)
+// creates them. That is a deployment step, not something done at runtime.
+//
+// Index features a backend doesn't support make its ensure function fail with
+// an error wrapping errors.ErrUnsupported.
 type Indexed interface {
 	Indexes() []IndexSpec
 }
@@ -34,25 +33,6 @@ func Key(field string) IndexKey { return IndexKey{Field: field} }
 
 // DescKey is a descending IndexKey.
 func DescKey(field string) IndexKey { return IndexKey{Field: field, Desc: true} }
-
-// DisplayName is Name, or one derived from the keys (e.g. "year_-1_title_1").
-func (s IndexSpec) DisplayName() string {
-	if s.Name != "" {
-		return s.Name
-	}
-	name := ""
-	for i, k := range s.Keys {
-		if i > 0 {
-			name += "_"
-		}
-		dir := 1
-		if k.Desc {
-			dir = -1
-		}
-		name += fmt.Sprintf("%s_%d", k.Field, dir)
-	}
-	return name
-}
 
 // TermSearchIndexed declares full-text search indexes.
 type TermSearchIndexed interface {
@@ -91,59 +71,8 @@ type VectorIndexSpec struct {
 	FilterPaths  []string   // MongoDB: fields VectorSearch may pre-filter on
 }
 
-// SimilarityOrDefault is Similarity, or Cosine when unset.
-func (s VectorIndexSpec) SimilarityOrDefault() Similarity {
-	if s.Similarity == "" {
-		return Cosine
-	}
-	return s.Similarity
-}
-
-// IndexesOf returns T's regular indexes, if it declares any.
-func IndexesOf[T Model]() []IndexSpec {
-	var zero T
-	if ix, ok := any(zero).(Indexed); ok {
-		return ix.Indexes()
-	}
-	return nil
-}
-
-// TermSearchIndexesOf returns T's term search indexes, if it declares any.
-func TermSearchIndexesOf[T Model]() []TermSearchIndexSpec {
-	var zero T
-	if ix, ok := any(zero).(TermSearchIndexed); ok {
-		return ix.TermSearchIndexes()
-	}
-	return nil
-}
-
-// VectorIndexesOf returns T's vector indexes, if it declares any.
-func VectorIndexesOf[T Model]() []VectorIndexSpec {
-	var zero T
-	if ix, ok := any(zero).(VectorIndexed); ok {
-		return ix.VectorIndexes()
-	}
-	return nil
-}
-
-// VectorIndexOf finds T's vector index by name.
-func VectorIndexOf[T Model](name string) (VectorIndexSpec, error) {
-	for _, s := range VectorIndexesOf[T]() {
-		if s.Name == name {
-			return s, nil
-		}
-	}
-	var zero T
-	return VectorIndexSpec{}, fmt.Errorf("odm: %s declares no vector index %q", zero.CollectionName(), name)
-}
-
-// TermSearchIndexOf finds T's term search index by name.
-func TermSearchIndexOf[T Model](name string) (TermSearchIndexSpec, error) {
-	for _, s := range TermSearchIndexesOf[T]() {
-		if s.Name == name {
-			return s, nil
-		}
-	}
-	var zero T
-	return TermSearchIndexSpec{}, fmt.Errorf("odm: %s declares no term search index %q", zero.CollectionName(), name)
+// SearchHit is a search result with its relevance score (higher is better).
+type SearchHit[T Model] struct {
+	Score float64 `bson:"score"`
+	Doc   T       `bson:"doc"`
 }

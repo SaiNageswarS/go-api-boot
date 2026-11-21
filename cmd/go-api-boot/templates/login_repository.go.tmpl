@@ -3,13 +3,15 @@ package db
 import (
 	"crypto/sha256"
 	"encoding/base64"
+
+	"github.com/SaiNageswarS/go-api-boot/odm"
 )
 
 type LoginModel struct {
-	UserId         string `bson:"_id"`
-	EmailId        string `bson:"email"`
-	HashedPassword string `bson:"password"`
-	CreatedOn      int64  `bson:"createdOn"`
+	odm.Timestamps `bson:",inline"` // createdOn and updatedOn, stamped by Save
+	UserId         string           `bson:"_id"`
+	EmailId        string           `bson:"email"`
+	HashedPassword string           `bson:"password"`
 }
 
 func (m LoginModel) Id() string {

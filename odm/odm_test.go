@@ -1,10 +1,13 @@
 package odm
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func TestHashedKey(t *testing.T) {
@@ -27,26 +30,22 @@ func TestNewModelFrom(t *testing.T) {
 	assert.Equal(t, "n", NewModelFrom[dst](src{Name: "n"}).Name)
 }
 
-func TestIndexSpecDisplayName(t *testing.T) {
-	assert.Equal(t, "year_-1_title_1", IndexSpec{Keys: []IndexKey{DescKey("year"), Key("title")}}.DisplayName())
-	assert.Equal(t, "byYear", IndexSpec{Name: "byYear"}.DisplayName())
-}
+func TestTimestampsEmbed(t *testing.T) {
+	type profile struct {
+		Timestamps `bson:",inline"`
+		ID         string `bson:"_id"`
+	}
+	p := profile{Timestamps: Timestamps{CreatedOn: 1, UpdatedOn: 2}, ID: "a"}
 
-type indexed struct{}
-
-func (indexed) Id() string             { return "" }
-func (indexed) CollectionName() string { return "things" }
-func (indexed) VectorIndexes() []VectorIndexSpec {
-	return []VectorIndexSpec{{Name: "v", Path: "e", Dimensions: 3}}
-}
-
-func TestIndexLookup(t *testing.T) {
-	spec, err := VectorIndexOf[indexed]("v")
+	raw, err := bson.Marshal(p)
 	require.NoError(t, err)
-	assert.Equal(t, Cosine, spec.SimilarityOrDefault())
+	assert.Equal(t, `{"createdOn": {"$numberLong":"1"},"updatedOn": {"$numberLong":"2"},"_id": "a"}`, bson.Raw(raw).String())
 
-	_, err = VectorIndexOf[indexed]("nope")
-	assert.ErrorContains(t, err, `things declares no vector index "nope"`)
-	_, err = TermSearchIndexOf[indexed]("t")
-	assert.Error(t, err)
+	js, err := json.Marshal(p)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"createdOn":1,"updatedOn":2,"ID":"a"}`, string(js))
+}
+
+func TestSystemTimer(t *testing.T) {
+	assert.InDelta(t, time.Now().Unix(), SystemTimer{}.Now(), 1)
 }

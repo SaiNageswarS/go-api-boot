@@ -3,11 +3,11 @@ package mongodb
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/SaiNageswarS/go-api-boot/odm"
+	"github.com/SaiNageswarS/go-api-boot/odm/internal/core"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -24,7 +24,33 @@ import (
 func EnsureCollection[T odm.Model](ctx context.Context, c *Client, tenant string) error {
 	var zero T
 	name := zero.CollectionName()
-	db := c.mongo.Database(tenant)
+	return core.Wrap(backend, "EnsureCollection", tenant+"."+name, ensureCollection[T](ctx, c.mongo.Database(tenant), name))
+}
+
+func ensureCollection[T odm.Model](ctx context.Context, db *mongo.Database, name string) error {
+	// Build every definition first, so an invalid spec changes nothing.
+	var indexes []odm.IndexSpec
+	for _, spec := range core.Indexes[T]() {
+		if err := core.ValidateIndex(spec); err != nil {
+			return err
+		}
+		indexes = append(indexes, spec)
+	}
+	searchModels := map[string]mongo.SearchIndexModel{}
+	for _, spec := range core.TermSearchIndexes[T]() {
+		m, err := termSearchIndexModel(spec)
+		if err != nil {
+			return err
+		}
+		searchModels[spec.Name] = m
+	}
+	for _, spec := range core.VectorIndexes[T]() {
+		m, err := vectorIndexModel(spec)
+		if err != nil {
+			return err
+		}
+		searchModels[spec.Name] = m
+	}
 
 	if err := db.CreateCollection(ctx, name); err != nil {
 		var cmdErr mongo.CommandError
@@ -34,22 +60,10 @@ func EnsureCollection[T odm.Model](ctx context.Context, c *Client, tenant string
 	}
 	col := db.Collection(name)
 
-	for _, spec := range odm.IndexesOf[T]() {
+	for _, spec := range indexes {
 		if err := ensureIndex(ctx, col, spec); err != nil {
 			return err
 		}
-	}
-
-	searchModels := map[string]mongo.SearchIndexModel{}
-	for _, spec := range odm.TermSearchIndexesOf[T]() {
-		searchModels[spec.Name] = termSearchIndexModel(spec)
-	}
-	for _, spec := range odm.VectorIndexesOf[T]() {
-		m, err := vectorIndexModel(spec)
-		if err != nil {
-			return err
-		}
-		searchModels[spec.Name] = m
 	}
 	if len(searchModels) == 0 {
 		return nil
@@ -77,32 +91,31 @@ func EnsureCollection[T odm.Model](ctx context.Context, c *Client, tenant string
 // declares in tenant can serve queries, or ctx ends.
 func WaitForSearchIndexes[T odm.Model](ctx context.Context, c *Client, tenant string) error {
 	var names []string
-	for _, s := range odm.TermSearchIndexesOf[T]() {
+	for _, s := range core.TermSearchIndexes[T]() {
 		names = append(names, s.Name)
 	}
-	for _, s := range odm.VectorIndexesOf[T]() {
+	for _, s := range core.VectorIndexes[T]() {
 		names = append(names, s.Name)
 	}
 	var zero T
-	col := c.collection(tenant, zero.CollectionName())
+	name := zero.CollectionName()
+	col := c.collection(tenant, name)
 
 	for {
 		status, err := searchIndexStatus(ctx, col)
 		if err != nil {
-			return err
+			return core.Wrap(backend, "WaitForSearchIndexes", tenant+"."+name, err)
 		}
 		ready := true
 		for _, n := range names {
-			if !status[n] {
-				ready = false
-			}
+			ready = ready && status[n]
 		}
 		if ready {
 			return nil
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("odm/mongodb: waiting for search indexes on %s.%s: %w", tenant, zero.CollectionName(), ctx.Err())
+			return core.Wrap(backend, "WaitForSearchIndexes", tenant+"."+name, ctx.Err())
 		case <-time.After(time.Second):
 		}
 	}
@@ -128,19 +141,15 @@ func searchIndexStatus(ctx context.Context, col *mongo.Collection) (map[string]b
 	return status, nil
 }
 
+// ensureIndex creates a regular index, replacing one of the same name whose
+// definition changed.
 func ensureIndex(ctx context.Context, col *mongo.Collection, spec odm.IndexSpec) error {
-	if len(spec.Keys) == 0 {
-		return fmt.Errorf("odm/mongodb: index %q has no keys", spec.Name)
+	keys := make(bson.D, len(spec.Keys))
+	for i, k := range spec.Keys {
+		keys[i] = bson.E{Key: k.Field, Value: core.Direction(k.Desc)}
 	}
-	keys := bson.D{}
-	for _, k := range spec.Keys {
-		dir := 1
-		if k.Desc {
-			dir = -1
-		}
-		keys = append(keys, bson.E{Key: k.Field, Value: dir})
-	}
-	opts := options.Index().SetName(spec.DisplayName())
+	name := core.IndexName(spec)
+	opts := options.Index().SetName(name)
 	if spec.Unique {
 		opts.SetUnique(true)
 	}
@@ -152,8 +161,7 @@ func ensureIndex(ctx context.Context, col *mongo.Collection, spec odm.IndexSpec)
 	_, err := col.Indexes().CreateOne(ctx, model)
 	var cmdErr mongo.CommandError
 	if errors.As(err, &cmdErr) && (cmdErr.Code == 85 || cmdErr.Code == 86) { // IndexOptionsConflict, IndexKeySpecsConflict
-		// The definition changed: replace the index.
-		if err := col.Indexes().DropOne(ctx, spec.DisplayName()); err != nil {
+		if err := col.Indexes().DropOne(ctx, name); err != nil {
 			return err
 		}
 		_, err = col.Indexes().CreateOne(ctx, model)
@@ -161,7 +169,10 @@ func ensureIndex(ctx context.Context, col *mongo.Collection, spec odm.IndexSpec)
 	return err
 }
 
-func termSearchIndexModel(spec odm.TermSearchIndexSpec) mongo.SearchIndexModel {
+func termSearchIndexModel(spec odm.TermSearchIndexSpec) (mongo.SearchIndexModel, error) {
+	if err := core.ValidateTermSearchIndex(spec); err != nil {
+		return mongo.SearchIndexModel{}, err
+	}
 	// Dotted paths become nested document mappings.
 	fields := bson.M{}
 	for _, path := range spec.Paths {
@@ -180,18 +191,18 @@ func termSearchIndexModel(spec odm.TermSearchIndexSpec) mongo.SearchIndexModel {
 	return mongo.SearchIndexModel{
 		Definition: bson.M{"mappings": bson.M{"dynamic": false, "fields": fields}},
 		Options:    options.SearchIndexes().SetName(spec.Name).SetType("search"),
-	}
+	}, nil
 }
 
 func vectorIndexModel(spec odm.VectorIndexSpec) (mongo.SearchIndexModel, error) {
-	if spec.Name == "" || spec.Path == "" || spec.Dimensions <= 0 {
-		return mongo.SearchIndexModel{}, fmt.Errorf("odm/mongodb: vector index %q needs a name, path and dimensions", spec.Name)
+	if err := core.ValidateVectorIndex(spec); err != nil {
+		return mongo.SearchIndexModel{}, err
 	}
 	vector := bson.D{
 		{Key: "type", Value: "vector"},
 		{Key: "path", Value: spec.Path},
 		{Key: "numDimensions", Value: spec.Dimensions},
-		{Key: "similarity", Value: string(spec.SimilarityOrDefault())},
+		{Key: "similarity", Value: string(core.Similarity(spec))},
 	}
 	if spec.Quantization != "" {
 		vector = append(vector, bson.E{Key: "quantization", Value: spec.Quantization})

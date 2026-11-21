@@ -1,37 +1,15 @@
 package postgres
 
 import (
-	"context"
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/SaiNageswarS/go-api-boot/odm"
-	"github.com/SaiNageswarS/go-collection-boot/async"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // Unit tests: no database needed.
-
-func TestPlaceholders(t *testing.T) {
-	cases := []struct{ in, out string }{
-		{"score > ?", "score > $3"},
-		{"a = ? AND b = ?", "a = $3 AND b = $4"},
-		{"meta ?? 'k' AND x = ?", "meta ? 'k' AND x = $3"},
-		{"name = 'what?' AND x = ?", "name = 'what?' AND x = $3"},
-		{`"odd?col" = ?`, `"odd?col" = $3`},
-		{"it''s = 'it''s?' AND x = ?", "it''s = 'it''s?' AND x = $3"},
-		{"x = ? -- why?\nAND y = ?", "x = $3 -- why?\nAND y = $4"},
-		{"x = ? /* ? */", "x = $3 /* ? */"},
-	}
-	for _, c := range cases {
-		assert.Equal(t, c.out, bindPlaceholders(c.in, 2), c.in)
-	}
-	assert.Equal(t, 2, countPlaceholders("a = ? AND b = ? AND c ?? 'k' AND d = '?'"))
-}
 
 type address struct {
 	City string `json:"city"`
@@ -77,7 +55,8 @@ func TestSchemaOf(t *testing.T) {
 		order = append(order, c.name)
 	}
 	assert.Equal(t, []string{"id", "created_on", "name", "user_id", "score", "rank", "tags", "address",
-		"previous", "nickname", "joined", "avatar", "embedding"}, order, "embedded fields flatten; db:\"-\" and unexported skip")
+		"previous", "nickname", "joined", "avatar", "embedding", "updated_on"}, order,
+		"embedded fields flatten; db:\"-\" and unexported skip; the unmapped timestamp comes last")
 	assert.Equal(t, map[string]string{
 		"id":         `"id" text PRIMARY KEY`,
 		"created_on": `"created_on" bigint NOT NULL DEFAULT 0`,
@@ -92,9 +71,10 @@ func TestSchemaOf(t *testing.T) {
 		"joined":     `"joined" timestamp with time zone NOT NULL DEFAULT '0001-01-01 00:00:00+00'`,
 		"avatar":     `"avatar" bytea NOT NULL DEFAULT '\x'`,
 		"embedding":  `"embedding" vector(3)`,
+		"updated_on": `"updated_on" bigint NOT NULL DEFAULT 0`,
 	}, got)
-	assert.NotNil(t, s.createdOn)
-	assert.Nil(t, s.updatedOn)
+	assert.Len(t, s.fields(), len(s.columns)-1, "updated_on has no field to read into")
+	assert.NotContains(t, s.selectList(), "updated_on")
 }
 
 func TestSnakeCase(t *testing.T) {
@@ -130,80 +110,21 @@ func (badVector) VectorIndexes() []odm.VectorIndexSpec {
 	return []odm.VectorIndexSpec{{Name: "v", Path: "e", Dimensions: 3}}
 }
 
+type stringStamp struct {
+	ID        string `db:"id"`
+	CreatedOn string `db:"created_on"`
+}
+
+func (stringStamp) Id() string             { return "" }
+func (stringStamp) CollectionName() string { return "x" }
+
 func TestSchemaErrors(t *testing.T) {
-	_, err := schemaOf[noID]()
+	_, err := schemaOf[stringStamp]()
+	assert.ErrorContains(t, err, `column "created_on" is stamped by Save and must be an int64 field`)
+	_, err = schemaOf[noID]()
 	assert.ErrorContains(t, err, `"id" column`)
 	_, err = schemaOf[twoNames]()
 	assert.ErrorContains(t, err, `two fields to column "name"`)
 	_, err = schemaOf[badVector]()
 	assert.ErrorContains(t, err, "needs a []float32 field")
-}
-
-func TestBuilderIsImmutable(t *testing.T) {
-	base := TableOf[profile](nil, "tenant").Where("score > ?", 1)
-	a := base.Where("name = ?", "a").OrderBy("score DESC").Limit(5)
-	b := base.Where("name = ?", "b")
-
-	qa, err := a.build("*")
-	require.NoError(t, err)
-	qb, err := b.build("*")
-	require.NoError(t, err)
-	assert.Equal(t, `SELECT * FROM "tenant"."profiles" WHERE (score > $1) AND (name = $2) ORDER BY score DESC LIMIT 5`, qa.sql)
-	assert.Equal(t, []any{1, "a"}, qa.args)
-	assert.Equal(t, `SELECT * FROM "tenant"."profiles" WHERE (score > $1) AND (name = $2)`, qb.sql)
-	assert.Equal(t, []any{1, "b"}, qb.args)
-}
-
-func TestBuilderErrors(t *testing.T) {
-	tbl := TableOf[profile](nil, "tenant")
-	_, err := tbl.Where("a = ? AND b = ?", 1).build("*")
-	assert.ErrorContains(t, err, "2 placeholders but 1 arguments")
-	_, err = tbl.Limit(-1).build("*")
-	assert.Error(t, err)
-	_, err = tbl.Offset(-1).build("*")
-	assert.Error(t, err)
-
-	_, err = async.Await(tbl.Delete(t.Context()))
-	assert.ErrorContains(t, err, "needs a Where")
-	_, err = async.Await(tbl.Where("true").Limit(1).Delete(t.Context()))
-	assert.ErrorContains(t, err, "doesn't take")
-	_, err = async.Await(tbl.Limit(3).VectorSearch(t.Context(), "byEmbedding", []float32{1, 2, 3}, 3))
-	assert.ErrorContains(t, err, "drop OrderBy, Limit and Offset")
-	_, err = async.Await(tbl.VectorSearch(t.Context(), "nope", []float32{1, 2, 3}, 3))
-	assert.ErrorContains(t, err, `no vector index "nope"`)
-	_, err = async.Await(tbl.VectorSearch(t.Context(), "byEmbedding", []float32{1, 2}, 3))
-	assert.ErrorContains(t, err, "dimensions")
-}
-
-/* ── a database without pg_search ── */
-
-type noPgSearchPool struct{ Pool }
-
-type boolRow bool
-
-func (r boolRow) Scan(dest ...any) error { *(dest[0].(*bool)) = bool(r); return nil }
-
-func (noPgSearchPool) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
-	return pgconn.CommandTag{}, errors.New(`extension "pg_search" is not available`)
-}
-func (noPgSearchPool) QueryRow(context.Context, string, ...any) pgx.Row { return boolRow(false) }
-
-type searchOnly struct {
-	ID   string `db:"id"`
-	Plot string `db:"plot"`
-}
-
-func (s searchOnly) Id() string           { return s.ID }
-func (searchOnly) CollectionName() string { return "movies" }
-func (searchOnly) TermSearchIndexes() []odm.TermSearchIndexSpec {
-	return []odm.TermSearchIndexSpec{{Name: "plotIndex", Paths: []string{"plot"}}}
-}
-
-func TestPgSearchRequired(t *testing.T) {
-	db := New(noPgSearchPool{})
-	err := EnsureCollection[searchOnly](t.Context(), db, "tenant")
-	assert.ErrorIs(t, err, ErrPgSearchNotInstalled)
-
-	_, err = async.Await(TableOf[searchOnly](db, "tenant").TermSearch(t.Context(), "plotIndex", "crew", 5))
-	assert.ErrorIs(t, err, ErrPgSearchNotInstalled)
 }

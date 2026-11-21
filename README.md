@@ -63,7 +63,7 @@ The result: you write business logic, not boilerplate.
 * **First‑class gRPC & gRPC‑Web** – serve browsers natively without Envoy.
 * **MongoDB ODM and Postgres ORM** – type‑safe, multi-tenant and async, each native to its database: `mongodb.CollectionOf[T](client, tenant).Find(ctx, bson.M{...})` and `postgres.TableOf[T](db, tenant).Where("score > ?", 89).Find(ctx)`.
 * **Vector & Text Search** – Atlas Vector Search and Atlas Search on MongoDB; pgvector and ParadeDB (BM25) on Postgres.
-* **Index Management** – declare indexes on the model; `EnsureCollection[T]` creates (and on Postgres reconciles) them.
+* **Index Management** – declare indexes on the model; `mongodb.EnsureCollection[T]` / `postgres.EnsureTable[T]` create (and on Postgres reconcile) them.
 * **JWT Auth & Middleware Stack** – observability, logging, panic recovery pre‑wired.
 * **Cloud Providers** – interchangeable Azure / GCP helpers for storage & secrets.
 * **Zero‑Config SSL** – automatic Let’s Encrypt certificates with exponential back‑off and optional cloud-backed cache (SslCloudCache) for stateless containers.
@@ -243,7 +243,7 @@ Two multi-tenant data backends, each with an API native to its database: MongoDB
 
 | Package | Purpose |
 |---|---|
-| `odm` | shared: `Model`, index specs, `SearchHit`, errors |
+| `odm` | shared: `Model`, `Timestamps`, index specs, `SearchHit`, errors |
 | `odm/mongodb` | MongoDB / Atlas: filter documents (`bson.M`), aggregation, Atlas Search, Atlas Vector Search |
 | `odm/postgres` | Postgres: typed tables, SQL conditions, pgvector, ParadeDB BM25 search |
 
@@ -252,9 +252,9 @@ Every IO method is asynchronous and returns a channel with an `async.Result`, so
 Both backends share:
 
 * **Models:** a struct with `Id()` and `CollectionName()` (the collection or table name).
-* **`EnsureCollection[T]`:** creates the collection or table and its declared indexes. Schema changes are a deployment step (startup, migration, tenant onboarding), never a side effect of runtime calls.
-* **`Save`:** an upsert by `Id()` that stamps creation and update times (set the clock with `WithTimer`).
-* **Errors:** `odm.ErrNotFound`, `odm.ErrDuplicateKey` (unique index), and `errors.ErrUnsupported` for index features a backend lacks.
+* **Schema setup:** `mongodb.EnsureCollection[T]` and `postgres.EnsureTable[T]` create the collection or table and its declared indexes. Schema changes are a deployment step (startup, migration, tenant onboarding), never a side effect of runtime calls.
+* **`Save`:** an upsert by `Id()` that always stamps creation and update times, in Unix seconds (set the clock with `WithTimer`). Embed `odm.Timestamps` to read them; add `bson:",inline"` on MongoDB.
+* **Errors:** read `odm/<backend>: <operation> <tenant>.<name>: <cause>` and wrap the cause, so `errors.Is` matches `odm.ErrNotFound`, `odm.ErrDuplicateKey` (unique index), `errors.ErrUnsupported` (index features a backend lacks) and driver errors.
 * **Helpers:** `HashedKey` derives ids from data fields; `NewModelFrom[T]` copies a proto into a model.
 
 #### Indexes
@@ -280,6 +280,7 @@ Keys and paths name fields on MongoDB and columns on Postgres. Search scores are
 
 ```go
 type Movie struct {
+    odm.Timestamps `bson:",inline"` // createdOn, updatedOn
     ID     string   `bson:"_id"`
     Title  string   `bson:"title"`
     Year   int      `bson:"year"`
@@ -306,7 +307,7 @@ hits, err = async.Await(movies.TermSearch(ctx, "space crew", mongodb.TermSearchP
 ```
 
 * **Tenants:** a tenant is a database.
-* **Save:** top-level fields replace the stored ones, and fields absent from the model are kept. It stamps `createdOn` on insert and `updatedOn` on every save, atomically.
+* **Save:** top-level fields replace the stored ones, and fields absent from the model are kept. It stamps `createdOn` on insert and `updatedOn` on every save, atomically, whether or not the model has those fields.
 * **Raw access:** `Aggregate(ctx, mongo.Pipeline)` runs a pipeline, and `Raw()` returns the driver collection.
 * **Search:** needs Atlas, or the local Atlas image (`mongodb/mongodb-atlas-local`). Atlas builds search indexes asynchronously; `mongodb.WaitForSearchIndexes[T]` waits until they serve queries. `VectorIndexSpec.FilterPaths` declares the fields a vector search may pre-filter on.
 * **Index changes:** `EnsureCollection` recreates regular indexes whose definition changed, and creates missing search indexes. To change a search index, give it a new name.
@@ -322,13 +323,13 @@ type Profile struct {
     Tags      []string  `db:"tags"`      // text[]
     Address   Address   `db:"address"`   // jsonb
     Embedding []float32 `db:"embedding"` // vector(N), from its VectorIndexSpec
-    UpdatedOn int64     `db:"updated_on"`
+    odm.Timestamps                        // created_on, updated_on
 }
 func (p Profile) Id() string             { return p.ID }
 func (p Profile) CollectionName() string { return "profiles" }
 
 db, err := postgres.Open(ctx, os.Getenv("POSTGRES_URI"))
-err = postgres.EnsureCollection[Profile](ctx, db, tenant)
+err = postgres.EnsureTable[Profile](ctx, db, tenant)
 profiles := postgres.TableOf[Profile](db, tenant)
 
 top, err := async.Await(profiles.
@@ -350,14 +351,16 @@ hits, err := async.Await(profiles.Where("city = ?", city).VectorSearch(ctx, "byE
   * `Where`, `OrderBy`, `Limit` and `Offset` build an immutable query, so a base query can be shared and extended. `Find`, `First`, `Count`, `Exists`, `Delete`, `VectorSearch` and `TermSearch` run it.
   * Conditions are SQL with `?` placeholders bound to arguments; write `??` for a literal `?` (the jsonb key operator). Pass a slice to match a list: `Where("city = ANY(?)", cities)`.
   * The SQL in `Where` and `OrderBy` runs as written, so it must come from your code; pass user values as arguments.
-* **Save:** replaces the row with the same `Id()`, and stamps int64 `created_on` (on insert) and `updated_on` columns if the model has them.
-* **EnsureCollection:**
+* **Save:** one `INSERT … ON CONFLICT (id) DO UPDATE` statement: it replaces the row with the same `Id()`, sets `created_on` on insert and `updated_on` on every save.
+* **Timestamps:** every table has bigint `created_on` and `updated_on` columns, even when the model doesn't map them, so `Where("updated_on > ?", t)` always works.
+* **EnsureTable:**
   * Creates the table, and adds the columns of new fields.
   * Refuses to change an existing column's type, since that needs a data migration.
   * Reconciles indexes: their names carry a hash of the definition, so a changed definition replaces the old index, and indexes no longer declared are dropped (only ones it created).
-* **Missing tables:** reads of a table that doesn't exist find nothing; writes to it fail with a hint to run `EnsureCollection`.
+* **Missing tables:** reads of a table that doesn't exist find nothing; writes to it fail with a hint to run `EnsureTable`.
 * **Vector search:** uses [pgvector](https://github.com/pgvector/pgvector) HNSW (`halfvec` for scalar quantization or more than 2000 dimensions). Rows without an embedding aren't searched. With `Where` conditions, it scans the index iteratively (pgvector 0.8+) so it still returns k rows.
-* **Text search:** needs [ParadeDB](https://www.paradedb.com/docs)'s `pg_search`. Run the `paradedb/paradedb` image (it includes pgvector), or install `pg_search` with `shared_preload_libraries`. Without it, `EnsureCollection` and `TermSearch` return `postgres.ErrPgSearchNotInstalled`. One ParadeDB index per table covers every searched text column, and words are stemmed in English by default (`postgres.WithStemmer`).
+* **Text search:** needs [ParadeDB](https://www.paradedb.com/docs)'s `pg_search`. Run the `paradedb/paradedb` image (it includes pgvector), or install `pg_search` with `shared_preload_libraries`. Without it, `EnsureTable` and `TermSearch` return `postgres.ErrPgSearchNotInstalled`. One ParadeDB index per table covers every searched text column, and words are stemmed in English by default (`postgres.WithStemmer`).
+* **Raw access:** `db.Pool()` returns the `*pgxpool.Pool`, for extensions, migrations and SQL the ORM doesn't cover.
 * **Unsupported:** `TTL` indexes.
 
 ---

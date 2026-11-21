@@ -3,14 +3,11 @@ package odm
 import "errors"
 
 var (
-	// ErrNotFound is returned by FindByID, FindOne and First when nothing
-	// matches.
-	ErrNotFound = errors.New("odm: document not found")
+	// ErrNotFound is returned (wrapped) by the backends' single-document
+	// reads, such as FindByID, when nothing matches.
+	ErrNotFound = errors.New("document not found")
 
 	// ErrDuplicateKey is returned (wrapped) by Save when a unique index rejects
 	// the document.
-	ErrDuplicateKey = errors.New("odm: duplicate key")
+	ErrDuplicateKey = errors.New("duplicate key")
 )
-
-// Index features a backend doesn't support return errors wrapping
-// errors.ErrUnsupported.

@@ -1,22 +1,7 @@
-// Package odm holds what go-api-boot's two data backends share: the Model
-// contract, index declarations, search hits and errors.
-//
-// Each backend has its own API, native to its database:
-//
-//   - odm/mongodb: collections queried with MongoDB filter documents (bson.M),
-//     with Atlas Search and Vector Search;
-//   - odm/postgres: typed tables queried with SQL conditions, with pgvector
-//     and ParadeDB search.
-//
-// Every IO method in both returns a channel carrying an async.Result, so
-// independent queries run concurrently:
-//
-//	movie, err := async.Await(movies.FindByID(ctx, id))
 package odm
 
 import (
 	"encoding/hex"
-	"errors"
 	"strings"
 	"time"
 
@@ -24,7 +9,8 @@ import (
 	"golang.org/x/crypto/blake2s"
 )
 
-// Model is a document type stored in a collection.
+// Model is a document type stored in a collection (MongoDB) or table
+// (Postgres).
 //
 // Implement both methods on the value receiver: collections are created from
 // the zero value of T.
@@ -36,6 +22,33 @@ type Model interface {
 	// CollectionName names the MongoDB collection or Postgres table.
 	CollectionName() string
 }
+
+// Timestamps are the creation and last-save times, in Unix seconds, that Save
+// writes on both backends. Save always writes them, whether or not the model
+// embeds Timestamps, and ignores the values the model carries: CreatedOn is
+// set on the first save and kept, UpdatedOn is set on every save.
+//
+// Embed Timestamps to read them back. MongoDB needs the inline tag:
+//
+//	type Profile struct {
+//	    odm.Timestamps `bson:",inline"`
+//	    ID   string    `bson:"_id" db:"id"`
+//	    Name string    `bson:"name"`
+//	}
+type Timestamps struct {
+	CreatedOn int64 `bson:"createdOn" db:"created_on" json:"createdOn"`
+	UpdatedOn int64 `bson:"updatedOn" db:"updated_on" json:"updatedOn"`
+}
+
+// Timer supplies Timestamps, in Unix seconds.
+type Timer interface {
+	Now() int64
+}
+
+// SystemTimer is the wall-clock Timer.
+type SystemTimer struct{}
+
+func (SystemTimer) Now() int64 { return time.Now().Unix() }
 
 // NewModelFrom copies matching fields from src (typically a protobuf message)
 // into a new T.
@@ -60,21 +73,3 @@ func HashedKey(fields ...string) (string, error) {
 	}
 	return hex.EncodeToString(h.Sum(nil))[:12], nil
 }
-
-// CheckID rejects empty ids, which would silently share one document.
-func CheckID(id string) error {
-	if id == "" {
-		return errors.New("odm: model Id() must not be empty")
-	}
-	return nil
-}
-
-// Timer supplies the createdOn / updatedOn timestamps, in Unix seconds.
-type Timer interface {
-	Now() int64
-}
-
-// SystemTimer is the wall-clock Timer.
-type SystemTimer struct{}
-
-func (SystemTimer) Now() int64 { return time.Now().Unix() }

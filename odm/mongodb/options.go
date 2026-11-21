@@ -1,13 +1,12 @@
 package mongodb
 
 import (
-	"context"
 	"errors"
 	"fmt"
 
-	"github.com/SaiNageswarS/go-api-boot/odm"
-	"github.com/SaiNageswarS/go-collection-boot/async"
+	"github.com/SaiNageswarS/go-api-boot/odm/internal/core"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 // SortField orders results by one field.
@@ -47,69 +46,39 @@ func resolveFindOptions(opts ...FindOption) (findOptions, error) {
 		opt(&o)
 	}
 	if o.limit < 0 || o.skip < 0 {
-		return o, fmt.Errorf("odm/mongodb: limit and skip must not be negative (limit %d, skip %d)", o.limit, o.skip)
+		return o, fmt.Errorf("limit and skip must not be negative (limit %d, skip %d)", o.limit, o.skip)
 	}
 	for _, s := range o.sort {
 		if s.Field == "" {
-			return o, errors.New("odm/mongodb: sort field must not be empty")
+			return o, errors.New("sort field must not be empty")
 		}
 	}
 	return o, nil
 }
 
-// VectorSearchParams configures VectorSearch.
-type VectorSearchParams struct {
-	IndexName     string // a VectorIndexSpec of the model
-	K             int    // number of nearest neighbours to return
-	NumCandidates int    // approximate candidates to consider; 0 picks a default
-	Filter        bson.M // optional pre-filter on the index's FilterPaths
-}
-
-func (p VectorSearchParams) validate(embedding []float32) error {
-	if len(embedding) == 0 || p.IndexName == "" || p.K <= 0 {
-		return errors.New("odm/mongodb: VectorSearch needs an embedding, an index name and K > 0")
+func (o findOptions) driverOptions() *options.FindOptionsBuilder {
+	opts := options.Find().SetSkip(o.skip)
+	if o.limit > 0 {
+		opts.SetLimit(o.limit)
 	}
-	if p.NumCandidates < 0 {
-		return errors.New("odm/mongodb: VectorSearch NumCandidates must not be negative")
+	if len(o.sort) > 0 {
+		opts.SetSort(sortDoc(o.sort))
 	}
-	return nil
+	return opts
 }
 
-// TermSearchParams configures TermSearch.
-type TermSearchParams struct {
-	IndexName string // a TermSearchIndexSpec of the model
-	Limit     int    // number of results to return
-	Filter    bson.M // optional filter
-}
-
-func (p TermSearchParams) validate(query string) error {
-	if query == "" || p.IndexName == "" || p.Limit <= 0 {
-		return errors.New("odm/mongodb: TermSearch needs a query, an index name and Limit > 0")
+func sortDoc(fields []SortField) bson.D {
+	d := make(bson.D, len(fields))
+	for i, f := range fields {
+		d[i] = bson.E{Key: f.Field, Value: core.Direction(f.Desc)}
 	}
-	return nil
+	return d
 }
 
-// DistinctAs is Distinct with values decoded into V, e.g.
-// mongodb.DistinctAs[string](ctx, movies, "genres", nil).
-func DistinctAs[V any, T odm.Model](ctx context.Context, c Collection[T], field string, filter bson.M) <-chan async.Result[[]V] {
-	return async.Go(func() ([]V, error) {
-		values, err := async.Await(c.Distinct(ctx, field, filter))
-		if err != nil {
-			return nil, err
-		}
-		raw, err := bson.Marshal(bson.D{{Key: "v", Value: bson.A(values)}})
-		if err != nil {
-			return nil, err
-		}
-		var out struct {
-			V []V `bson:"v"`
-		}
-		if err := bson.Unmarshal(raw, &out); err != nil {
-			return nil, fmt.Errorf("odm/mongodb: decoding distinct values of %s: %w", field, err)
-		}
-		if out.V == nil {
-			out.V = []V{}
-		}
-		return out.V, nil
-	})
+// filterDoc is filter, or the match-everything document for nil.
+func filterDoc(filter bson.M) bson.M {
+	if filter == nil {
+		return bson.M{}
+	}
+	return filter
 }

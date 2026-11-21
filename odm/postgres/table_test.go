@@ -30,12 +30,6 @@ type person struct {
 	Name string `json:"name"`
 }
 
-// stamps is embedded (and unexported) to check that its fields flatten.
-type stamps struct {
-	CreatedOn int64 `db:"created_on"`
-	UpdatedOn int64 `db:"updated_on"`
-}
-
 type movie struct {
 	ID        string    `db:"id"`
 	Title     string    `db:"title"`
@@ -47,7 +41,7 @@ type movie struct {
 	Released  time.Time `db:"released"`
 	Note      *string   `db:"note"`
 	Embedding []float32 `db:"embedding"`
-	stamps
+	odm.Timestamps
 }
 
 func (m movie) Id() string             { return m.ID }
@@ -114,8 +108,8 @@ func seed(t *testing.T, db *DB) (Table[movie], string) {
 	ctx := t.Context()
 	tenant := testTenant(strings.ToLower(strings.NewReplacer("/", "_", " ", "_").Replace(t.Name()))[:min(20, len(t.Name()))])
 	t.Cleanup(func() { dropSchema(db, tenant) })
-	require.NoError(t, EnsureCollection[movie](ctx, db, tenant))
-	require.NoError(t, EnsureCollection[movie](ctx, db, tenant), "EnsureCollection is idempotent")
+	require.NoError(t, EnsureTable[movie](ctx, db, tenant))
+	require.NoError(t, EnsureTable[movie](ctx, db, tenant), "EnsureTable is idempotent")
 	movies := TableOf[movie](db, tenant)
 	for _, m := range fixtures() {
 		_, err := async.Await(movies.Save(ctx, m))
@@ -176,7 +170,7 @@ func TestQueries(t *testing.T) {
 		want := fixtures()[0]
 		assert.True(t, want.Released.Equal(m.Released))
 		m.Released, want.Released = time.Time{}, time.Time{}
-		m.stamps = stamps{}
+		m.Timestamps = odm.Timestamps{}
 		assert.Equal(t, want, *m)
 	})
 
@@ -222,7 +216,7 @@ func TestSave(t *testing.T) {
 
 	m, err := async.Await(movies.FindByID(ctx, "m1"))
 	require.NoError(t, err)
-	assert.Equal(t, stamps{CreatedOn: 100, UpdatedOn: 100}, m.stamps)
+	assert.Equal(t, odm.Timestamps{CreatedOn: 100, UpdatedOn: 100}, m.Timestamps)
 
 	note := "classic"
 	changed := fixtures()[0]
@@ -238,7 +232,7 @@ func TestSave(t *testing.T) {
 	assert.Equal(t, 9.0, m.Rating)
 	assert.Nil(t, m.Cast, "a nil jsonb value round-trips")
 	assert.Nil(t, m.Embedding, "no embedding is NULL")
-	assert.Equal(t, stamps{CreatedOn: 100, UpdatedOn: 200}, m.stamps, "created_on is kept")
+	assert.Equal(t, odm.Timestamps{CreatedOn: 100, UpdatedOn: 200}, m.Timestamps, "created_on is kept")
 
 	t.Run("errors", func(t *testing.T) {
 		_, err := async.Await(movies.Save(ctx, movie{Title: "No id"}))
@@ -265,6 +259,45 @@ func TestSave(t *testing.T) {
 	})
 }
 
+// note has no timestamp fields; its table still has the columns.
+type note struct {
+	ID   string `db:"id"`
+	Text string `db:"text"`
+}
+
+func (n note) Id() string           { return n.ID }
+func (note) CollectionName() string { return "notes" }
+
+func TestTimestampsWithoutFields(t *testing.T) {
+	clk := &clock{}
+	db := openTestDB(t, WithTimer(clk))
+	ctx := t.Context()
+	tenant := testTenant("stamps")
+	t.Cleanup(func() { dropSchema(db, tenant) })
+	require.NoError(t, EnsureTable[note](ctx, db, tenant))
+	notes := TableOf[note](db, tenant)
+
+	clk.Set(100)
+	_, err := async.Await(notes.Save(ctx, note{ID: "a", Text: "first"}))
+	require.NoError(t, err)
+	clk.Set(200)
+	_, err = async.Await(notes.Save(ctx, note{ID: "a", Text: "second"}))
+	require.NoError(t, err)
+
+	var created, updated int64
+	require.NoError(t, db.pool.QueryRow(ctx, "SELECT created_on, updated_on FROM "+pgx.Identifier{tenant, "notes"}.Sanitize()).
+		Scan(&created, &updated))
+	assert.Equal(t, int64(100), created)
+	assert.Equal(t, int64(200), updated)
+
+	n, err := async.Await(notes.Where("updated_on > ?", 150).Count(ctx))
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), n, "the columns can be queried")
+	m, err := async.Await(notes.FindByID(ctx, "a"))
+	require.NoError(t, err)
+	assert.Equal(t, "second", m.Text)
+}
+
 func TestMissingTable(t *testing.T) {
 	db := openTestDB(t)
 	ctx := t.Context()
@@ -281,7 +314,7 @@ func TestMissingTable(t *testing.T) {
 	assert.False(t, ok)
 
 	_, err = async.Await(missing.Save(ctx, fixtures()[0]))
-	assert.ErrorContains(t, err, "EnsureCollection")
+	assert.ErrorContains(t, err, "EnsureTable")
 }
 
 func TestVectorSearch(t *testing.T) {
@@ -335,8 +368,6 @@ func TestTermSearch(t *testing.T) {
 	assert.ErrorContains(t, err, "no term search index")
 }
 
-/* ── EnsureCollection ── */
-
 // movieV2 changes the schema: a new column, different indexes.
 type movieV2 struct {
 	movie
@@ -366,14 +397,14 @@ func managedIndexes(t *testing.T, db *DB, tenant string) []string {
 	return defs
 }
 
-func TestEnsureCollectionMigrates(t *testing.T) {
+func TestEnsureTableMigrates(t *testing.T) {
 	db := openTestDB(t)
 	ctx := t.Context()
 	_, tenant := seed(t, db)
 	before := managedIndexes(t, db, tenant)
 	require.Len(t, before, 4, "title, byYear, embedding, search")
 
-	require.NoError(t, EnsureCollection[movieV2](ctx, db, tenant))
+	require.NoError(t, EnsureTable[movieV2](ctx, db, tenant))
 	after := strings.Join(managedIndexes(t, db, tenant), "\n")
 	assert.NotContains(t, after, "UNIQUE")
 	assert.Contains(t, after, "vector_l2_ops")
@@ -398,7 +429,7 @@ func TestEnsureCollectionMigrates(t *testing.T) {
 	// Back to the original model: the same index names as before.
 	_, err = async.Await(v2.DeleteByID(ctx, "dup"))
 	require.NoError(t, err)
-	require.NoError(t, EnsureCollection[movie](ctx, db, tenant))
+	require.NoError(t, EnsureTable[movie](ctx, db, tenant))
 	assert.Equal(t, before, managedIndexes(t, db, tenant))
 }
 
@@ -411,10 +442,10 @@ type movieYearText struct {
 func (m movieYearText) Id() string           { return m.ID }
 func (movieYearText) CollectionName() string { return "movies" }
 
-func TestEnsureCollectionRejectsTypeChanges(t *testing.T) {
+func TestEnsureTableRejectsTypeChanges(t *testing.T) {
 	db := openTestDB(t)
 	_, tenant := seed(t, db)
-	err := EnsureCollection[movieYearText](t.Context(), db, tenant)
+	err := EnsureTable[movieYearText](t.Context(), db, tenant)
 	assert.ErrorContains(t, err, "column movies.year is bigint but the model needs text")
 }
 
@@ -429,8 +460,8 @@ func (ttlModel) Indexes() []odm.IndexSpec {
 	return []odm.IndexSpec{{Keys: []odm.IndexKey{odm.Key("created_on")}, TTL: time.Hour}}
 }
 
-func TestEnsureCollectionRejects(t *testing.T) {
+func TestEnsureTableRejects(t *testing.T) {
 	db := openTestDB(t)
-	err := EnsureCollection[ttlModel](t.Context(), db, testTenant("ttl"))
+	err := EnsureTable[ttlModel](t.Context(), db, testTenant("ttl"))
 	assert.ErrorIs(t, err, errors.ErrUnsupported)
 }

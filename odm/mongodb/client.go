@@ -1,16 +1,9 @@
-// Package mongodb is the MongoDB backend of odm.
-//
-//	client, err := mongodb.Connect(ctx, os.Getenv("MONGO_URI"))
-//	err = mongodb.EnsureCollection[Movie](ctx, client, tenant) // at deploy / startup
-//	movies := mongodb.CollectionOf[Movie](client, tenant)
-//	movie, err := async.Await(movies.FindByID(ctx, id))
-//
-// A tenant maps to a MongoDB database.
 package mongodb
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"time"
 
@@ -28,24 +21,24 @@ type Client struct {
 // Option configures a Client.
 type Option func(*Client)
 
-// WithTimer sets the clock used for createdOn / updatedOn.
+// WithTimer sets the clock Save stamps createdOn and updatedOn from.
 func WithTimer(t odm.Timer) Option { return func(c *Client) { c.timer = t } }
 
 // Connect connects to uri and pings the server.
 func Connect(ctx context.Context, uri string, opts ...Option) (*Client, error) {
 	if uri == "" {
-		return nil, errors.New("odm/mongodb: empty connection uri")
+		return nil, errors.New("odm/mongodb: Connect: empty connection uri")
 	}
 	mc, err := mongo.Connect(options.Client().ApplyURI(uri))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("odm/mongodb: Connect: %w", err)
 	}
 
 	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := mc.Ping(pingCtx, nil); err != nil {
 		_ = mc.Disconnect(context.Background())
-		return nil, err
+		return nil, fmt.Errorf("odm/mongodb: Connect: %w", err)
 	}
 	return New(mc, opts...), nil
 }
